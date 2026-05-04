@@ -124,15 +124,22 @@ function isHtmlResponse(txt: string): boolean {
   return /<html|<!doctype html|sign in|google sheets/i.test(txt)
 }
 
-function calcCond(row: DataRow | RowLista): CondClass {
-  const v = parseNumberBR(row['Estoque Atual']) // V
-  const r = parseNumberBR(row['Estoque Ideal Mínimo']) // R
-  const s = parseNumberBR(row['Estoque Ideal Máximo']) // S
-  const t = parseNumberBR(row['Estoque Ideal Médio']) // T
-  if (v > r) return 'Excedido'
-  if (v >= s) return 'Verde'
-  if (v >= t) return 'Amarelo'
-  if (v < t) return 'Vermelho'
+/** Status do semáforo a partir da coluna «Para condicional» da planilha (não recalculado na app). */
+function paraCondicionalStatus(row: DataRow | RowLista): CondClass {
+  const key = normalize(String(row['Para condicional'] ?? ''))
+  const map: Record<string, CondClass> = {
+    excedido: 'Excedido',
+    verde: 'Verde',
+    amarelo: 'Amarelo',
+    vermelho: 'Vermelho',
+    analisar: 'Analisar',
+  }
+  if (map[key]) return map[key]
+  if (key.includes('exced')) return 'Excedido'
+  if (key.includes('vermelh')) return 'Vermelho'
+  if (key.includes('amarel')) return 'Amarelo'
+  if (key.includes('verde')) return 'Verde'
+  if (key.includes('analis')) return 'Analisar'
   return 'Analisar'
 }
 
@@ -146,7 +153,7 @@ function diasEstoqueAtualCobertura(r: RowLista): number {
 
 function itensAmareloOuVermelho(rows: RowLista[]): RowLista[] {
   return rows.filter((r) => {
-    const c = calcCond(r)
+    const c = paraCondicionalStatus(r)
     return c === 'Amarelo' || c === 'Vermelho'
   })
 }
@@ -163,7 +170,7 @@ function exportarAlertasParaExcel(lista: RowLista[], filtro: FiltroPainelAlerta)
     DESCRIÇÃO: r.descricao || '',
     'Estoque Ideal Máximo': r['Estoque Ideal Máximo'] ?? '',
     'Estoque Atual': r['Estoque Atual'] ?? '',
-    Status: calcCond(r),
+    Status: String(r['Para condicional'] ?? '').trim() || paraCondicionalStatus(r),
   }))
   const ws = XLSX.utils.json_to_sheet(data)
   const wb = XLSX.utils.book_new()
@@ -183,7 +190,6 @@ function exportarListaItensParaExcel(lista: RowLista[], slugSuffix: string) {
     COLUNAS.forEach((c) => {
       row[c] = String(r[c] ?? '').trim()
     })
-    row['Resultado condicional'] = calcCond(r)
     return row
   })
   const ws = XLSX.utils.json_to_sheet(data)
@@ -336,7 +342,7 @@ function ComboEstoqueIdealChart({
   return (
     <ComparativoLinhasSvgChart
       title="Comparativo de estoque ideal (linhas)"
-      subtitle="Três patamares de referência (máximo, médio e mínimo ideais) vindos da planilha. O resultado condicional da tabela compara o estoque atual a estes valores e às regras do semáforo."
+      subtitle="Três patamares de referência (máximo, médio e mínimo ideais) vindos da planilha. O status na lista e no semáforo segue a coluna «Para condicional» exportada da planilha."
       xLabels={labels}
       series={series}
       yFormat={formatLineTooltipNumber}
@@ -381,7 +387,7 @@ function ComboDiasEstoqueChart({
   )
 }
 
-/** Linhas por status (mesma regra condicional), pontos com cores semaforicas — SVG como temperatura. */
+/** Contagem por status conforme a coluna «Para condicional» da planilha. */
 function SemaforoLinhasChart({
   rows,
   onCondClick,
@@ -392,7 +398,7 @@ function SemaforoLinhasChart({
   const counts = useMemo(() => {
     const out: Record<CondClass, number> = { Excedido: 0, Verde: 0, Amarelo: 0, Vermelho: 0, Analisar: 0 }
     rows.forEach((r) => {
-      out[calcCond(r)] += 1
+      out[paraCondicionalStatus(r)] += 1
     })
     return out
   }, [rows])
@@ -410,7 +416,7 @@ function SemaforoLinhasChart({
   return (
     <ComparativoLinhasSvgChart
       title="Semaforo — quantidade por status (linhas)"
-      subtitle="Eixo horizontal: cada status do condicional. Altura = quantidade de itens naquele status (contagem da lista filtrada). Cores seguem o semáforo. Clique num status para filtrar tabela e demais gráficos."
+      subtitle="Eixo horizontal: cada valor de «Para condicional» agrupado. Altura = quantidade de itens naquele status (planilha). Cores seguem o semáforo. Clique num status para filtrar tabela e demais gráficos."
       xLabels={[...CONDICIONAL_LABELS]}
       series={series}
       hideLegend
@@ -506,7 +512,7 @@ export default function EstoqueSeguranca() {
     if (filtroGlobal.kind === 'sku') {
       return rows.filter((r) => labelForRow(r, rows) === filtroGlobal.label)
     }
-    return rows.filter((r) => calcCond(r) === filtroGlobal.cond)
+    return rows.filter((r) => paraCondicionalStatus(r) === filtroGlobal.cond)
   }, [rows, filtroGlobal])
 
   const labelsSkuGraficos = useMemo(
@@ -540,7 +546,7 @@ export default function EstoqueSeguranca() {
 
   const alertasPainelLista = useMemo(() => {
     if (filtroPainelAlerta === 'todos') return alertasAmareloVermelho
-    return alertasAmareloVermelho.filter((r) => calcCond(r) === filtroPainelAlerta)
+    return alertasAmareloVermelho.filter((r) => paraCondicionalStatus(r) === filtroPainelAlerta)
   }, [alertasAmareloVermelho, filtroPainelAlerta])
 
   /** Aviso automático único por dia, na primeira carga com dados após atualização da planilha. */
@@ -708,12 +714,12 @@ export default function EstoqueSeguranca() {
                         <th style={{ ...th, position: 'sticky', top: 0, zIndex: 1, minWidth: 160 }}>DESCRIÇÃO</th>
                         <th style={{ ...th, position: 'sticky', top: 0, zIndex: 1 }}>Estoque Ideal Máximo</th>
                         <th style={{ ...th, position: 'sticky', top: 0, zIndex: 1 }}>Estoque Atual</th>
-                        <th style={{ ...th, position: 'sticky', top: 0, zIndex: 1 }}>Status</th>
+                        <th style={{ ...th, position: 'sticky', top: 0, zIndex: 1 }}>Para condicional</th>
                       </tr>
                     </thead>
                     <tbody>
                       {alertasPainelLista.map((r, i) => {
-                        const st = calcCond(r)
+                        const st = paraCondicionalStatus(r)
                         const cor =
                           st === 'Amarelo'
                             ? { bg: 'rgba(234, 179, 8, 0.2)', fg: '#eab308' }
@@ -724,7 +730,9 @@ export default function EstoqueSeguranca() {
                             <td style={{ ...td, whiteSpace: 'normal', wordBreak: 'break-word' }}>{r.descricao || '-'}</td>
                             <td style={td}>{r['Estoque Ideal Máximo'] || '-'}</td>
                             <td style={td}>{r['Estoque Atual'] || '-'}</td>
-                            <td style={{ ...td, fontWeight: 700, color: cor.fg }}>{st}</td>
+                            <td style={{ ...td, fontWeight: 700, color: cor.fg }}>
+                              {String(r['Para condicional'] ?? '').trim() || st}
+                            </td>
                           </tr>
                         )
                       })}
@@ -901,12 +909,11 @@ export default function EstoqueSeguranca() {
                       {h}
                     </th>
                   ))}
-                  <th style={th}>Resultado condicional</th>
                 </tr>
               </thead>
               <tbody>
                 {rowsPagina.map((r, i) => {
-                  const cond = calcCond(r)
+                  const cond = paraCondicionalStatus(r)
                   const bgStatus =
                     cond === 'Excedido'
                       ? '#3b0764'
@@ -933,12 +940,21 @@ export default function EstoqueSeguranca() {
                       <td style={{ ...td, maxWidth: 360, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                         {r.descricao || '-'}
                       </td>
-                      {COLUNAS.map((h) => (
-                        <td key={`${i}-${h}`} style={td}>
-                          {r[h] || '-'}
-                        </td>
-                      ))}
-                      <td style={{ ...td, fontWeight: 700, background: bgStatus }}>{cond}</td>
+                      {COLUNAS.map((h) => {
+                        const isPara = h === 'Para condicional'
+                        return (
+                          <td
+                            key={`${i}-${h}`}
+                            style={
+                              isPara
+                                ? { ...td, fontWeight: 700, background: bgStatus, color: '#f8fafc' }
+                                : td
+                            }
+                          >
+                            {r[h] || '-'}
+                          </td>
+                        )
+                      })}
                     </tr>
                   )
                 })}
