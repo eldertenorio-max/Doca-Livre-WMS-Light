@@ -27,7 +27,6 @@ import {
   inventarioCamaraLabelFromGrupo,
   INVENTARIO_ARMAZEM_GRUPO_IDS,
   INVENTARIO_ARMAZEM_NUM_GRUPOS,
-  INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA,
 } from '../components/inventario/inventarioPlanilhaModel'
 import {
   compareInventarioPlanilhaItens,
@@ -88,11 +87,6 @@ const PREVIEW_COLS_PLANILHA_BASE = 5
 const CHECKLIST_PAGE_SIZE = 15
 /** Linhas por página na tabela “Inventário — formato planilha” (cada aba pode ter centenas de linhas). */
 const PLANILHA_TABELA_PAGE_SIZE = 30
-/** Código(s) removidos apenas da 3ª repetição da lista de inventário. */
-const INVENTARIO_EXCLUIR_DA_3A_CONTAGEM = new Set([
-  normalizeCodigoInternoCompareKey('01.04.0028'),
-  normalizeCodigoInternoCompareKey('02.02.0031'),
-])
 /** Código(s) removidos da lista de contagem diária. */
 const CONTAGEM_DIARIA_EXCLUIR_DA_LISTA = new Set([
   normalizeCodigoInternoCompareKey('01.04.0028'),
@@ -2171,61 +2165,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
       }
 
-      if (listModeEfetivo === 'planilha' && inventario) {
-        setArmazemMissingCodes([])
-        const LINHAS_POR_ABA = INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA
-        const items: OfflineChecklistItem[] = []
-        let seq = 0
-        for (const g of INVENTARIO_ARMAZEM_GRUPO_IDS) {
-          for (let i = 0; i < LINHAS_POR_ABA; i++) {
-            items.push({
-              key: `pl-${g}-${i}-${seq++}`,
-              codigo_interno: '',
-              descricao: '',
-              armazem_grupo: g,
-              planilha_ordem_na_aba: i,
-              quantidade_contada: '',
-              foto_base64: '',
-              up_quantidade: '',
-              lote: '',
-              observacao: '',
-              data_fabricacao: '',
-              data_validade: '',
-              unidade_medida: null,
-              ean: null,
-              dun: null,
-              inventario_repeticao: undefined,
-              quantidade_local_dirty: false,
-            })
-          }
-        }
-        const sessionStartedAtIso = new Date().toISOString()
-        const sessionStartedAtMs = new Date(sessionStartedAtIso).getTime()
-        const sess: OfflineSession = {
-          sessionId: newSessionId(),
-          data_contagem_ymd: contagemDiaYmd,
-          conferente_id: conferenteId,
-          status: 'aberta',
-          started_at_iso: sessionStartedAtIso,
-          listMode: listModeEfetivo,
-          context: sessionMode,
-          items,
-          inventario_numero_contagem: 1,
-          updatedAt: new Date().toISOString(),
-        }
-        if (Number.isFinite(sessionStartedAtMs)) {
-          setClockBaseMs(sessionStartedAtMs)
-          setClockRealStartMs(Date.now())
-        }
-        setOfflineSession(sess)
-        saveOfflineSession(sess, sessionMode)
-        setSaveSuccess(
-          `Planilha em branco: ${items.length} linhas (${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${LINHAS_POR_ABA} linhas = 15 posições × 15 linhas por posição). Digite o código em cada linha; ao sair do campo, a descrição é preenchida pelo cadastro.`,
-        )
-        setSaveError('')
-        return
-      }
-
       let itemsRaw = await fetchListaChecklistFromDb()
 
       if (isListModeArmazem(listModeEfetivo)) {
@@ -2262,9 +2201,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       itemsRaw.forEach((row, index) => {
         const p = lookupProductOptionByCodigo(row.codigo_interno.trim(), productByCode, productByCodeNoDots)
         const repeticoes = inventario ? ([1, 2, 3] as const) : ([1] as const)
-        const codigoNorm = normalizeCodigoInternoCompareKey(row.codigo_interno)
         repeticoes.forEach((rep) => {
-          if (inventario && rep === 3 && INVENTARIO_EXCLUIR_DA_3A_CONTAGEM.has(codigoNorm)) return
           const idx = inventario ? index * 3 + (rep - 1) : index
           items.push({
             key: stableItemKey(row.codigo_interno, row.descricao, idx),
@@ -4443,14 +4380,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             ? `Exibindo todos os ${checklistProductTotal} registros`
             : isArmazemPaginado
               ? isPlanilhaInventarioNav
-                ? `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Aba ${checklistPageSafe} de ${checklistTotalPages} · ${inventarioAbaTitulo(armazemGrupos[checklistPageSafe - 1]?.contagem ?? null)} · ${formatContagemLabel(inventarioNumeroContagemRodada)} · ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas nesta RUA`
+                ? `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Aba ${checklistPageSafe} de ${checklistTotalPages} · ${inventarioAbaTitulo(armazemGrupos[checklistPageSafe - 1]?.contagem ?? null)} · ${formatContagemLabel(inventarioNumeroContagemRodada)} · ${armazemGrupos[checklistPageSafe - 1]?.items.length ?? 0} linhas nesta RUA`
                 : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages} · ${inventario ? `${inventarioAbaTitulo(armazemGrupos[checklistPageSafe - 1]?.contagem ?? null)} · ${formatContagemLabel(inventarioNumeroContagemRodada)}` : formatContagemLabel(armazemGrupos[checklistPageSafe - 1]?.contagem ?? checklistPageSafe)}`
               : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages} · ${CHECKLIST_PAGE_SIZE} por página`}
         </span>
         {isPlanilhaInventarioNav ? (
-          <span style={{ fontSize: 12, color: 'var(--text, #888)', maxWidth: 420 }}>
-            Troque de <strong>CAMARA/RUA</strong> apenas pelas <strong>abas</strong> acima — a tabela desta aba mostra as
-            15 posições inteiras ({INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas).
+          <span style={{ fontSize: 12, color: 'var(--text, #888)', maxWidth: 480 }}>
+            Troque de <strong>CAMARA/RUA</strong> pelas <strong>abas</strong> acima. A lista é a mesma ordem do modo
+            armazém na contagem, com <strong>3 contagens por produto</strong> no inventário.
           </span>
         ) : (
           <>
