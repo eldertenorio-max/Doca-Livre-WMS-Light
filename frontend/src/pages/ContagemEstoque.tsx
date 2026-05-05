@@ -2582,29 +2582,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
   }
 
-  function setInventarioNumeroContagemRodada(n: 1 | 2 | 3 | 4) {
-    const nStr = String(n)
-    setOfflineSession((prev) => {
-      if (!prev || prev.status !== 'aberta') return prev
-      const next = {
-        ...prev,
-        inventario_numero_contagem: n,
-        updatedAt: new Date().toISOString(),
-        ...(prev.listMode === 'planilha'
-          ? {
-              items: prev.items.map((it) =>
-                String(it.quantidade_contada ?? '').trim() === ''
-                  ? { ...it, quantidade_contada: nStr }
-                  : it,
-              ),
-            }
-          : {}),
-      }
-      saveOfflineSession(next, sessionMode)
-      return next
-    })
-  }
-
   function handleToggleChecklistCollapse() {
     setChecklistListCollapsed((prev) => {
       const next = !prev
@@ -4382,8 +4359,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             ? `Exibindo todos os ${checklistProductTotal} registros`
             : isArmazemPaginado
               ? isPlanilhaInventarioNav
-                ? `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Aba ${checklistPageSafe} de ${checklistTotalPages} · ${inventarioAbaTitulo(armazemGrupos[checklistPageSafe - 1]?.contagem ?? null)} · ${formatContagemLabel(inventarioNumeroContagemRodada)} · ${armazemGrupos[checklistPageSafe - 1]?.items.length ?? 0} linhas nesta RUA`
-                : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages} · ${inventario ? `${inventarioAbaTitulo(armazemGrupos[checklistPageSafe - 1]?.contagem ?? null)} · ${formatContagemLabel(inventarioNumeroContagemRodada)}` : formatContagemLabel(armazemGrupos[checklistPageSafe - 1]?.contagem ?? checklistPageSafe)}`
+                ? `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Aba ${checklistPageSafe} de ${checklistTotalPages} · ${armazemGrupos[checklistPageSafe - 1]?.items.length ?? 0} linhas nesta RUA`
+                : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages}${
+                    inventario
+                      ? ''
+                      : ` · ${formatContagemLabel(armazemGrupos[checklistPageSafe - 1]?.contagem ?? checklistPageSafe)}`
+                  }`
               : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages} · ${CHECKLIST_PAGE_SIZE} por página`}
         </span>
         {isPlanilhaInventarioNav ? (
@@ -4930,64 +4911,16 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     </>
                   ) : null}
                 </div>
-                {inventario && isArmazemPaginado && !checklistShowAll && armazemGrupos.length > 0 ? (
-                  <>
-                    <div
-                      style={{
-                        marginTop: 10,
-                        marginBottom: 10,
-                        padding: '10px 12px',
-                        borderRadius: 10,
-                        border: '1px solid var(--border, #ccc)',
-                        background: 'var(--panel-bg, rgba(0,0,0,.03))',
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        alignItems: 'center',
-                        gap: 12,
-                      }}
-                    >
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text, #111)' }}>
-                        Contagem da rodada
-                        {offlineSession.listMode === 'planilha' ? ' (mesma em todas as abas)' : ''}
-                      </span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                        <span style={{ color: 'var(--text, #666)' }}>Número</span>
-                        <select
-                          value={String(inventarioNumeroContagemRodada)}
-                          onChange={(e) =>
-                            setInventarioNumeroContagemRodada(
-                              clampInventarioNumeroContagem(Number(e.target.value)) as 1 | 2 | 3 | 4,
-                            )
-                          }
-                          style={{
-                            padding: '8px 12px',
-                            borderRadius: 8,
-                            border: '1px solid var(--border, #ccc)',
-                            fontSize: 14,
-                            fontWeight: 700,
-                            minWidth: 120,
-                          }}
-                          aria-label="Número da contagem de 1 a 4"
-                        >
-                          <option value="1">1ª contagem</option>
-                          <option value="2">2ª contagem</option>
-                          <option value="3">3ª contagem</option>
-                          <option value="4">4ª contagem</option>
-                        </select>
-                      </label>
-                      <span style={{ fontSize: 12, color: 'var(--text, #888)', maxWidth: 420 }}>
-                        O cabeçalho da coluna de quantidade acompanha este número. Ao finalizar, o valor é gravado no
-                        banco para filtrar no relatório por data e por contagem.
-                      </span>
-                    </div>
-                    {offlineSession.listMode === 'planilha' ? (
-                      <InventarioPlanilhaAbas
-                        armazemGrupos={armazemGrupos}
-                        checklistPageSafe={checklistPageSafe}
-                        setChecklistPage={setChecklistPage}
-                      />
-                    ) : null}
-                  </>
+                {inventario &&
+                offlineSession.listMode === 'planilha' &&
+                isArmazemPaginado &&
+                !checklistShowAll &&
+                armazemGrupos.length > 0 ? (
+                  <InventarioPlanilhaAbas
+                    armazemGrupos={armazemGrupos}
+                    checklistPageSafe={checklistPageSafe}
+                    setChecklistPage={setChecklistPage}
+                  />
                 ) : null}
                 {isMobile ? (
                   <>
