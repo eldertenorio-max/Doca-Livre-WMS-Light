@@ -191,7 +191,7 @@ function textoConfiabilidadeDecisao(r: RowLista): string {
     case 'Amarelo':
       return '🟡 Amarelo + confiável → AVALIA'
     case 'Verde':
-      return '🟢 Verde → NÃO PRODUZ'
+      return 'não produz'
     case 'Excedido':
       return '🟣 Excedido + confiável → NÃO PRODUZ (priorizar consumo do excedente)'
     case 'Analisar':
@@ -495,7 +495,6 @@ export default function EstoqueSeguranca() {
   const [painelAlertasAberto, setPainelAlertasAberto] = useState(false)
   const [filtroPainelAlerta, setFiltroPainelAlerta] = useState<FiltroPainelAlerta>('todos')
   const [filtroGlobal, setFiltroGlobal] = useState<GraficoFiltro>(null)
-  const [filtroConfiabilidade, setFiltroConfiabilidade] = useState<'todos' | 'conferir'>('todos')
 
   useEffect(() => {
     let alive = true
@@ -632,10 +631,7 @@ export default function EstoqueSeguranca() {
   /** Colunas que ainda têm um gráfico de linha individual (demais estão nos comparativos). */
   const metricasGraficos = useMemo<Coluna[]>(() => ['Estoque Atual'], [])
 
-  const rowsFiltradasSemaforo = useMemo(() => {
-    if (filtroConfiabilidade !== 'conferir') return rowsFiltradasGlobal
-    return rowsFiltradasGlobal.filter((r) => confiabilidadeEstoque(r) === 'Conferir')
-  }, [rowsFiltradasGlobal, filtroConfiabilidade])
+  const rowsFiltradasSemaforo = rowsFiltradasGlobal
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(rowsFiltradasSemaforo.length / 15)), [rowsFiltradasSemaforo.length])
   const rowsPagina = useMemo(() => {
@@ -646,7 +642,7 @@ export default function EstoqueSeguranca() {
 
   useEffect(() => {
     setPage(1)
-  }, [filtroGlobal, filtroConfiabilidade, rows.length])
+  }, [filtroGlobal, rows.length])
 
   const qtdAlertas = alertasAmareloVermelho.length
   const temFiltroAtivo = filtroGlobal !== null
@@ -666,12 +662,8 @@ export default function EstoqueSeguranca() {
       slug = slugArquivoSeguro(filtroGlobal.cond).toLowerCase()
       rotulo = filtroGlobal.cond
     }
-    if (filtroConfiabilidade === 'conferir') {
-      slug = `${slug}-conferir`
-      rotulo = `${rotulo} · só Conferir`
-    }
     return { slugListaExport: slug, rotuloListaExport: rotulo }
-  }, [filtroGlobal, filtroConfiabilidade])
+  }, [filtroGlobal])
 
   return (
     <section style={{ maxWidth: 1500, margin: '0 auto', padding: '0 12px 26px', position: 'relative' }}>
@@ -972,8 +964,8 @@ export default function EstoqueSeguranca() {
               <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.45, maxWidth: 860 }}>
                 A coluna <strong>Confiabilidade</strong> junta o semáforo da planilha com a trava de saldo/giro:{' '}
                 <strong>Vermelho + confiável → PRODUZ</strong>; <strong>Amarelo + confiável → AVALIA</strong>;{' '}
-                <strong>Verde → NÃO PRODUZ</strong>; <strong>não confiável → bloqueia</strong> decisão automática. Use{' '}
-                <strong>Só conferir estoque</strong> para itens a validar. Limiares: <code style={{ fontSize: 10 }}>CONFIAB</code>.
+                <strong>Verde</strong> mostra <strong>não produz</strong>; <strong>não confiável → bloqueia</strong> decisão
+                automática. Limiares: <code style={{ fontSize: 10 }}>CONFIAB</code>.
               </p>
             </div>
             <button
@@ -986,7 +978,7 @@ export default function EstoqueSeguranca() {
               Baixar Excel ({rowsFiltradasSemaforo.length} — {rotuloListaExport})
             </button>
           </div>
-          <div style={{ ...filtrosSemaforoWrap, alignItems: 'center' }}>
+          <div style={filtrosSemaforoWrap}>
             {(['Todos', 'Excedido', 'Verde', 'Amarelo', 'Vermelho', 'Analisar'] as const).map((st) => (
               <button
                 key={st}
@@ -997,24 +989,6 @@ export default function EstoqueSeguranca() {
                 {st}
               </button>
             ))}
-            <button
-              type="button"
-              title="Mostra só itens marcados como Conferir (possível saldo ou giro incoerente). Os gráficos acima continuam com o recorte do semáforo/SKU."
-              onClick={() => setFiltroConfiabilidade((p) => (p === 'conferir' ? 'todos' : 'conferir'))}
-              style={{
-                marginLeft: 'auto',
-                borderRadius: 999,
-                border: '1px solid #d97706',
-                background: filtroConfiabilidade === 'conferir' ? 'rgba(217, 119, 6, 0.28)' : 'transparent',
-                color: '#fbbf24',
-                padding: '6px 12px',
-                cursor: 'pointer',
-                fontWeight: 700,
-                fontSize: 12,
-              }}
-            >
-              {filtroConfiabilidade === 'conferir' ? 'Conferir: ativo (clique para ver todos)' : 'Só conferir estoque'}
-            </button>
           </div>
           <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1780 }}>
@@ -1029,7 +1003,7 @@ export default function EstoqueSeguranca() {
                   ))}
                   <th
                     style={{ ...th, minWidth: 280 }}
-                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→AVALIA; Verde→NÃO PRODUZ; não confiável→bloqueia automação."
+                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→AVALIA; Verde→não produz; não confiável→bloqueia automação."
                   >
                     Confiabilidade (decisão)
                   </th>
