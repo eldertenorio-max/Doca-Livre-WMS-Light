@@ -181,17 +181,18 @@ function confiabilidadeEstoque(r: RowLista): ConfiabilidadeClass {
 
 /** Texto completo na coluna Confiabilidade: combina semáforo da planilha + trava de confiabilidade. */
 function textoConfiabilidadeDecisao(r: RowLista): string {
+  const cond = paraCondicionalStatus(r)
+  if (cond === 'Verde') {
+    return 'verde + confiável não produz'
+  }
   if (confiabilidadeEstoque(r) === 'Conferir') {
     return '⚠️ Não confiável — bloqueia decisão automática (conferir estoque e consumo antes de produzir ou liberar pedido).'
   }
-  const cond = paraCondicionalStatus(r)
   switch (cond) {
     case 'Vermelho':
       return '🔴 Vermelho + confiável → PRODUZ'
     case 'Amarelo':
       return '🟡 Amarelo + confiável → pode mandar para completar'
-    case 'Verde':
-      return 'não produz'
     case 'Excedido':
       return '🟣 Excedido + confiável → NÃO PRODUZ (priorizar consumo do excedente)'
     case 'Analisar':
@@ -812,7 +813,9 @@ export default function EstoqueSeguranca() {
                                 background: bgStatus,
                                 color: '#f8fafc',
                                 boxShadow:
-                                  conf === 'Conferir' ? 'inset 0 0 0 2px rgba(251, 191, 36, 0.85)' : undefined,
+                                  conf === 'Conferir' && st !== 'Verde'
+                                    ? 'inset 0 0 0 2px rgba(251, 191, 36, 0.85)'
+                                    : undefined,
                               }}
                             >
                               {textoConfiabilidadeDecisao(r)}
@@ -964,7 +967,8 @@ export default function EstoqueSeguranca() {
               <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.45, maxWidth: 860 }}>
                 A coluna <strong>Confiabilidade</strong> junta o semáforo da planilha com a trava de saldo/giro:{' '}
                 <strong>Vermelho + confiável → PRODUZ</strong>; <strong>Amarelo + confiável → pode mandar para completar</strong>;{' '}
-                <strong>Verde</strong> mostra <strong>não produz</strong>; <strong>não confiável → bloqueia</strong> decisão
+                <strong>Verde + confiável</strong> mostra <strong>verde + confiável não produz</strong>;{' '}
+                <strong>não confiável → bloqueia</strong> decisão
                 automática. Limiares: <code style={{ fontSize: 10 }}>CONFIAB</code>.
               </p>
             </div>
@@ -1003,7 +1007,7 @@ export default function EstoqueSeguranca() {
                   ))}
                   <th
                     style={{ ...th, minWidth: 280 }}
-                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→pode mandar para completar; Verde→não produz; não confiável→bloqueia automação."
+                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→pode mandar para completar; Verde+confiável→verde + confiável não produz; não confiável→bloqueia automação."
                   >
                     Confiabilidade (decisão)
                   </th>
@@ -1066,7 +1070,9 @@ export default function EstoqueSeguranca() {
                           background: bgStatus,
                           color: '#f8fafc',
                           boxShadow:
-                            conf === 'Conferir' ? 'inset 0 0 0 2px rgba(251, 191, 36, 0.85)' : undefined,
+                            conf === 'Conferir' && cond !== 'Verde'
+                              ? 'inset 0 0 0 2px rgba(251, 191, 36, 0.85)'
+                              : undefined,
                         }}
                       >
                         {textoConfiabilidadeDecisao(r)}
