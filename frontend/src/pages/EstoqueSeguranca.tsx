@@ -179,6 +179,27 @@ function confiabilidadeEstoque(r: RowLista): ConfiabilidadeClass {
   return 'Confiável'
 }
 
+/** Texto completo na coluna Confiabilidade: combina semáforo da planilha + trava de confiabilidade. */
+function textoConfiabilidadeDecisao(r: RowLista): string {
+  if (confiabilidadeEstoque(r) === 'Conferir') {
+    return '⚠️ Não confiável — bloqueia decisão automática (conferir estoque e consumo antes de produzir ou liberar pedido).'
+  }
+  const cond = paraCondicionalStatus(r)
+  switch (cond) {
+    case 'Vermelho':
+      return '🔴 Vermelho + confiável → PRODUZ'
+    case 'Amarelo':
+      return '🟡 Amarelo + confiável → AVALIA'
+    case 'Verde':
+      return '🟢 Verde → NÃO PRODUZ'
+    case 'Excedido':
+      return '🟣 Excedido + confiável → NÃO PRODUZ (priorizar consumo do excedente)'
+    case 'Analisar':
+    default:
+      return '⚪ Analisar + confiável → AVALIA (decisão manual; não automatizar)'
+  }
+}
+
 function itensAmareloOuVermelho(rows: RowLista[]): RowLista[] {
   return rows.filter((r) => {
     const c = paraCondicionalStatus(r)
@@ -199,7 +220,7 @@ function exportarAlertasParaExcel(lista: RowLista[], filtro: FiltroPainelAlerta)
     'Estoque Ideal Máximo': r['Estoque Ideal Máximo'] ?? '',
     'Estoque Atual': r['Estoque Atual'] ?? '',
     Status: String(r['Para condicional'] ?? '').trim() || paraCondicionalStatus(r),
-    Confiabilidade: confiabilidadeEstoque(r),
+    Confiabilidade: textoConfiabilidadeDecisao(r),
   }))
   const ws = XLSX.utils.json_to_sheet(data)
   const wb = XLSX.utils.book_new()
@@ -219,7 +240,7 @@ function exportarListaItensParaExcel(lista: RowLista[], slugSuffix: string) {
     COLUNAS.forEach((c) => {
       row[c] = String(r[c] ?? '').trim()
     })
-    row.Confiabilidade = confiabilidadeEstoque(r)
+    row.Confiabilidade = textoConfiabilidadeDecisao(r)
     return row
   })
   const ws = XLSX.utils.json_to_sheet(data)
@@ -917,10 +938,11 @@ export default function EstoqueSeguranca() {
           >
             <div style={{ flex: '1 1 280px' }}>
               <h3 style={{ margin: 0 }}>Lista de itens (formatação condicional)</h3>
-              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.45, maxWidth: 720 }}>
-                <strong>Confiabilidade</strong> (calculada aqui) sinaliza saldo ou giro incoerente com o consumo; use{' '}
-                <strong>Só conferir estoque</strong> para focar na contagem cirúrgica. Limiares: constante{' '}
-                <code style={{ fontSize: 10 }}>CONFIAB</code> no código.
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.45, maxWidth: 860 }}>
+                A coluna <strong>Confiabilidade</strong> junta o semáforo da planilha com a trava de saldo/giro:{' '}
+                <strong>Vermelho + confiável → PRODUZ</strong>; <strong>Amarelo + confiável → AVALIA</strong>;{' '}
+                <strong>Verde → NÃO PRODUZ</strong>; <strong>não confiável → bloqueia</strong> decisão automática. Use{' '}
+                <strong>Só conferir estoque</strong> para itens a validar. Limiares: <code style={{ fontSize: 10 }}>CONFIAB</code>.
               </p>
             </div>
             <button
@@ -964,7 +986,7 @@ export default function EstoqueSeguranca() {
             </button>
           </div>
           <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1780 }}>
               <thead>
                 <tr>
                   <th style={th}>SKU</th>
@@ -975,10 +997,10 @@ export default function EstoqueSeguranca() {
                     </th>
                   ))}
                   <th
-                    style={th}
-                    title="Calculado na app: coerência entre estoque atual, consumo recente e semáforo da planilha."
+                    style={{ ...th, minWidth: 280 }}
+                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→AVALIA; Verde→NÃO PRODUZ; não confiável→bloqueia automação."
                   >
-                    Confiabilidade
+                    Confiabilidade (decisão)
                   </th>
                 </tr>
               </thead>
@@ -1031,13 +1053,18 @@ export default function EstoqueSeguranca() {
                         style={{
                           ...td,
                           fontWeight: 700,
-                          background:
-                            conf === 'Conferir' ? 'rgba(217, 119, 6, 0.22)' : 'rgba(34, 197, 94, 0.12)',
-                          color: conf === 'Conferir' ? '#fbbf24' : '#86efac',
-                          whiteSpace: 'nowrap',
+                          fontSize: 12,
+                          lineHeight: 1.4,
+                          maxWidth: 340,
+                          whiteSpace: 'normal',
+                          wordBreak: 'break-word',
+                          background: bgStatus,
+                          color: '#f8fafc',
+                          boxShadow:
+                            conf === 'Conferir' ? 'inset 0 0 0 2px rgba(251, 191, 36, 0.85)' : undefined,
                         }}
                       >
-                        {conf}
+                        {textoConfiabilidadeDecisao(r)}
                       </td>
                     </tr>
                   )
