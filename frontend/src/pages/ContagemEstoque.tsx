@@ -4680,9 +4680,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               disabled={!!offlineSession && offlineSession.status === 'aberta'}
             >
               <option value="todos">Todos os Produtos (cadastro)</option>
-              {!inventario ? (
-                <option value="armazem">Armazém (dividida em grupos 1ª–4ª contagem)</option>
-              ) : null}
+              <option value="armazem" title={inventario ? 'No inventário, cada produto aparece 3 vezes (3 contagens).' : undefined}>
+                Armazém (dividida em grupos 1ª–4ª contagem)
+              </option>
               {inventario ? (
                 <option value="planilha">Inventário — formato planilha (CAMARA/RUA, abas)</option>
               ) : null}
