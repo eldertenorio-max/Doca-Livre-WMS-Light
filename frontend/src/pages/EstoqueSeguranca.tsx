@@ -192,7 +192,7 @@ function textoConfiabilidadeDecisao(r: RowLista): string {
     case 'Vermelho':
       return '🔴 Vermelho + confiável → PRODUZ'
     case 'Amarelo':
-      return '🟡 Amarelo + confiável → pode mandar para completar'
+      return '🟡 Amarelo + confiável → AVALIA'
     case 'Excedido':
       return '🟣 Excedido + confiável → NÃO PRODUZ (priorizar consumo do excedente)'
     case 'Analisar':
@@ -966,7 +966,7 @@ export default function EstoqueSeguranca() {
               <h3 style={{ margin: 0 }}>Lista de itens (formatação condicional)</h3>
               <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.45, maxWidth: 860 }}>
                 A coluna <strong>Confiabilidade</strong> junta o semáforo da planilha com a trava de saldo/giro:{' '}
-                <strong>Vermelho + confiável → PRODUZ</strong>; <strong>Amarelo + confiável → pode mandar para completar</strong>;{' '}
+                <strong>Vermelho + confiável → PRODUZ</strong>; <strong>Amarelo + confiável → AVALIA</strong>;{' '}
                 <strong>Verde + confiável → NÃO PRODUZ</strong> (mesmo padrão do Excedido);{' '}
                 <strong>não confiável → bloqueia</strong> decisão
                 automática. Limiares: <code style={{ fontSize: 10 }}>CONFIAB</code>.
@@ -1007,7 +1007,7 @@ export default function EstoqueSeguranca() {
                   ))}
                   <th
                     style={{ ...th, minWidth: 280 }}
-                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→pode mandar para completar; Verde+confiável→NÃO PRODUZ; não confiável→bloqueia automação."
+                    title="Regra: Vermelho+confiável→PRODUZ; Amarelo+confiável→AVALIA; Verde+confiável→NÃO PRODUZ; não confiável→bloqueia automação."
                   >
                     Confiabilidade (decisão)
                   </th>

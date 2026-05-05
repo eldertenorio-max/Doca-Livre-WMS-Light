@@ -4240,7 +4240,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           return out
         })()
 
-  const inventarioPlanilhaArmazem = inventario && isArmazemPaginado && !checklistShowAll
+  /** Só o tipo de lista «formato planilha» usa a tabela CAMARA/RUA; «Armazém» no inventário segue a mesma tabela da contagem (com 3 linhas por produto). */
+  const inventarioPlanilhaArmazem =
+    inventario && offlineSession?.listMode === 'planilha' && isArmazemPaginado && !checklistShowAll
 
   /** Modo planilha: troca de RUA/CAMARA só pelas abas — não usar Anterior/Próxima como “página da tabela”. */
   const isPlanilhaInventarioNav =
@@ -4945,7 +4947,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       }}
                     >
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text, #111)' }}>
-                        Contagem da rodada (mesma em todas as abas)
+                        Contagem da rodada
+                        {offlineSession.listMode === 'planilha' ? ' (mesma em todas as abas)' : ''}
                       </span>
                       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                         <span style={{ color: 'var(--text, #666)' }}>Número</span>
@@ -4977,11 +4980,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                         banco para filtrar no relatório por data e por contagem.
                       </span>
                     </div>
-                    <InventarioPlanilhaAbas
-                      armazemGrupos={armazemGrupos}
-                      checklistPageSafe={checklistPageSafe}
-                      setChecklistPage={setChecklistPage}
-                    />
+                    {offlineSession.listMode === 'planilha' ? (
+                      <InventarioPlanilhaAbas
+                        armazemGrupos={armazemGrupos}
+                        checklistPageSafe={checklistPageSafe}
+                        setChecklistPage={setChecklistPage}
+                      />
+                    ) : null}
                   </>
                 ) : null}
                 {isMobile ? (
@@ -5022,8 +5027,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       const isEditing = checklistEditingKey === it.key && checklistEditDraft
                       const datasOrdemInvalida = isVencimentoAntesFabricacao(it.data_fabricacao, it.data_validade)
                       const itemArmazemContagem = inventario ? getArmazemContagemForItem(it) : null
-                      const itemRua = inventario ? getInventarioRuaArmazem(itemArmazemContagem) : null
-                      const itemPn = inventario ? inventarioArmazemPosNivel(armazemItemsSorted, it) : null
+                      const itemRua =
+                        inventario && offlineSession?.listMode === 'planilha'
+                          ? getInventarioRuaArmazem(itemArmazemContagem)
+                          : null
+                      const itemPn =
+                        inventario && offlineSession?.listMode === 'planilha'
+                          ? inventarioArmazemPosNivel(armazemItemsSorted, it)
+                          : null
 
                       return (
                         <div
@@ -5140,7 +5151,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                               <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 1 }}>
                                 Status: <strong style={{ color: pend ? '#a60' : '#0a0' }}>{pend ? 'Pendente' : 'Contado'}</strong>
                               </div>
-                              {inventario ? (
+                              {inventario && offlineSession?.listMode === 'planilha' ? (
                                 <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 1 }}>
                                   RUA: <strong style={{ fontWeight: 700 }}>{itemRua ?? '—'}</strong> · POS:{' '}
                                   <strong style={{ fontWeight: 700 }}>{itemPn?.pos ?? '—'}</strong> · NÍVEL:{' '}
