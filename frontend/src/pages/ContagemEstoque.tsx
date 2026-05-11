@@ -69,6 +69,7 @@ import {
 import {
   prepararContagemDiariaOficialListaUnicaPorProduto,
 } from '../lib/contagemListagemCompat'
+import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 import { mergeContagensDiariasDoDiaParaItems } from '../lib/mergeContagemDiariaDoBanco'
 import { atualizarTodosOsProdutosEanDunAposFinalizacao } from '../lib/atualizarTodosOsProdutosEanDunAposFinalizacao'
 import { subscribeContagensEstoqueDia } from '../lib/subscribeContagensEstoqueRealtime'
@@ -2073,14 +2074,46 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           return String(a.id).localeCompare(String(b.id), 'pt-BR')
         })
       } else {
+        const isCodigoPreviaArmazem = (codigo: string) => getArmazemContagem(codigo) != null
         const sortPreviaContagemDiaria = (a: ContagemPreviewRow, b: ContagemPreviewRow) => {
-          const c = a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR')
+          const ga = getArmazemContagem(a.codigo_interno)
+          const gb = getArmazemContagem(b.codigo_interno)
+          if (ga != null && gb != null) {
+            if (ga !== gb) return ga - gb
+            const pa = getArmazemPos(a.codigo_interno)
+            const pb = getArmazemPos(b.codigo_interno)
+            if (pa !== pb) return pa - pb
+          } else if (ga != null) {
+            return -1
+          } else if (gb != null) {
+            return 1
+          }
+          const ca = normalizeCodigoInternoCompareKey(a.codigo_interno)
+          const cb = normalizeCodigoInternoCompareKey(b.codigo_interno)
+          const c = ca !== cb ? ca.localeCompare(cb, 'pt-BR') : a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR')
           if (c !== 0) return c
           return a.descricao.localeCompare(b.descricao, 'pt-BR')
         }
         previewList = prepararContagemDiariaOficialListaUnicaPorProduto(
-          rawPreviewLinhas,
-        ).sort(sortPreviaContagemDiaria) as ContagemPreviewRow[]
+          rawPreviewLinhas.filter((r) => isCodigoPreviaArmazem(r.codigo_interno)),
+        ) as ContagemPreviewRow[]
+        const byCodigo = new Map<string, ContagemPreviewRow>()
+        for (const row of previewList) {
+          const day = String(row.data_contagem ?? '').slice(0, 10)
+          const code = normalizeCodigoInternoCompareKey(row.codigo_interno).toLowerCase()
+          const key = `${day}|${code}`
+          const prev = byCodigo.get(key)
+          if (
+            !prev ||
+            contagemLinhaAVenceB(
+              { data_hora_contagem: String(row.data_hora_contagem ?? ''), id: String(row.id ?? '') },
+              { data_hora_contagem: String(prev.data_hora_contagem ?? ''), id: String(prev.id ?? '') },
+            )
+          ) {
+            byCodigo.set(key, row)
+          }
+        }
+        previewList = Array.from(byCodigo.values()).sort(sortPreviaContagemDiaria)
 
         // Nome do conferente conforme a view oficial de itens do painel (1 nome por item).
         try {

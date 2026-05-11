@@ -200,6 +200,10 @@ function sortRelatorioContagemDiaria(a: ContagemRow, b: ContagemRow): number {
   return a.descricao.localeCompare(b.descricao, 'pt-BR')
 }
 
+function isCodigoRelatorioArmazem(codigo: string): boolean {
+  return getArmazemContagem(codigo) != null
+}
+
 function consolidarRelatorioContagemDiariaPorCodigo(rows: ContagemRow[]): ContagemRow[] {
   const byKey = new Map<string, ContagemRow>()
   for (const row of rows) {
@@ -253,7 +257,6 @@ type AvisoExportPendente = {
 }
 
 type PainelDiaResumo = {
-  count: number
   inicio: string | null
   fim: string | null
 }
@@ -1016,7 +1019,7 @@ export default function RelatorioContagem({
       return inv
     }
     let grouped = prepararContagemDiariaOficialListaUnicaPorProduto(filtered as ContagemRow[]) as ContagemRow[]
-    grouped = grouped.filter((r) => getArmazemContagem(r.codigo_interno) != null)
+    grouped = grouped.filter((r) => isCodigoRelatorioArmazem(r.codigo_interno))
     grouped = consolidarRelatorioContagemDiariaPorCodigo(grouped)
 
     // Alinha o nome da coluna Conferente com a view oficial de itens do painel.
@@ -1116,7 +1119,7 @@ export default function RelatorioContagem({
       'contagem_diaria',
       planilhaIds,
       origemAusenteNoResultado,
-    ) as ContagemRow[]
+    ).filter((r) => isCodigoRelatorioArmazem(String(r.codigo_interno ?? ''))) as ContagemRow[]
 
     const bucket = new Map<
       string,
@@ -1124,7 +1127,7 @@ export default function RelatorioContagem({
         dataYmd: string
         conferenteId: string | null
         finalizacaoSessaoId: string | null
-        total: number
+        codigos: Set<string>
         minTs: number | null
         maxTs: number | null
       }
@@ -1137,10 +1140,11 @@ export default function RelatorioContagem({
       const sidRaw = String(r.finalizacao_sessao_id ?? '').trim()
       const finalizacaoSessaoId = sidRaw === '' ? null : sidRaw
       const key = `${dataYmd}|${conferenteId ?? '__sem__'}|${finalizacaoSessaoId ?? '__legacy__'}`
+      const codigoKey = normalizeCodigoInternoCompareKey(String(r.codigo_interno ?? '')).toLowerCase()
       const ts = tsFromDataHoraContagem(r.data_hora_contagem)
       const prev = bucket.get(key)
       if (prev) {
-        prev.total += 1
+        if (codigoKey) prev.codigos.add(codigoKey)
         if (ts != null) {
           if (prev.minTs == null || ts < prev.minTs) prev.minTs = ts
           if (prev.maxTs == null || ts > prev.maxTs) prev.maxTs = ts
@@ -1150,7 +1154,7 @@ export default function RelatorioContagem({
           dataYmd,
           conferenteId,
           finalizacaoSessaoId,
-          total: 1,
+          codigos: new Set(codigoKey ? [codigoKey] : []),
           minTs: ts,
           maxTs: ts,
         })
@@ -1169,7 +1173,7 @@ export default function RelatorioContagem({
         dataYmd: v.dataYmd,
         finalizacaoSessaoId: v.finalizacaoSessaoId,
         horaInputLabel: formatHistoricoHorarioInput(v.minTs, v.maxTs),
-        totalItens: v.total,
+        totalItens: v.codigos.size,
       })
     }
     out.sort((a, b) => {
@@ -1191,18 +1195,16 @@ export default function RelatorioContagem({
     try {
       const { data, error } = await supabase
         .from('v_contagem_diaria_painel')
-        .select('conferente_id,itens_contados,inicio,fim,data_contagem')
+        .select('conferente_id,inicio,fim,data_contagem')
         .eq('data_contagem', ymd)
       if (error) return null
       const out = new Map<string, PainelDiaResumo>()
       for (const r of (data ?? []) as Array<Record<string, unknown>>) {
         const id = String(r.conferente_id ?? '').trim()
         if (!id) continue
-        const rawCount = Number(r.itens_contados ?? 0)
-        const count = Number.isFinite(rawCount) && rawCount >= 0 ? Math.floor(rawCount) : 0
         const inicio = String(r.inicio ?? '').trim() || null
         const fim = String(r.fim ?? '').trim() || null
-        out.set(id, { count, inicio, fim })
+        out.set(id, { inicio, fim })
       }
       return out
     } catch {
@@ -1232,7 +1234,6 @@ export default function RelatorioContagem({
             minTs != null && maxTs != null && Number.isFinite(maxTs) && maxTs > minTs
           return {
             ...it,
-            totalItens: p.count,
             horaInputLabel: painelTemIntervaloReal
               ? formatHistoricoHorarioInput(minTs, maxTs)
               : it.horaInputLabel,
@@ -1313,7 +1314,9 @@ export default function RelatorioContagem({
       includeRascunho: true,
     })
     const { filtered } = await filtrarLinhasParaPrevia(rowsComRascunho, origemAusenteNoResultado)
-    const rowsDia = filtered.filter((r) => diaYmdSoDataContagemRow(r) === diaYmd)
+    const rowsDia = filtered.filter(
+      (r) => diaYmdSoDataContagemRow(r) === diaYmd && isCodigoRelatorioArmazem(r.codigo_interno),
+    )
     if (rowsDia.length === 0) return { kind: 'vazio' }
     const pendentes = rowsDia.filter((r) => r.contagem_rascunho === true)
     if (pendentes.length > 0) {
@@ -1565,7 +1568,7 @@ export default function RelatorioContagem({
         )
         const pendentesNoDia = filteredComRascunho.filter((r) => {
           const ymd = String(r.data_contagem ?? r.data_hora_contagem ?? '').slice(0, 10)
-          return ymd === diaAlvo && r.contagem_rascunho === true
+          return ymd === diaAlvo && r.contagem_rascunho === true && isCodigoRelatorioArmazem(r.codigo_interno)
         })
         if (pendentesNoDia.length > 0) {
           const conferentesPendentes = Array.from(
