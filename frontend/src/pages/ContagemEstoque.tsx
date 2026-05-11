@@ -1093,7 +1093,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
       const byCode = new Map<string, ProductOption>()
       for (const p of loaded) {
-        if (!byCode.has(p.codigo)) byCode.set(p.codigo, p)
+        const k = normalizeCodigoInternoCompareKey(p.codigo) || p.codigo.trim()
+        if (!byCode.has(k)) byCode.set(k, p)
       }
       const normalized = Array.from(byCode.values())
       setProductOptions(normalized)

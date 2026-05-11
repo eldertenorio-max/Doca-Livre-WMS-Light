@@ -150,6 +150,30 @@ set codigo_interno = trim(both from codigo_interno)
 where codigo_interno is not null
   and codigo_interno <> trim(both from codigo_interno);
 
+-- Remove duplicados por código interno antes do upsert: mantém o menor id e apaga as demais linhas.
+delete from public."Todos os Produtos" t
+using (
+  select id
+  from (
+    select
+      id,
+      row_number() over (
+        partition by trim(both from codigo_interno)
+        order by id
+      ) as rn
+    from public."Todos os Produtos"
+    where codigo_interno is not null
+      and trim(both from codigo_interno) <> ''
+  ) d
+  where d.rn > 1
+) dup
+where t.id = dup.id;
+
+-- Impede nova duplicidade no cadastro por código interno normalizado.
+create unique index if not exists todos_os_produtos_codigo_interno_trim_uidx
+  on public."Todos os Produtos" ((trim(both from codigo_interno)))
+  where codigo_interno is not null and trim(both from codigo_interno) <> '';
+
 create temporary table _stg_armazem88 (
   codigo_interno text primary key,
   descricao text not null,
