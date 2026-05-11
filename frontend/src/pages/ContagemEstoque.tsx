@@ -4112,28 +4112,31 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   const filteredChecklistItems =
     offlineSession?.status === 'aberta'
-      ? offlineSession.items.filter((it) => {
-          const codOk =
-            !checklistFilterCodigo.trim() ||
-            it.codigo_interno.toLowerCase().includes(checklistFilterCodigo.trim().toLowerCase()) ||
-            normalizeCodigoInternoCompareKey(it.codigo_interno)
-              .toLowerCase()
-              .includes(normalizeCodigoInternoCompareKey(checklistFilterCodigo).toLowerCase())
-          const descOk =
-            !checklistFilterDescricao.trim() ||
-            it.descricao.toLowerCase().includes(checklistFilterDescricao.trim().toLowerCase())
-          const pend =
-            offlineSession.listMode === 'planilha'
-              ? String(it.codigo_interno ?? '').trim() !== '' &&
-                String(it.quantidade_contada ?? '').trim() === ''
-              : String(it.quantidade_contada ?? '').trim() === ''
-          const graceActive =
-            checklistFilterPendentes &&
-            !pend &&
-            (checklistPendentesGraceUntil[it.key] ?? 0) > Date.now()
-          const pendOk = !checklistFilterPendentes || pend || graceActive
-          return codOk && descOk && pendOk
-        })
+      ? (() => {
+          const items = offlineSession.items.filter((it) => {
+            const codOk =
+              !checklistFilterCodigo.trim() ||
+              it.codigo_interno.toLowerCase().includes(checklistFilterCodigo.trim().toLowerCase()) ||
+              normalizeCodigoInternoCompareKey(it.codigo_interno)
+                .toLowerCase()
+                .includes(normalizeCodigoInternoCompareKey(checklistFilterCodigo).toLowerCase())
+            const descOk =
+              !checklistFilterDescricao.trim() ||
+              it.descricao.toLowerCase().includes(checklistFilterDescricao.trim().toLowerCase())
+            const pend =
+              offlineSession.listMode === 'planilha'
+                ? String(it.codigo_interno ?? '').trim() !== '' &&
+                  String(it.quantidade_contada ?? '').trim() === ''
+                : String(it.quantidade_contada ?? '').trim() === ''
+            const graceActive =
+              checklistFilterPendentes &&
+              !pend &&
+              (checklistPendentesGraceUntil[it.key] ?? 0) > Date.now()
+            const pendOk = !checklistFilterPendentes || pend || graceActive
+            return codOk && descOk && pendOk
+          })
+          return isListModeArmazem(offlineSession.listMode) ? [...items].sort(compareInventarioPlanilhaItens) : items
+        })()
       : []
 
   type ChecklistDisplayHeader = {
