@@ -18,6 +18,7 @@ import { deleteInventarioPlanilhaLinhasForContagensIds } from '../lib/inventario
 import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import { getArmazemContagem, getArmazemPos } from '../lib/armazemInventarioMap'
+import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 
 type ContagemRow = {
   id: string
@@ -197,6 +198,29 @@ function sortRelatorioContagemDiaria(a: ContagemRow, b: ContagemRow): number {
   const c = ca !== cb ? ca.localeCompare(cb, 'pt-BR') : a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR')
   if (c !== 0) return c
   return a.descricao.localeCompare(b.descricao, 'pt-BR')
+}
+
+function consolidarRelatorioContagemDiariaPorCodigo(rows: ContagemRow[]): ContagemRow[] {
+  const byKey = new Map<string, ContagemRow>()
+  for (const row of rows) {
+    const day = String(row.data_contagem ?? '').slice(0, 10)
+    const code = normalizeCodigoInternoCompareKey(row.codigo_interno).toLowerCase()
+    const key = `${day}|${code}`
+    const prev = byKey.get(key)
+    if (!prev) {
+      byKey.set(key, row)
+      continue
+    }
+    if (
+      contagemLinhaAVenceB(
+        { data_hora_contagem: String(row.data_hora_contagem ?? ''), id: String(row.id ?? '') },
+        { data_hora_contagem: String(prev.data_hora_contagem ?? ''), id: String(prev.id ?? '') },
+      )
+    ) {
+      byKey.set(key, row)
+    }
+  }
+  return Array.from(byKey.values())
 }
 
 /** Paginação (15 + “Mostrar tudo”) vale para Relatório completo e Todas as contagens — mesmo componente. */
@@ -993,6 +1017,7 @@ export default function RelatorioContagem({
     }
     let grouped = prepararContagemDiariaOficialListaUnicaPorProduto(filtered as ContagemRow[]) as ContagemRow[]
     grouped = grouped.filter((r) => getArmazemContagem(r.codigo_interno) != null)
+    grouped = consolidarRelatorioContagemDiariaPorCodigo(grouped)
 
     // Alinha o nome da coluna Conferente com a view oficial de itens do painel.
     try {
