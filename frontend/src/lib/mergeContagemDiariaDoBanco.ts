@@ -143,7 +143,7 @@ export async function mergeContagensDiariasDoDiaParaItems(
   const ids = [...new Set([...porChave.values()].map((s) => s.conferente_id).filter(Boolean))]
   const nomesPorId = await fetchConferentesNomesPorIds(ids)
 
-  /** Fallback quando a descrição na checklist (ex.: texto oficial do armazém) difere da gravada no banco. */
+  /** Fallback quando a descrição na checklist difere da gravada em contagens_estoque (ex.: cadastro atualizado). */
   const porCodigoNorm = new Map<string, RowSnapshot>()
   for (const [key, snap] of porChave) {
     const codeNorm = String(key.split('|')[1] ?? '').trim().toLowerCase()

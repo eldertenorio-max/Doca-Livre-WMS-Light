@@ -2,6 +2,8 @@
  * Gera supabase/sql/upsert_todos_os_produtos_lista_contagem_armazem_88.sql
  * a partir dos 88 códigos da lista armazém (mesma ordem que armazemInventarioMap.ts).
  *
+ * Fluxo: rode o .sql gerado no Supabase primeiro; o app lê descrição/unidade de "Todos os Produtos".
+ *
  * Rode: node scripts/gen-upsert-todos-produtos-armazem-88.mjs
  */
 import fs from 'node:fs'

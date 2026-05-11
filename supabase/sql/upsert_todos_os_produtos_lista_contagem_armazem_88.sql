@@ -1,6 +1,11 @@
 -- Upsert dos 88 produtos da lista oficial de contagem armazém (1ª–4ª contagem).
 -- Alinha com frontend/src/lib/armazemInventarioMap.ts (mesmos códigos e ordem de rota).
 --
+-- ORDEM CORRETA NO PROCESSO:
+--   1) Rode ESTE script no Supabase (SQL Editor) para gravar descrição/unidade em public."Todos os Produtos".
+--   2) No app, use "Atualizar cadastro" (se existir) e depois "Carregar lista" no modo armazém — a checklist
+--      lê descrição e unidade SOMENTE do cadastro no banco, não de lista embutida no front.
+--
 -- O que faz:
 --   • Atualiza descricao (e unidade/unidade_medida, se a coluna existir) para os códigos desta lista.
 --   • Insere linhas que ainda não existem em public."Todos os Produtos".

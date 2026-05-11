@@ -35,7 +35,6 @@ import {
   getArmazemPos,
   listArmazemContagemCodigosOrdered,
 } from '../lib/armazemInventarioMap'
-import { getArmazemListaOficialMeta } from '../lib/armazemListaOficial'
 import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
 import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
@@ -2222,18 +2221,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           rowsByNorm.set(k, arr)
         }
         const PLACEHOLDER_CADASTRO =
-          '(Código ausente em "Todos os Produtos" — cadastre-o no cadastro para descrição/unidade/EAN corretos.)'
-        const rebuilt: Array<{ codigo_interno: string; descricao: string; unidade_medida: string }> = []
+          '(Código ausente em "Todos os Produtos" — rode o SQL de upsert no Supabase ou cadastre o código; depois use Atualizar cadastro / Carregar lista.)'
+        const rebuilt: Array<{ codigo_interno: string; descricao: string }> = []
         for (const { codigo: mapCodigo } of listArmazemContagemCodigosOrdered()) {
-          const oficial = getArmazemListaOficialMeta(mapCodigo)
           const k = normalizeCodigoInternoCompareKey(mapCodigo)
           const bucket = k ? rowsByNorm.get(k) : undefined
-          if (bucket && bucket.length > 0) bucket.shift()
-          rebuilt.push({
-            codigo_interno: mapCodigo,
-            descricao: oficial?.descricao ?? PLACEHOLDER_CADASTRO,
-            unidade_medida: oficial?.unidade ?? '',
-          })
+          const picked = bucket && bucket.length > 0 ? bucket.shift()! : null
+          if (picked) rebuilt.push({ codigo_interno: picked.codigo_interno, descricao: picked.descricao })
+          else rebuilt.push({ codigo_interno: mapCodigo, descricao: PLACEHOLDER_CADASTRO })
         }
         itemsRaw = rebuilt
       } else {
@@ -2265,10 +2260,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             observacao: '',
             data_fabricacao: p?.data_fabricacao ? toDateInputValue(p.data_fabricacao) : '',
             data_validade: p?.data_validade ? toDateInputValue(p.data_validade) : '',
-            unidade_medida:
-              isListModeArmazem(listModeEfetivo) && String((row as { unidade_medida?: string }).unidade_medida ?? '').trim() !== ''
-                ? String((row as { unidade_medida: string }).unidade_medida).trim()
-                : p?.unidade_medida ?? null,
+            unidade_medida: p?.unidade_medida ?? null,
             ean: p?.ean ?? null,
             dun: p?.dun ?? null,
           })
