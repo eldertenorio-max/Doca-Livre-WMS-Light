@@ -130,6 +130,20 @@ const ARMAZEM_POS_BY_CODIGO = (() => {
   return m
 })()
 
+/** Códigos do mapa armazém na ordem oficial (apenas grupos 1–4). */
+export function listArmazemContagemCodigosOrdered(): ReadonlyArray<{ grupo: number; pos: number; codigo: string }> {
+  const out: { grupo: number; pos: number; codigo: string }[] = []
+  const map = ARMAZEM_CONTAGEM_CODES as unknown as Record<number, readonly string[]>
+  for (let grupo = 1; grupo <= INVENTARIO_ARMAZEM_NUM_GRUPOS; grupo++) {
+    const codes = map[grupo]
+    if (!Array.isArray(codes)) continue
+    codes.forEach((codigo, pos) => {
+      out.push({ grupo, pos, codigo })
+    })
+  }
+  return out
+}
+
 export function getArmazemContagem(codigo: string): number | null {
   const t = codigo.trim()
   return (

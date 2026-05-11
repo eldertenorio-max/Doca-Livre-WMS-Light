@@ -33,6 +33,7 @@ import {
   getArmazemContagem,
   getArmazemContagemForItem,
   getArmazemPos,
+  listArmazemContagemCodigosOrdered,
 } from '../lib/armazemInventarioMap'
 import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
@@ -2206,18 +2207,35 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       let itemsRaw = await fetchListaChecklistFromDb()
 
       if (isListModeArmazem(listModeEfetivo)) {
-        itemsRaw = itemsRaw.filter((row) => getArmazemContagem(row.codigo_interno) != null)
-        setArmazemMissingCodes([])
+        const missing = itemsRaw.map((it) => it.codigo_interno).filter((codigo) => getArmazemContagem(codigo) === null)
+        setArmazemMissingCodes(missing)
+        if (missing.length > 0) {
+          throw new Error(
+            `Modo armazém não está completo: faltam ${missing.length} código(s) para mapear nos grupos 1–${INVENTARIO_ARMAZEM_NUM_GRUPOS} (armazém). ` +
+              `Ex.: ${missing.slice(0, 10).join(', ')}. ` +
+              `Para continuar (sem "OUTROS"), ajuste o mapeamento no app (armazemInventarioMap.ts).`,
+          )
+        }
 
-        itemsRaw = itemsRaw.slice().sort((a, b) => {
-          const ga = getArmazemContagem(a.codigo_interno) ?? 999
-          const gb = getArmazemContagem(b.codigo_interno) ?? 999
-          if (ga !== gb) return ga - gb
-          const pa = getArmazemPos(a.codigo_interno)
-          const pb = getArmazemPos(b.codigo_interno)
-          if (pa !== pb) return pa - pb
-          return a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR')
-        })
+        const rowsByNorm = new Map<string, { codigo_interno: string; descricao: string }[]>()
+        for (const row of itemsRaw) {
+          const k = normalizeCodigoInternoCompareKey(row.codigo_interno)
+          if (!k) continue
+          const arr = rowsByNorm.get(k) ?? []
+          arr.push({ codigo_interno: row.codigo_interno, descricao: row.descricao })
+          rowsByNorm.set(k, arr)
+        }
+        const PLACEHOLDER_CADASTRO =
+          '(Código ausente em "Todos os Produtos" — cadastre-o no cadastro para descrição/unidade/EAN corretos.)'
+        const rebuilt: Array<{ codigo_interno: string; descricao: string }> = []
+        for (const { codigo: mapCodigo } of listArmazemContagemCodigosOrdered()) {
+          const k = normalizeCodigoInternoCompareKey(mapCodigo)
+          const bucket = k ? rowsByNorm.get(k) : undefined
+          const picked = bucket && bucket.length > 0 ? bucket.shift()! : null
+          if (picked) rebuilt.push(picked)
+          else rebuilt.push({ codigo_interno: mapCodigo, descricao: PLACEHOLDER_CADASTRO })
+        }
+        itemsRaw = rebuilt
       } else {
         setArmazemMissingCodes([])
       }
@@ -4135,21 +4153,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       ? offlineSession.items.some((it) => getArmazemContagemForItem(it) === null)
       : false
 
-  /** Armazém (contagem diária e inventário 3×): ordem canônica do mapa + repetições, mesmo após merge/filtros. */
-  const checklistItemsArmazemOrdenados =
-    offlineSession?.status === 'aberta' &&
-    isListModeArmazem(offlineSession.listMode) &&
-    !armazemModoIncompleto
-      ? [...filteredChecklistItems].sort(compareInventarioPlanilhaItens)
-      : filteredChecklistItems
-
   const checklistDisplayItems: ChecklistDisplayItem[] =
     offlineSession?.status === 'aberta' && isListModeArmazem(offlineSession.listMode) && !armazemModoIncompleto
       ? (() => {
           const out: ChecklistDisplayItem[] = []
           let lastContagem: number | null = null
           let hdrSeq = 0
-          for (const it of checklistItemsArmazemOrdenados) {
+          for (const it of filteredChecklistItems) {
             const contagem = getArmazemContagemForItem(it)
             if (contagem === null) continue // deveria não acontecer (validação na carga)
             if (contagem !== lastContagem) {
@@ -4177,7 +4187,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     ? [...INVENTARIO_ARMAZEM_GRUPO_IDS]
         .map((contagem) => ({
           contagem,
-          items: checklistItemsArmazemOrdenados.filter((it) => getArmazemContagemForItem(it) === contagem),
+          items: filteredChecklistItems.filter((it) => getArmazemContagemForItem(it) === contagem),
         }))
     : []
 
