@@ -2204,14 +2204,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
       }
 
-      type ChecklistLoadRow = { codigo_interno: string; descricao: string }
-      let checklistLoadRows: Array<{ row: ChecklistLoadRow; foraDoMapaArmazem: boolean }> = []
-      let armazemForaDoMapaCount = 0
-
-      const itemsRaw = await fetchListaChecklistFromDb()
+      const catalogListaInicial = await fetchListaChecklistFromDb()
+      let itemsRaw: Array<{ codigo_interno: string; descricao: string }> = catalogListaInicial
 
       if (isListModeArmazem(listModeEfetivo)) {
-        const catalogAll = itemsRaw.slice()
+        const catalogAll = catalogListaInicial.slice()
         const missing = catalogAll.map((it) => it.codigo_interno).filter((codigo) => getArmazemContagem(codigo) === null)
         setArmazemMissingCodes(missing)
 
@@ -2225,7 +2222,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
         const PLACEHOLDER_CADASTRO =
           '(Código ausente em "Todos os Produtos" — cadastre-o no cadastro para descrição/unidade/EAN corretos.)'
-        const rebuilt: ChecklistLoadRow[] = []
+        const rebuilt: Array<{ codigo_interno: string; descricao: string }> = []
         for (const { codigo: mapCodigo } of listArmazemContagemCodigosOrdered()) {
           const k = normalizeCodigoInternoCompareKey(mapCodigo)
           const bucket = k ? rowsByNorm.get(k) : undefined
@@ -2233,38 +2230,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           if (picked) rebuilt.push(picked)
           else rebuilt.push({ codigo_interno: mapCodigo, descricao: PLACEHOLDER_CADASTRO })
         }
-
-        const extrasDedup: ChecklistLoadRow[] = []
-        const seenExtraNorm = new Set<string>()
-        for (const row of catalogAll) {
-          if (getArmazemContagem(row.codigo_interno) != null) continue
-          const kn = normalizeCodigoInternoCompareKey(row.codigo_interno)
-          if (!kn || seenExtraNorm.has(kn)) continue
-          seenExtraNorm.add(kn)
-          extrasDedup.push({ codigo_interno: row.codigo_interno, descricao: row.descricao })
-        }
-        extrasDedup.sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR'))
-        checklistLoadRows = [
-          ...rebuilt.map((row) => ({ row, foraDoMapaArmazem: false })),
-          ...extrasDedup.map((row) => ({ row, foraDoMapaArmazem: true })),
-        ]
+        itemsRaw = rebuilt
       } else {
         setArmazemMissingCodes([])
-        checklistLoadRows = itemsRaw.map((row) => ({ row, foraDoMapaArmazem: false }))
       }
 
       if (!inventario) {
-        checklistLoadRows = checklistLoadRows.filter(
-          ({ row }) => !CONTAGEM_DIARIA_EXCLUIR_DA_LISTA.has(normalizeCodigoInternoCompareKey(row.codigo_interno)),
+        itemsRaw = itemsRaw.filter(
+          (row) => !CONTAGEM_DIARIA_EXCLUIR_DA_LISTA.has(normalizeCodigoInternoCompareKey(row.codigo_interno)),
         )
       }
 
-      if (isListModeArmazem(listModeEfetivo)) {
-        armazemForaDoMapaCount = checklistLoadRows.filter((x) => x.foraDoMapaArmazem).length
-      }
-
       let items: OfflineChecklistItem[] = []
-      checklistLoadRows.forEach(({ row, foraDoMapaArmazem }, index) => {
+      itemsRaw.forEach((row, index) => {
         const p = lookupProductOptionByCodigo(row.codigo_interno.trim(), productByCode, productByCodeNoDots)
         const repeticoes = inventario ? ([1, 2, 3] as const) : ([1] as const)
         repeticoes.forEach((rep) => {
@@ -2285,7 +2263,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             unidade_medida: p?.unidade_medida ?? null,
             ean: p?.ean ?? null,
             dun: p?.dun ?? null,
-            ...(isListModeArmazem(listModeEfetivo) && foraDoMapaArmazem ? { armazem_grupo: 4 as const } : {}),
           })
         })
       })
@@ -2315,24 +2292,20 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
       setOfflineSession(sess)
       saveOfflineSession(sess, sessionMode)
-      const msgArmazemNovosCadastro =
-        isListModeArmazem(listModeEfetivo) && armazemForaDoMapaCount > 0
-          ? ` ${armazemForaDoMapaCount} produto(s) do cadastro (fora do mapa oficial) foram incluídos no fim da 4ª contagem, com quantidade em branco.`
-          : ''
       setSaveSuccess(
         inventario
-          ? `Lista de inventário: ${items.length} linhas (${checklistLoadRows.length} produtos × 3 contagens)${
+          ? `Lista de inventário: ${items.length} linhas (${itemsRaw.length} produtos × 3 contagens)${
               isListModeArmazem(listModeEfetivo)
                 ? listModeEfetivo === 'planilha'
                   ? ', formato planilha (CAMARA/RUA, abas por grupo)'
                   : ', ordem armazém (grupos 1ª–4ª contagem)'
                 : ''
-            }.${msgArmazemNovosCadastro} Preencha as quantidades e finalize.`
+            }. Preencha as quantidades e finalize.`
           : `Lista carregada: ${items.length} itens.${
               preenchidosDoBanco > 0
                 ? ` ${preenchidosDoBanco} linha(s) já preenchida(s) com o que está no banco hoje (última gravação por código, todos os conferentes).`
                 : ''
-            }${msgArmazemNovosCadastro} Preencha as quantidades e finalize quando terminar.`,
+            } Preencha as quantidades e finalize quando terminar.`,
       )
       if (!inventario && forceZero) {
         setStartFreshNotice(
