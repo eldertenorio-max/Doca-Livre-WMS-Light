@@ -992,6 +992,7 @@ export default function RelatorioContagem({
       return inv
     }
     let grouped = prepararContagemDiariaOficialListaUnicaPorProduto(filtered as ContagemRow[]) as ContagemRow[]
+    grouped = grouped.filter((r) => getArmazemContagem(r.codigo_interno) != null)
 
     // Alinha o nome da coluna Conferente com a view oficial de itens do painel.
     try {
