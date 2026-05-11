@@ -1,5 +1,6 @@
--- Upsert dos 88 produtos da lista oficial de contagem armazém (1ª–4ª contagem).
+-- Upsert da lista oficial de contagem armazém (1ª–4ª contagem).
 -- Alinha com frontend/src/lib/armazemInventarioMap.ts (mesmos códigos e ordem de rota).
+-- Total na planilha: 88 códigos distintos (confira no gerador scripts/gen-upsert-todos-produtos-armazem-88.mjs).
 --
 -- ORDEM CORRETA NO PROCESSO:
 --   1) Rode ESTE script no Supabase (SQL Editor) para gravar descrição/unidade em public."Todos os Produtos".
@@ -9,7 +10,8 @@
 -- O que faz:
 --   • Atualiza descricao (e unidade/unidade_medida, se a coluna existir) para os códigos desta lista.
 --   • Insere linhas que ainda não existem em public."Todos os Produtos".
---   • NÃO remove outros produtos fora desta lista (diferente de sync_todos_os_produtos_lista.sql).
+--   • Remove do cadastro apenas os códigos em REMOVED_FROM_LIST no gerador (lista vazia = não apaga nada).
+--   • Não apaga outros produtos do cadastro que nunca estiveram nesta lista.
 --
 -- Rode no Supabase: SQL Editor → Run (recomendado dentro de begin/commit já abaixo).
 
@@ -112,7 +114,7 @@ insert into _stg_armazem88 (codigo_interno, descricao, unidade) values
   ('02.03.1017', 'MASSA CONGELADA DE FORROZINHO COM CREME E COCO CAIXA 4X2,5KG 10KG', 'CX'),
   ('01.04.0058', 'MASSA CONGELADA DE PÃO DE QUEIJO TRAD. PEQUENO- CX 10 KG- 5UN DE 2 KG', 'CX'),
   ('01.04.0062', 'MASSA CONGELADA DE PÃO DE QUEIJO TRADICIONAL GRANDE - CX 10 KG - 5 UN DE 2 KG', 'CX'),
-  ('01.04.0067', 'MASSA CONGELADA DE PAO DE QUEIJO RECHEADO COM GOIABADA - CX 10 KG - 5 UN DE 2 KG', 'CX'),
+  ('01.04.0067', 'MASSA CONGELADA DE PAO DE QUEIJO RECHEADO COM GOIABADA - CX 10 KG – 5 UN DE 2 KG', 'CX'),
   ('01.04.0060', 'MASSA CONGELADA DE PAO DE QUEIJO RECHEADO COM REQUEIJAO - CX 10 KG - 5 UN DE 2 KG', 'CX'),
   ('01.04.0068', 'MASSA CONGELADA DE PÃO DE QUEIJO COQUETEL EMPANADO - CX 10KG - 5 UN', 'CX'),
   ('01.04.0061', 'MASSA CONGELADA DE CHIPA TRADICIONAL - CX 10 KG - 5 UN DE 2 KG', 'CX');
@@ -183,6 +185,11 @@ begin
     );
   end if;
 end $$;
+
+-- Saíram da lista oficial (editar REMOVED_FROM_LIST no gerador). ARRAY vazio = não remove linhas.
+-- Pode falhar se outra tabela tiver FK para o produto.
+delete from public."Todos os Produtos" t
+where trim(both from t.codigo_interno) = any (ARRAY[]::text[]);
 
 commit;
 

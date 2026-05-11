@@ -1,8 +1,11 @@
 /**
  * Gera supabase/sql/upsert_todos_os_produtos_lista_contagem_armazem_88.sql
- * a partir dos 88 códigos da lista armazém (mesma ordem que armazemInventarioMap.ts).
+ * a partir de ROWS (mesma ordem que frontend/src/lib/armazemInventarioMap.ts).
  *
  * Fluxo: rode o .sql gerado no Supabase primeiro; o app lê descrição/unidade de "Todos os Produtos".
+ *
+ * REMOVED_FROM_LIST: códigos que saíram da lista oficial — são apagados de "Todos os Produtos"
+ * (pode falhar se houver FK de outra tabela para o produto).
  *
  * Rode: node scripts/gen-upsert-todos-produtos-armazem-88.mjs
  */
@@ -11,6 +14,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+/** Códigos que deixaram de existir na rota oficial (trim igual ao cadastro). */
+const REMOVED_FROM_LIST = []
 
 /** Ordem = grupos 1–4 em armazemInventarioMap.ts; descrição/unidade = lista enviada ao app. */
 const ROWS = [
@@ -98,7 +104,7 @@ const ROWS = [
   ['02.03.1017', 'MASSA CONGELADA DE FORROZINHO COM CREME E COCO CAIXA 4X2,5KG 10KG', 'CX'],
   ['01.04.0058', 'MASSA CONGELADA DE PÃO DE QUEIJO TRAD. PEQUENO- CX 10 KG- 5UN DE 2 KG', 'CX'],
   ['01.04.0062', 'MASSA CONGELADA DE PÃO DE QUEIJO TRADICIONAL GRANDE - CX 10 KG - 5 UN DE 2 KG', 'CX'],
-  ['01.04.0067', 'MASSA CONGELADA DE PAO DE QUEIJO RECHEADO COM GOIABADA - CX 10 KG - 5 UN DE 2 KG', 'CX'],
+  ['01.04.0067', 'MASSA CONGELADA DE PAO DE QUEIJO RECHEADO COM GOIABADA - CX 10 KG – 5 UN DE 2 KG', 'CX'],
   ['01.04.0060', 'MASSA CONGELADA DE PAO DE QUEIJO RECHEADO COM REQUEIJAO - CX 10 KG - 5 UN DE 2 KG', 'CX'],
   ['01.04.0068', 'MASSA CONGELADA DE PÃO DE QUEIJO COQUETEL EMPANADO - CX 10KG - 5 UN', 'CX'],
   ['01.04.0061', 'MASSA CONGELADA DE CHIPA TRADICIONAL - CX 10 KG - 5 UN DE 2 KG', 'CX'],
@@ -108,22 +114,29 @@ function sqlStr(s) {
   return String(s).replace(/'/g, "''")
 }
 
-if (ROWS.length !== 88) {
-  console.error('Esperado 88 linhas, tem', ROWS.length)
-  process.exit(1)
-}
-
 const values = ROWS.map(
   ([c, d, u]) => `  ('${sqlStr(c)}', '${sqlStr(d)}', '${sqlStr(u)}')`,
 ).join(',\n')
 
-const header = `-- Upsert dos 88 produtos da lista oficial de contagem armazém (1ª–4ª contagem).
+const removedArraySql =
+  REMOVED_FROM_LIST.length > 0
+    ? `ARRAY[${REMOVED_FROM_LIST.map((c) => `'${sqlStr(c)}'`).join(', ')}]::text[]`
+    : 'ARRAY[]::text[]'
+
+const header = `-- Upsert da lista oficial de contagem armazém (1ª–4ª contagem).
 -- Alinha com frontend/src/lib/armazemInventarioMap.ts (mesmos códigos e ordem de rota).
+-- Total na planilha: ${ROWS.length} códigos distintos (confira no gerador scripts/gen-upsert-todos-produtos-armazem-88.mjs).
+--
+-- ORDEM CORRETA NO PROCESSO:
+--   1) Rode ESTE script no Supabase (SQL Editor) para gravar descrição/unidade em public."Todos os Produtos".
+--   2) No app, use "Atualizar cadastro" (se existir) e depois "Carregar lista" no modo armazém — a checklist
+--      lê descrição e unidade SOMENTE do cadastro no banco, não de lista embutida no front.
 --
 -- O que faz:
 --   • Atualiza descricao (e unidade/unidade_medida, se a coluna existir) para os códigos desta lista.
 --   • Insere linhas que ainda não existem em public."Todos os Produtos".
---   • NÃO remove outros produtos fora desta lista (diferente de sync_todos_os_produtos_lista.sql).
+--   • Remove do cadastro apenas os códigos em REMOVED_FROM_LIST no gerador (lista vazia = não apaga nada).
+--   • Não apaga outros produtos do cadastro que nunca estiveram nesta lista.
 --
 -- Rode no Supabase: SQL Editor → Run (recomendado dentro de begin/commit já abaixo).
 
@@ -213,6 +226,11 @@ begin
   end if;
 end $$;
 
+-- Saíram da lista oficial (editar REMOVED_FROM_LIST no gerador). ARRAY vazio = não remove linhas.
+-- Pode falhar se outra tabela tiver FK para o produto.
+delete from public."Todos os Produtos" t
+where trim(both from t.codigo_interno) = any (${removedArraySql});
+
 commit;
 
 -- Conferência (opcional): filtre por um código, ex. 01.04.0007, e confira descricao/unidade.
@@ -220,4 +238,4 @@ commit;
 
 const outPath = path.join(__dirname, '../supabase/sql/upsert_todos_os_produtos_lista_contagem_armazem_88.sql')
 fs.writeFileSync(outPath, header + body, 'utf8')
-console.log('Gerado:', outPath, 'linhas ROWS:', ROWS.length)
+console.log('Gerado:', outPath, 'linhas ROWS:', ROWS.length, 'removidos:', REMOVED_FROM_LIST.length)
