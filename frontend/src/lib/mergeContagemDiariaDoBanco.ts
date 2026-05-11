@@ -143,19 +143,38 @@ export async function mergeContagensDiariasDoDiaParaItems(
   const ids = [...new Set([...porChave.values()].map((s) => s.conferente_id).filter(Boolean))]
   const nomesPorId = await fetchConferentesNomesPorIds(ids)
 
+  /** Fallback quando a descrição na checklist (ex.: texto oficial do armazém) difere da gravada no banco. */
+  const porCodigoNorm = new Map<string, RowSnapshot>()
+  for (const [key, snap] of porChave) {
+    const codeNorm = String(key.split('|')[1] ?? '').trim().toLowerCase()
+    if (!codeNorm) continue
+    const prev = porCodigoNorm.get(codeNorm)
+    if (
+      !prev ||
+      contagemLinhaAVenceB(
+        { data_hora_contagem: snap.data_hora_contagem, id: snap.contagensRowId },
+        { data_hora_contagem: prev.data_hora_contagem, id: prev.contagensRowId },
+      )
+    ) {
+      porCodigoNorm.set(codeNorm, snap)
+    }
+  }
+
   let preenchidos = 0
   const ymd = String(dataContagemYmd ?? '').trim()
   const next = items.map((it) => {
     if (skipKeys?.has(it.key)) {
       const kSkip = contagemDiariaChaveProdutoDia(ymd, String(it.codigo_interno ?? ''), String(it.descricao ?? ''))
-      const snapSkip = porChave.get(kSkip)
+      const snapSkip = porChave.get(kSkip) ?? porCodigoNorm.get(normalizeCodigoInternoCompareKey(String(it.codigo_interno ?? '')).toLowerCase())
       if (!snapSkip) return { ...it }
       const nomeUltimo =
         nomesPorId.get(snapSkip.conferente_id)?.trim() || snapSkip.conferente_id
       return { ...it, contagem_banco_ultimo_conferente_nome: nomeUltimo }
     }
     const k = contagemDiariaChaveProdutoDia(ymd, String(it.codigo_interno ?? ''), String(it.descricao ?? ''))
-    const snap = porChave.get(k)
+    const snap =
+      porChave.get(k) ??
+      porCodigoNorm.get(normalizeCodigoInternoCompareKey(String(it.codigo_interno ?? '')).toLowerCase())
     if (!snap) {
       return { ...it, contagem_banco_ultimo_conferente_nome: undefined }
     }
