@@ -4142,13 +4142,21 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       ? offlineSession.items.some((it) => getArmazemContagemForItem(it) === null)
       : false
 
+  /** Armazém (contagem diária e inventário 3×): ordem canônica do mapa + repetições, mesmo após merge/filtros. */
+  const checklistItemsArmazemOrdenados =
+    offlineSession?.status === 'aberta' &&
+    isListModeArmazem(offlineSession.listMode) &&
+    !armazemModoIncompleto
+      ? [...filteredChecklistItems].sort(compareInventarioPlanilhaItens)
+      : filteredChecklistItems
+
   const checklistDisplayItems: ChecklistDisplayItem[] =
     offlineSession?.status === 'aberta' && isListModeArmazem(offlineSession.listMode) && !armazemModoIncompleto
       ? (() => {
           const out: ChecklistDisplayItem[] = []
           let lastContagem: number | null = null
           let hdrSeq = 0
-          for (const it of filteredChecklistItems) {
+          for (const it of checklistItemsArmazemOrdenados) {
             const contagem = getArmazemContagemForItem(it)
             if (contagem === null) continue // deveria não acontecer (validação na carga)
             if (contagem !== lastContagem) {
@@ -4176,7 +4184,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     ? [...INVENTARIO_ARMAZEM_GRUPO_IDS]
         .map((contagem) => ({
           contagem,
-          items: filteredChecklistItems.filter((it) => getArmazemContagemForItem(it) === contagem),
+          items: checklistItemsArmazemOrdenados.filter((it) => getArmazemContagemForItem(it) === contagem),
         }))
     : []
 

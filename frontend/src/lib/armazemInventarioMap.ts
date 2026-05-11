@@ -156,11 +156,10 @@ export function getArmazemContagemForItem(it: OfflineChecklistItem): number | nu
 }
 
 /**
- * Ordem canônica das linhas dentro de cada aba (grupo) — a mesma usada em POS/Nível ao finalizar
- * (`buildPlanilhaLayoutPorItens` → `inventario_planilha_linhas`).
+ * Ordem canônica: grupo armazém (1ª–4ª contagem), posição no mapa, código e (no inventário) 1ª–3ª repetição.
+ * Usada em POS/Nível ao finalizar (`buildPlanilhaLayoutPorItens` → `inventario_planilha_linhas`) e na checklist.
  *
- * Sem `planilha_ordem_na_aba` (lista armazém), a ordem **não** é alfabética: segue a ordem do mapa
- * (`getArmazemPos`), igual ao `sort` do carregamento da lista em ContagemEstoque.
+ * Sem `planilha_ordem_na_aba` (lista armazém), não é ordem alfabética pura: segue `ARMAZEM_CONTAGEM_CODES`.
  */
 export function compareInventarioPlanilhaItens(a: OfflineChecklistItem, b: OfflineChecklistItem): number {
   const oa = a.planilha_ordem_na_aba
@@ -168,6 +167,12 @@ export function compareInventarioPlanilhaItens(a: OfflineChecklistItem, b: Offli
   if (oa != null && ob != null && oa !== ob) return oa - ob
   if (oa != null && ob == null) return -1
   if (oa == null && ob != null) return 1
+  /** `getArmazemPos` é só a posição dentro do grupo; sem comparar o grupo, 1ª posições de abas diferentes ficam “misturadas”. */
+  const ga = getArmazemContagemForItem(a)
+  const gb = getArmazemContagemForItem(b)
+  if (ga != null && gb != null && ga !== gb) return ga - gb
+  if (ga != null && gb == null) return -1
+  if (ga == null && gb != null) return 1
   const pa = getArmazemPos(a.codigo_interno)
   const pb = getArmazemPos(b.codigo_interno)
   if (pa !== pb) return pa - pb
