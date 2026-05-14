@@ -2074,7 +2074,11 @@ export default function RelatorioContagem({
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  const y = e.target.value
+                  setStartDate(y)
+                  if (!allTime && !useSingleDay && y > endDate) setEndDate(y)
+                }}
                 disabled={allTime || useSingleDay}
                 style={relToolbarInputStyle}
               />
@@ -2090,7 +2094,11 @@ export default function RelatorioContagem({
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(e) => {
+                  const y = e.target.value
+                  setEndDate(y)
+                  if (!allTime && !useSingleDay) setSingleDay(y)
+                }}
                 disabled={allTime || useSingleDay}
                 style={relToolbarInputStyle}
               />
@@ -2166,6 +2174,8 @@ export default function RelatorioContagem({
                       setAllTime(false)
                       setStartDate(singleDay)
                       setEndDate(singleDay)
+                    } else {
+                      setSingleDay(endDate)
                     }
                   }}
                 />
@@ -2179,14 +2189,24 @@ export default function RelatorioContagem({
                   onChange={(e) => {
                     const y = e.target.value
                     setSingleDay(y)
+                    if (allTime) return
                     if (useSingleDay) {
                       setStartDate(y)
                       setEndDate(y)
+                    } else {
+                      setEndDate(y)
+                      if (startDate > y) setStartDate(y)
                     }
                   }}
                   disabled={allTime}
                   style={relToolbarInputStyle}
-                  title={allTime ? 'Desmarque “Carregar todas as datas” para escolher um dia.' : 'Data usada ao carregar só este dia.'}
+                  title={
+                    allTime
+                      ? 'Desmarque “Carregar todas as datas” para escolher um dia.'
+                      : useSingleDay
+                        ? 'Data usada ao carregar só este dia.'
+                        : 'Altera a data Fim do período (texto do botão Carregar acompanha).'
+                  }
                 />
               </label>
             </div>
