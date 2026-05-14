@@ -85,6 +85,17 @@ function formatDateBRFromYmd(ymd: string | null | undefined): string {
   return formatDateBR(String(ymd).slice(0, 10))
 }
 
+/**
+ * Nome de aba Excel alinhado ao calendário BR (dia-mês-ano), com hífens — o mesmo dia de `formatDateBRFromYmd` (DD/MM/AAAA).
+ * Excel não permite `/` no título da aba.
+ */
+function ymdIsoParaAbaNomeDdMmYyyy(ymd: string): string {
+  const s = String(ymd).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.replace(/[/\\?*[\]:']/g, '-').slice(0, 31)
+  const [y, m, d] = s.split('-')
+  return `${d}-${m}-${y}`
+}
+
 /** Timestamp válido de `data_hora_contagem` ou null. */
 function tsFromDataHoraContagem(iso: string | null | undefined): number | null {
   if (!iso || !String(iso).trim()) return null
@@ -441,7 +452,7 @@ export default function RelatorioContagem({
     return `${formatDateBR(startDate)} a ${formatDateBR(endDate)}`
   }, [allTime, useSingleDay, singleDay, startDate, endDate])
 
-  /** Nome da aba no .xlsx: reflete o filtro de datas (Excel: máx. 31 caracteres; sem \ / ? * : [ ]). */
+  /** Nome da aba no .xlsx: datas em dia-mês-ano com hífens (ex.: 14-05-2026), limite 31 caracteres do Excel. */
   const relatorioExcelSheetName = useMemo(() => {
     const max = 31
     const strip = (s: string) =>
@@ -457,9 +468,9 @@ export default function RelatorioContagem({
     }
     const prefix = useInventarioCols ? 'Inv_' : ''
     if (allTime) return base(`${prefix}Todas_as_datas`)
-    if (useSingleDay) return base(`${prefix}${singleDay}`)
-    if (startDate === endDate) return base(`${prefix}${startDate}`)
-    return base(`${prefix}${startDate}_${endDate}`)
+    if (useSingleDay) return base(`${prefix}${ymdIsoParaAbaNomeDdMmYyyy(singleDay)}`)
+    if (startDate === endDate) return base(`${prefix}${ymdIsoParaAbaNomeDdMmYyyy(startDate)}`)
+    return base(`${prefix}${ymdIsoParaAbaNomeDdMmYyyy(startDate)}_${ymdIsoParaAbaNomeDdMmYyyy(endDate)}`)
   }, [useInventarioCols, allTime, useSingleDay, singleDay, startDate, endDate])
 
   /** Um único dia civil no filtro (inclui início = fim sem “Filtrar por dia”). */
@@ -1604,7 +1615,7 @@ export default function RelatorioContagem({
       return a.localeCompare(b)
     })
     return keys.map((k) => ({
-      abaNome: k === '__SEMDATA__' ? 'Sem_data' : k,
+      abaNome: k === '__SEMDATA__' ? 'Sem_data' : ymdIsoParaAbaNomeDdMmYyyy(k),
       rows: map.get(k)!,
     }))
   }
