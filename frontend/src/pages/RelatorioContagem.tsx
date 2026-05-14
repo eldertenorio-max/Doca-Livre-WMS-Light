@@ -2162,18 +2162,33 @@ export default function RelatorioContagem({
                   onChange={(e) => {
                     const v = e.target.checked
                     setUseSingleDay(v)
-                    if (v) setAllTime(false)
+                    if (v) {
+                      setAllTime(false)
+                      setStartDate(singleDay)
+                      setEndDate(singleDay)
+                    }
                   }}
                 />
                 Filtrar por dia
               </label>
-              <input
-                type="date"
-                value={singleDay}
-                onChange={(e) => setSingleDay(e.target.value)}
-                disabled={!useSingleDay}
-                style={relToolbarInputStyle}
-              />
+              <label style={{ ...relToolbarLabelStyle, marginBottom: 0 }}>
+                Dia
+                <input
+                  type="date"
+                  value={singleDay}
+                  onChange={(e) => {
+                    const y = e.target.value
+                    setSingleDay(y)
+                    if (useSingleDay) {
+                      setStartDate(y)
+                      setEndDate(y)
+                    }
+                  }}
+                  disabled={allTime}
+                  style={relToolbarInputStyle}
+                  title={allTime ? 'Desmarque “Carregar todas as datas” para escolher um dia.' : 'Data usada ao carregar só este dia.'}
+                />
+              </label>
             </div>
           </div>
 
