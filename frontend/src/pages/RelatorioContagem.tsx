@@ -1588,6 +1588,48 @@ export default function RelatorioContagem({
     return aoa
   }
 
+  /** Uma aba por dia civil (YYYY-MM-DD); sem dia válido vai para `Sem_data`. */
+  function agruparContagemDiariaExportPorData(rows: ContagemRow[]): Array<{ abaNome: string; rows: ContagemRow[] }> {
+    const map = new Map<string, ContagemRow[]>()
+    for (const r of rows) {
+      const y = diaCivilYmdContagemRow(r)
+      const k = y ?? '__SEMDATA__'
+      const arr = map.get(k)
+      if (arr) arr.push(r)
+      else map.set(k, [r])
+    }
+    const keys = [...map.keys()].sort((a, b) => {
+      if (a === '__SEMDATA__') return 1
+      if (b === '__SEMDATA__') return -1
+      return a.localeCompare(b)
+    })
+    return keys.map((k) => ({
+      abaNome: k === '__SEMDATA__' ? 'Sem_data' : k,
+      rows: map.get(k)!,
+    }))
+  }
+
+  function workbookContagemDiariaComAbasPorData(rows: ContagemRow[]) {
+    const wb = XLSX.utils.book_new()
+    const grupos = agruparContagemDiariaExportPorData(rows)
+    const used = new Set<string>()
+    for (const g of grupos) {
+      let nome = g.abaNome.replace(/[/\\?*[\]:']/g, '-').trim() || 'Sem_data'
+      nome = nome.slice(0, 31)
+      let final = nome
+      let suf = 2
+      while (used.has(final)) {
+        const suffix = `_${suf}`
+        final = (nome.slice(0, Math.max(1, 31 - suffix.length)) + suffix).slice(0, 31)
+        suf++
+      }
+      used.add(final)
+      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(g.rows))
+      XLSX.utils.book_append_sheet(wb, ws, final)
+    }
+    return wb
+  }
+
   async function exportToExcel(opts?: { skipPendenciaCheck?: boolean }) {
     setExportExcelLoading(true)
     setError('')
@@ -1631,9 +1673,7 @@ export default function RelatorioContagem({
         }
         // Usa a mesma regra da listagem (inclui alinhamento com v_contagem_diaria_itens_painel).
         const sorted = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
-        const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(sorted))
-        const wb = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(wb, ws, relatorioExcelSheetName)
+        const wb = workbookContagemDiariaComAbasPorData(sorted)
         const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
         XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
         return
@@ -1644,9 +1684,15 @@ export default function RelatorioContagem({
         setError('Nenhum registro no período para exportar.')
         return
       }
-      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(exportRows))
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, relatorioExcelSheetName)
+      if (useInventarioCols) {
+        const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(exportRows))
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, relatorioExcelSheetName)
+        const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
+        XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
+        return
+      }
+      const wb = workbookContagemDiariaComAbasPorData(exportRows)
       const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
       XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
     } catch (e: unknown) {
