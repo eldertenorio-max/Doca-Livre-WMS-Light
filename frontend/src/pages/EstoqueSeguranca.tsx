@@ -2,6 +2,9 @@ import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { ComparativoLinhasSvgChart, type SvgChartSeries } from '../components/ComparativoLinhasSvgChart'
+import ControleShelfLifePanel from '../components/ControleShelfLifePanel'
+
+type EstoqueSegurancaAba = 'estoque' | 'shelf_life'
 
 const SHEET_ID = '1KBDdsl4GeQL97mAvJS_J7uf0a6M7LRr0fHtPZE_QFhU'
 const SHEET_GID = '1626679618'
@@ -496,6 +499,7 @@ export default function EstoqueSeguranca() {
   const [painelAlertasAberto, setPainelAlertasAberto] = useState(false)
   const [filtroPainelAlerta, setFiltroPainelAlerta] = useState<FiltroPainelAlerta>('todos')
   const [filtroGlobal, setFiltroGlobal] = useState<GraficoFiltro>(null)
+  const [abaAtiva, setAbaAtiva] = useState<EstoqueSegurancaAba>('estoque')
 
   useEffect(() => {
     let alive = true
@@ -679,7 +683,7 @@ export default function EstoqueSeguranca() {
         }}
       >
         <h2 style={{ margin: 0, textAlign: 'center' }}>Estoque de Seguranca</h2>
-        {!loading && !error ? (
+        {abaAtiva === 'estoque' && !loading && !error ? (
           <>
             <button
               type="button"
@@ -711,7 +715,44 @@ export default function EstoqueSeguranca() {
         ) : null}
       </div>
 
-      {painelAlertasAberto ? (
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, justifyContent: 'center' }}>
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('estoque')}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: `1px solid ${abaAtiva === 'estoque' ? '#2dd4bf' : 'var(--border, #2e303a)'}`,
+            background: abaAtiva === 'estoque' ? '#2dd4bf' : 'transparent',
+            color: abaAtiva === 'estoque' ? '#042f2e' : '#2dd4bf',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Estoque de segurança
+        </button>
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('shelf_life')}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: `1px solid ${abaAtiva === 'shelf_life' ? '#f97316' : 'var(--border, #2e303a)'}`,
+            background: abaAtiva === 'shelf_life' ? '#f97316' : 'transparent',
+            color: abaAtiva === 'shelf_life' ? '#431407' : '#fb923c',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Shelf Life
+        </button>
+      </div>
+
+      {abaAtiva === 'shelf_life' ? (
+        <ControleShelfLifePanel />
+      ) : null}
+
+      {abaAtiva === 'estoque' && painelAlertasAberto ? (
         <div
           style={modalOverlay}
           role="dialog"
@@ -862,10 +903,10 @@ export default function EstoqueSeguranca() {
         </div>
       ) : null}
 
-      {loading ? <p style={{ color: '#94a3b8' }}>Carregando planilha...</p> : null}
-      {error ? <div style={errorBox}>{error}</div> : null}
+      {abaAtiva === 'estoque' && loading ? <p style={{ color: '#94a3b8' }}>Carregando planilha...</p> : null}
+      {abaAtiva === 'estoque' && error ? <div style={errorBox}>{error}</div> : null}
 
-      {!loading && !error ? (
+      {abaAtiva === 'estoque' && !loading && !error ? (
         <>
           <div style={{ margin: '0 0 10px 0', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
             <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>Origem: {source}</p>

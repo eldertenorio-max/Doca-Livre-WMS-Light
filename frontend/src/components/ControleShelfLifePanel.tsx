@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import * as XLSX from 'xlsx'
+import { ComparativoLinhasSvgChart, type SvgChartSeries } from './ComparativoLinhasSvgChart'
 import { fetchGoogleSheetCsv, parseGoogleSheetsCsv } from '../lib/googleSheetsCsv'
+
+const CHART_ANIM_CSS = `
+@keyframes contagem-chart-line-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes contagem-chart-area-in {
+  from { opacity: 0; }
+  to { opacity: var(--chart-area-op, 1); }
+}
+`
 
 const SHELF_SHEET_ID = '1EoT2x4MHtAu7bVkuwqxl2swdwqUI7n1Hg2EL9WBNeTk'
 const SHELF_SHEET_NAME = 'CONTROLE SHELF LIFE'
@@ -100,6 +111,34 @@ export function parseControleShelfLifeCsv(csvText: string): { regras: string; ro
 }
 
 const STATUS_FILTERS: Array<'Todos' | ShelfLifeStatus> = ['Todos', 'Verde', 'Amarelo', 'Laranja', 'Vermelho', 'Sem dado']
+const STATUS_GRAFICO: ShelfLifeStatus[] = ['Verde', 'Amarelo', 'Laranja', 'Vermelho', 'Sem dado']
+const SEMAFORO_CORES_GRAFICO = ['#16a34a', '#ca8a04', '#f97316', '#dc2626', '#64748b'] as const
+
+const gridCharts: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  marginBottom: 16,
+  width: '100%',
+}
+
+function parseNumberBR(raw: string): number {
+  const txt = String(raw || '')
+    .trim()
+    .replace(/\./g, '')
+    .replace(',', '.')
+    .replace(/[^\d.-]/g, '')
+  const n = Number(txt)
+  return Number.isFinite(n) ? n : 0
+}
+
+function labelGraficoShelf(r: ShelfLifeRow): string {
+  return r.codigo.trim() || '(sem código)'
+}
+
+function corStatusGrafico(st: ShelfLifeStatus): string {
+  return statusColors(st).fg
+}
 
 function statusColors(st: ShelfLifeStatus): { bg: string; fg: string; rowBg: string } {
   switch (st) {
@@ -173,6 +212,93 @@ export default function ControleShelfLifePanel() {
     })
   }, [rows, filtro, filtroCodigo])
 
+  const rowsGraficos = useMemo(() => {
+    return [...rowsFiltradas].sort((a, b) => {
+      const pa = a.shelfLifePctNum ?? -1
+      const pb = b.shelfLifePctNum ?? -1
+      return pb - pa
+    })
+  }, [rowsFiltradas])
+
+  const labelsGraficos = useMemo(() => rowsGraficos.map(labelGraficoShelf), [rowsGraficos])
+
+  const onGraficoCodigoClick = useCallback((label: string) => {
+    setFiltroCodigo((prev) => (normalize(prev) === normalize(label) ? '' : label))
+    setPage(1)
+  }, [])
+
+  const onGraficoStatusClick = useCallback((label: string) => {
+    const st = STATUS_GRAFICO.find((s) => s === label)
+    if (!st) return
+    setFiltro((prev) => (prev === st ? 'Todos' : st))
+    setPage(1)
+  }, [])
+
+  const chartShelfPctSeries = useMemo<SvgChartSeries[]>(
+    () => [
+      {
+        label: 'Shelf life %',
+        color: '#f97316',
+        values: rowsGraficos.map((r) => r.shelfLifePctNum ?? 0),
+      },
+    ],
+    [rowsGraficos],
+  )
+
+  const chartShelfPctPointColors = useMemo(
+    () => rowsGraficos.map((r) => corStatusGrafico(r.status)),
+    [rowsGraficos],
+  )
+
+  const chartSemaforoSeries = useMemo<SvgChartSeries[]>(() => {
+    const counts: Record<ShelfLifeStatus, number> = {
+      Verde: 0,
+      Amarelo: 0,
+      Laranja: 0,
+      Vermelho: 0,
+      'Sem dado': 0,
+    }
+    rowsFiltradas.forEach((r) => {
+      counts[r.status] += 1
+    })
+    return [
+      {
+        label: 'Quantidade de itens',
+        color: '#94a3b8',
+        values: STATUS_GRAFICO.map((k) => counts[k]),
+      },
+    ]
+  }, [rowsFiltradas])
+
+  const chartDiasSeries = useMemo<SvgChartSeries[]>(
+    () => [
+      {
+        label: 'Dias para vencer',
+        color: '#38bdf8',
+        values: rowsGraficos.map((r) => parseNumberBR(r.diasParaVencer)),
+      },
+      {
+        label: 'Dias de vida',
+        color: '#a78bfa',
+        values: rowsGraficos.map((r) => parseNumberBR(r.diasDeVida)),
+      },
+    ],
+    [rowsGraficos],
+  )
+
+  const chartQuantidadeSeries = useMemo<SvgChartSeries[]>(
+    () => [
+      {
+        label: 'Quantidade',
+        color: '#22c55e',
+        values: rowsGraficos.map((r) => parseNumberBR(r.quantidade)),
+      },
+    ],
+    [rowsGraficos],
+  )
+
+  const temFiltroAtivo = filtro !== 'Todos' || filtroCodigo.trim() !== ''
+
   const alertasCriticos = useMemo(
     () => rows.filter((r) => r.status === 'Vermelho' || r.status === 'Laranja'),
     [rows],
@@ -213,7 +339,9 @@ export default function ControleShelfLifePanel() {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: CHART_ANIM_CSS }} />
+      <div style={{ display: 'grid', gap: 14 }}>
       <div
         style={{
           display: 'flex',
@@ -334,6 +462,109 @@ export default function ControleShelfLifePanel() {
                 }}
               />
             </label>
+          </div>
+
+          {temFiltroAtivo ? (
+            <div
+              style={{
+                marginBottom: 4,
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: '1px solid rgba(249, 115, 22, 0.35)',
+                background: 'rgba(249, 115, 22, 0.1)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 10,
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: 13 }}>
+                Filtro ativo
+                {filtro !== 'Todos' ? (
+                  <>
+                    {' '}
+                    — status <strong>{filtro}</strong>
+                  </>
+                ) : null}
+                {filtroCodigo.trim() ? (
+                  <>
+                    {' '}
+                    — código/descrição <strong>{filtroCodigo}</strong>
+                  </>
+                ) : null}
+                <span style={{ color: '#94a3b8', fontWeight: 400 }}> (clique de novo no gráfico ou botão para limpar)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltro('Todos')
+                  setFiltroCodigo('')
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border, #555)',
+                  background: 'transparent',
+                  color: '#e2e8f0',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                Limpar filtros
+              </button>
+            </div>
+          ) : (
+            <p style={{ margin: '0 0 4px', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
+              Gráficos usam os mesmos dados da planilha. Clique num <strong>ponto</strong> (código no eixo) ou num{' '}
+              <strong>status</strong> no semáforo para filtrar tabela e demais gráficos.
+            </p>
+          )}
+
+          <div style={gridCharts}>
+            <ComparativoLinhasSvgChart
+              title="Semáforo — quantidade por status"
+              subtitle="Altura = quantos itens em cada faixa de shelf life % (regra da planilha). Clique no status para filtrar."
+              xLabels={[...STATUS_GRAFICO]}
+              series={chartSemaforoSeries}
+              hideLegend
+              straightSegments
+              pointFillColors={[...SEMAFORO_CORES_GRAFICO]}
+              yFormat={(v) => String(Math.round(v))}
+              formatTooltipValue={(v) => `${Math.round(v)} item(ns)`}
+              onXClick={onGraficoStatusClick}
+            />
+            <ComparativoLinhasSvgChart
+              title="Shelf life % por produto"
+              subtitle="Ordenado do maior % consumido para o menor. Cor do ponto = status (verde → vermelho). Eixo = código do produto."
+              xLabels={labelsGraficos}
+              series={chartShelfPctSeries}
+              hideLegend
+              yFormat={(v) => `${v.toFixed(1)}%`}
+              formatTooltipValue={(v) => `${v.toFixed(2)}%`}
+              pointFillColors={chartShelfPctPointColors}
+              onXClick={onGraficoCodigoClick}
+            />
+            <ComparativoLinhasSvgChart
+              title="Dias para vencer e dias de vida"
+              subtitle="Por código: dias restantes até o vencimento (azul) e dias de vida já consumidos (roxo), conforme a planilha."
+              xLabels={labelsGraficos}
+              series={chartDiasSeries}
+              yFormat={(v) => String(Math.round(v))}
+              formatTooltipValue={(v) => `${Math.round(v)} dia(s)`}
+              onXClick={onGraficoCodigoClick}
+            />
+            <ComparativoLinhasSvgChart
+              title="Quantidade em estoque"
+              subtitle="Quantidade contada na planilha para cada código (mesmo recorte dos filtros)."
+              xLabels={labelsGraficos}
+              series={chartQuantidadeSeries}
+              hideLegend
+              yFormat={(v) => String(Math.round(v))}
+              formatTooltipValue={(v) => `${Math.round(v)} un.`}
+              onXClick={onGraficoCodigoClick}
+            />
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -472,6 +703,7 @@ export default function ControleShelfLifePanel() {
           </div>
         </>
       ) : null}
-    </div>
+      </div>
+    </>
   )
 }

@@ -11,9 +11,7 @@ import {
   type SVGProps,
 } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import ControleShelfLifePanel from '../components/ControleShelfLifePanel'
-
-type TabKey = 'temperatura' | 'ocupacao' | 'shelf_life'
+type TabKey = 'temperatura' | 'ocupacao'
 
 type Conferente = { id: string; nome: string }
 
@@ -3908,21 +3906,6 @@ export default function ContagemDiariaAmbiental() {
         >
           Ocupação
         </button>
-        <button
-          type="button"
-          onClick={() => setTab('shelf_life')}
-          style={{
-            padding: '10px 14px',
-            borderRadius: 8,
-            border: `1px solid ${tab === 'shelf_life' ? '#f97316' : 'var(--border, #2e303a)'}`,
-            background: tab === 'shelf_life' ? '#f97316' : 'transparent',
-            color: tab === 'shelf_life' ? '#431407' : '#fb923c',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          Shelf Life
-        </button>
       </div>
 
       {ok ? (
@@ -4169,8 +4152,6 @@ export default function ContagemDiariaAmbiental() {
             />
           </div>
         </div>
-      ) : tab === 'shelf_life' ? (
-        <ControleShelfLifePanel />
       ) : (
         <div style={{ display: 'grid', gap: 14 }}>
           <div
