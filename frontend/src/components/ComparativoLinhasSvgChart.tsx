@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode, SVGProps } from 'react'
 import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import ChartInfoTooltip from './ChartInfoTooltip'
 
 /** Mesmas animações / keyframes usados em ContagemDiariaAmbiental (temperatura). */
 const CHART_ANIM_CSS = `
@@ -332,10 +333,8 @@ export function ComparativoLinhasSvgChart({
         >
           {title}
         </div>
+        {subtitle ? <ChartInfoTooltip text={subtitle} /> : null}
       </div>
-      {subtitle ? (
-        <div style={{ fontSize: 11, color: 'var(--chart-caption)', marginBottom: 10, lineHeight: 1.45 }}>{subtitle}</div>
-      ) : null}
       {!chart || !xLabels.length ? (
         <div style={{ fontSize: 13, color: 'var(--text, #9ca3af)' }}>{emptyMessage}</div>
       ) : (

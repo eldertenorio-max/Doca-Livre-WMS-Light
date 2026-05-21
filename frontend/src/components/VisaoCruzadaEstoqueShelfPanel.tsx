@@ -5,6 +5,7 @@ import {
   type ShelfLifeRow,
   type ShelfLifeStatus,
 } from './ControleShelfLifePanel'
+import ShelfLifeRegrasLegenda from './ShelfLifeRegrasLegenda'
 import {
   PRIORIDADE_LABEL,
   contagemMatrizCruzada,
@@ -351,6 +352,7 @@ export default function VisaoCruzadaEstoqueShelfPanel({ rowsEstoque, estoqueCarr
 
       {!loading && !error ? (
         <>
+          <ShelfLifeRegrasLegenda sincronizadoPlanilha />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <button
               type="button"

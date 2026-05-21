@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import * as XLSX from 'xlsx'
 import { ComparativoLinhasSvgChart, type SvgChartSeries } from './ComparativoLinhasSvgChart'
+import ShelfLifeRegrasLegenda from './ShelfLifeRegrasLegenda'
 import { fetchGoogleSheetCsv, parseGoogleSheetsCsv } from '../lib/googleSheetsCsv'
 
 const CHART_ANIM_CSS = `
@@ -412,11 +413,7 @@ export default function ControleShelfLifePanel() {
         </div>
       </div>
 
-      {regras ? (
-        <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', lineHeight: 1.45 }}>
-          {regras.length > 280 ? `${regras.slice(0, 280)}…` : regras}
-        </p>
-      ) : null}
+      <ShelfLifeRegrasLegenda sincronizadoPlanilha={Boolean(regras)} />
 
       {loading ? <p style={{ color: '#94a3b8' }}>Carregando planilha…</p> : null}
       {error ? (
