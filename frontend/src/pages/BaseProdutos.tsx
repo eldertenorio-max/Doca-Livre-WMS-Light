@@ -191,12 +191,70 @@ const baseBtnLimparBip: React.CSSProperties = {
 
 type UnidadeDbField = 'unidade' | 'unidade_medida'
 
+/** O que o banco expõe para metadados de alteração EAN/DUN. */
+type DbMetaCap = 'full' | 'dates' | 'legacy' | 'none'
+
 function unidadeColFromSelect(cols: string): UnidadeDbField {
   return cols.includes('unidade_medida') && !cols.includes('descricao,unidade,') ? 'unidade_medida' : 'unidade'
 }
 
+function metaCapFromSelect(cols: string): DbMetaCap {
+  if (cols.includes('ean_alterado_em_hora') && cols.includes('ean_alterado_conferente')) return 'full'
+  if (cols.includes('ean_alterado_em')) return 'dates'
+  if (cols.includes('ean_dun_alterado_em')) return 'legacy'
+  return 'none'
+}
+
+function pickIsoHoraFromDb(v: unknown): string | null {
+  if (v == null) return null
+  const s = String(v).trim()
+  if (!s) return null
+  if (/T\d{2}:\d{2}/.test(s) || (s.includes('T') && s.length > 11)) return s
+  return null
+}
+
+function payloadTemMetaHoraConferente(p: Record<string, unknown>): boolean {
+  return 'ean_alterado_em_hora' in p || 'ean_alterado_conferente' in p
+}
+
 function patchUnidadeField(field: UnidadeDbField, unidade: string | null): Record<string, string | null> {
   return field === 'unidade_medida' ? { unidade_medida: unidade } : { unidade }
+}
+
+function propsAlteracaoCodigo(
+  r: ProdutoDbRow,
+  edit: boolean,
+  snap: ProdutoDbRow | null,
+  tipo: 'ean' | 'dun',
+  conferenteNome: string,
+): {
+  dataYmd: string | null | undefined
+  emHora: string | null | undefined
+  conferente: string | null | undefined
+} {
+  const changed =
+    edit &&
+    snap != null &&
+    (tipo === 'ean' ? normEanDun(r.ean) !== normEanDun(snap.ean) : normEanDun(r.dun) !== normEanDun(snap.dun))
+  if (changed) {
+    return {
+      dataYmd: todayYmdLocal(),
+      emHora: nowIsoLocal(),
+      conferente: conferenteNome,
+    }
+  }
+  if (tipo === 'ean') {
+    return {
+      dataYmd: r.ean_alterado_em,
+      emHora: r.ean_alterado_em_hora,
+      conferente: r.ean_alterado_conferente,
+    }
+  }
+  return {
+    dataYmd: r.dun_alterado_em,
+    emHora: r.dun_alterado_em_hora,
+    conferente: r.dun_alterado_conferente,
+  }
 }
 
 export default function BaseProdutos() {
@@ -215,6 +273,7 @@ export default function BaseProdutos() {
   const [editSnapshot, setEditSnapshot] = useState<ProdutoDbRow | null>(null)
   /** Coluna de unidade que funcionou no último SELECT (evita UPDATE em coluna inexistente). */
   const [dbUnidadeField, setDbUnidadeField] = useState<UnidadeDbField>('unidade')
+  const [dbMetaCap, setDbMetaCap] = useState<DbMetaCap>('none')
 
   const [cadastroOpen, setCadastroOpen] = useState(false)
   const [cadastroCodigo, setCadastroCodigo] = useState('')
@@ -279,18 +338,19 @@ export default function BaseProdutos() {
 
       const selMeta =
         'ean_alterado_em,ean_alterado_em_hora,ean_alterado_conferente,dun_alterado_em,dun_alterado_em_hora,dun_alterado_conferente'
+      /** Meta + legado/básico antes de selects só com datas, para não perder hora/conferente quando `unidade` falha. */
       const candidates = [
         `${selFull},${selMeta}`,
-        `${selFull},ean_alterado_em,dun_alterado_em`,
-        `${selFull},ean_dun_alterado_em`,
-        selFull,
         `${selLegado},${selMeta}`,
-        `${selLegado},ean_alterado_em,dun_alterado_em`,
-        `${selLegado},ean_dun_alterado_em`,
-        selLegado,
         `${selBasico},${selMeta}`,
+        `${selFull},ean_alterado_em,dun_alterado_em`,
+        `${selLegado},ean_alterado_em,dun_alterado_em`,
         `${selBasico},ean_alterado_em,dun_alterado_em`,
+        `${selFull},ean_dun_alterado_em`,
+        `${selLegado},ean_dun_alterado_em`,
         `${selBasico},ean_dun_alterado_em`,
+        selFull,
+        selLegado,
         selBasico,
       ]
 
@@ -306,6 +366,7 @@ export default function BaseProdutos() {
       }
       if (qErr) throw new Error(formatUnknownError(qErr))
       setDbUnidadeField(unidadeColFromSelect(usedSelect))
+      setDbMetaCap(metaCapFromSelect(usedSelect))
       const mapped: ProdutoDbRow[] = (data ?? []).map((r: Record<string, unknown>) => {
         const um = r.unidade ?? r.unidade_medida ?? r.UNIDADE
         const leg = r.ean_dun_alterado_em
@@ -326,18 +387,18 @@ export default function BaseProdutos() {
           dun: r.dun != null && String(r.dun).trim() !== '' ? String(r.dun) : null,
           ean_alterado_em: eanStr,
           ean_alterado_em_hora:
-            r.ean_alterado_em_hora != null && String(r.ean_alterado_em_hora).trim() !== ''
-              ? String(r.ean_alterado_em_hora)
-              : null,
+            pickIsoHoraFromDb(r.ean_alterado_em_hora) ??
+            pickIsoHoraFromDb(r.ean_alterado_em) ??
+            null,
           ean_alterado_conferente:
             r.ean_alterado_conferente != null && String(r.ean_alterado_conferente).trim() !== ''
               ? String(r.ean_alterado_conferente).trim()
               : null,
           dun_alterado_em: dunStr,
           dun_alterado_em_hora:
-            r.dun_alterado_em_hora != null && String(r.dun_alterado_em_hora).trim() !== ''
-              ? String(r.dun_alterado_em_hora)
-              : null,
+            pickIsoHoraFromDb(r.dun_alterado_em_hora) ??
+            pickIsoHoraFromDb(r.dun_alterado_em) ??
+            null,
           dun_alterado_conferente:
             r.dun_alterado_conferente != null && String(r.dun_alterado_conferente).trim() !== ''
               ? String(r.dun_alterado_conferente).trim()
@@ -509,13 +570,20 @@ export default function BaseProdutos() {
           ? todayYmdLocal()
           : (r.ean_dun_alterado_em ?? snap?.ean_dun_alterado_em ?? null)
 
+      const selectRetorno =
+        dbMetaCap === 'full'
+          ? 'id,codigo_interno,ean_alterado_em,ean_alterado_em_hora,ean_alterado_conferente,dun_alterado_em,dun_alterado_em_hora,dun_alterado_conferente'
+          : dbMetaCap === 'dates'
+            ? 'id,codigo_interno,ean_alterado_em,dun_alterado_em'
+            : 'id,codigo_interno'
+
       const runUpdate = (
         payload: Record<string, unknown>,
         filter: (q: ReturnType<typeof supabase.from>) => ReturnType<typeof supabase.from>,
       ) => {
         let q = supabase.from(TABELA_PRODUTOS).update(payload)
         q = filter(q) as typeof q
-        return q.select('id,codigo_interno').limit(1)
+        return q.select(selectRetorno).limit(1)
       }
 
       const tryUpdate = async (payload: Record<string, unknown>) => {
@@ -553,15 +621,19 @@ export default function BaseProdutos() {
       }
       updateTries.push({ descricao, ean, dun })
 
-      type IdCodRow = { id: unknown; codigo_interno: unknown }
+      type IdCodRow = Record<string, unknown>
       let data: IdCodRow[] | null = null
       let uErr: { message?: string; code?: string } | null = null
+      const precisaMetaNoBanco = (eanChanged || dunChanged) && dbMetaCap === 'full'
       for (const payload of updateTries) {
         const res = await tryUpdate(payload)
         data = res.data as IdCodRow[] | null
         uErr = res.error
-        if (!uErr) break
-        if (!isColumnMissingError(uErr)) break
+        if (uErr) {
+          if (!isColumnMissingError(uErr)) break
+          continue
+        }
+        if (!precisaMetaNoBanco || payloadTemMetaHoraConferente(payload)) break
       }
 
       if (uErr) throw new Error(formatUnknownError(uErr))
@@ -572,7 +644,50 @@ export default function BaseProdutos() {
         )
       }
 
-      setSuccess(`Produto ${r.codigo_interno} atualizado no banco.`)
+      const rowSalva: ProdutoDbRow = {
+        ...r,
+        descricao,
+        ean,
+        dun,
+        unidade,
+        ean_alterado_em,
+        ean_alterado_em_hora,
+        ean_alterado_conferente,
+        dun_alterado_em,
+        dun_alterado_em_hora,
+        dun_alterado_conferente,
+        ean_dun_alterado_em: legacy_combo ?? r.ean_dun_alterado_em ?? null,
+      }
+      const ret = data[0]
+      if (ret.ean_alterado_em_hora != null) {
+        rowSalva.ean_alterado_em_hora = pickIsoHoraFromDb(ret.ean_alterado_em_hora) ?? rowSalva.ean_alterado_em_hora
+      }
+      if (ret.ean_alterado_conferente != null) {
+        rowSalva.ean_alterado_conferente = String(ret.ean_alterado_conferente).trim() || rowSalva.ean_alterado_conferente
+      }
+      if (ret.dun_alterado_em_hora != null) {
+        rowSalva.dun_alterado_em_hora = pickIsoHoraFromDb(ret.dun_alterado_em_hora) ?? rowSalva.dun_alterado_em_hora
+      }
+      if (ret.dun_alterado_conferente != null) {
+        rowSalva.dun_alterado_conferente = String(ret.dun_alterado_conferente).trim() || rowSalva.dun_alterado_conferente
+      }
+      if (ret.ean_alterado_em != null) {
+        const d = String(ret.ean_alterado_em).slice(0, 10)
+        if (d) rowSalva.ean_alterado_em = d
+      }
+      if (ret.dun_alterado_em != null) {
+        const d = String(ret.dun_alterado_em).slice(0, 10)
+        if (d) rowSalva.dun_alterado_em = d
+      }
+
+      setRows((prev) => prev.map((x) => (rowKey(x) === k ? rowSalva : x)))
+
+      let msgOk = `Produto ${r.codigo_interno} atualizado no banco.`
+      if ((eanChanged || dunChanged) && dbMetaCap !== 'full') {
+        msgOk +=
+          ' A data foi gravada; hora e conferente exigem as colunas no Supabase (rode supabase/sql/alter_todos_os_produtos_ean_dun_alterado_meta.sql).'
+      }
+      setSuccess(msgOk)
       setEditingKey(null)
       setEditSnapshot(null)
       await load()
@@ -1002,6 +1117,24 @@ export default function BaseProdutos() {
 
       {error ? <div style={{ color: '#b00020', marginBottom: 10 }}>{error}</div> : null}
       {success ? <div style={{ color: '#0f7a0f', marginBottom: 10 }}>{success}</div> : null}
+      {dbMetaCap !== 'full' && !loading ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid rgba(234, 179, 8, 0.45)',
+            background: 'rgba(113, 63, 18, 0.25)',
+            color: '#fde047',
+            fontSize: 12,
+            lineHeight: 1.45,
+          }}
+        >
+          Hora e nome do conferente nas alterações de EAN/DUN dependem das colunas no Supabase. Rode{' '}
+          <code style={{ fontSize: 11 }}>supabase/sql/alter_todos_os_produtos_ean_dun_alterado_meta.sql</code> no SQL
+          Editor e clique em <strong>Carregar</strong> de novo.
+        </div>
+      ) : null}
 
       {filtered.length > 0 ? (
         <>
@@ -1145,17 +1278,13 @@ export default function BaseProdutos() {
                       <span title="Última alteração do EAN no cadastro">
                         Alt. EAN:{' '}
                         <CelulaAlteracaoCodigo
-                          dataYmd={r.ean_alterado_em}
-                          emHora={r.ean_alterado_em_hora}
-                          conferente={r.ean_alterado_conferente}
+                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'ean', alteracaoConferenteNome)}
                         />
                       </span>
                       <span title="Última alteração do DUN no cadastro">
                         Alt. DUN:{' '}
                         <CelulaAlteracaoCodigo
-                          dataYmd={r.dun_alterado_em}
-                          emHora={r.dun_alterado_em_hora}
-                          conferente={r.dun_alterado_conferente}
+                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'dun', alteracaoConferenteNome)}
                         />
                       </span>
                     </div>
@@ -1320,9 +1449,7 @@ export default function BaseProdutos() {
                         title="Última alteração do EAN no cadastro"
                       >
                         <CelulaAlteracaoCodigo
-                          dataYmd={r.ean_alterado_em}
-                          emHora={r.ean_alterado_em_hora}
-                          conferente={r.ean_alterado_conferente}
+                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'ean', alteracaoConferenteNome)}
                         />
                       </td>
                       <td
@@ -1336,9 +1463,7 @@ export default function BaseProdutos() {
                         title="Última alteração do DUN no cadastro"
                       >
                         <CelulaAlteracaoCodigo
-                          dataYmd={r.dun_alterado_em}
-                          emHora={r.dun_alterado_em_hora}
-                          conferente={r.dun_alterado_conferente}
+                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'dun', alteracaoConferenteNome)}
                         />
                       </td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
