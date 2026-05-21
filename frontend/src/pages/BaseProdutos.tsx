@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
+import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
 
 const TABELA_PRODUTOS = 'Todos os Produtos'
@@ -188,13 +189,14 @@ const baseBtnLimparBip: React.CSSProperties = {
   fontWeight: 700,
 }
 
-function isColumnMissingError(e: unknown): boolean {
-  const code =
-    e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : ''
-  const msg = (
-    e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)
-  ).toLowerCase()
-  return code === '42703' || msg.includes('does not exist')
+type UnidadeDbField = 'unidade' | 'unidade_medida'
+
+function unidadeColFromSelect(cols: string): UnidadeDbField {
+  return cols.includes('unidade_medida') && !cols.includes('descricao,unidade,') ? 'unidade_medida' : 'unidade'
+}
+
+function patchUnidadeField(field: UnidadeDbField, unidade: string | null): Record<string, string | null> {
+  return field === 'unidade_medida' ? { unidade_medida: unidade } : { unidade }
 }
 
 export default function BaseProdutos() {
@@ -211,6 +213,8 @@ export default function BaseProdutos() {
 
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [editSnapshot, setEditSnapshot] = useState<ProdutoDbRow | null>(null)
+  /** Coluna de unidade que funcionou no último SELECT (evita UPDATE em coluna inexistente). */
+  const [dbUnidadeField, setDbUnidadeField] = useState<UnidadeDbField>('unidade')
 
   const [cadastroOpen, setCadastroOpen] = useState(false)
   const [cadastroCodigo, setCadastroCodigo] = useState('')
@@ -290,15 +294,18 @@ export default function BaseProdutos() {
         selBasico,
       ]
 
-      let res = await trySelect(candidates[0])
+      let usedSelect = candidates[0]
+      let res = await trySelect(usedSelect)
       data = res.data as Record<string, unknown>[] | null
       qErr = res.error
       for (let i = 1; i < candidates.length && qErr && isColumnMissingError(qErr); i++) {
-        res = await trySelect(candidates[i])
+        usedSelect = candidates[i]
+        res = await trySelect(usedSelect)
         data = res.data as Record<string, unknown>[] | null
         qErr = res.error
       }
-      if (qErr) throw qErr
+      if (qErr) throw new Error(formatUnknownError(qErr))
+      setDbUnidadeField(unidadeColFromSelect(usedSelect))
       const mapped: ProdutoDbRow[] = (data ?? []).map((r: Record<string, unknown>) => {
         const um = r.unidade ?? r.unidade_medida ?? r.UNIDADE
         const leg = r.ean_dun_alterado_em
@@ -348,8 +355,7 @@ export default function BaseProdutos() {
       setBipCodigoBarras('')
       setSuccess(`${list.length} produto(s) carregado(s).`)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setError(msg || 'Erro ao carregar a base.')
+      setError(formatUnknownError(e) || 'Erro ao carregar a base.')
       setRows([])
     } finally {
       setLoading(false)
@@ -520,26 +526,32 @@ export default function BaseProdutos() {
         return res
       }
 
-      const updateTries: Record<string, unknown>[] = [
-        {
-          descricao,
-          ean,
-          dun,
-          unidade,
-          ean_alterado_em,
-          ean_alterado_em_hora,
-          ean_alterado_conferente,
-          dun_alterado_em,
-          dun_alterado_em_hora,
-          dun_alterado_conferente,
-        },
-        { descricao, ean, dun, unidade, ean_alterado_em, dun_alterado_em },
-        { descricao, ean, dun, ean_alterado_em, dun_alterado_em },
-        { descricao, ean, dun, unidade, ean_dun_alterado_em: legacy_combo },
-        { descricao, ean, dun, ean_dun_alterado_em: legacy_combo },
-        { descricao, ean, dun, unidade },
-        { descricao, ean, dun },
-      ]
+      const ufs: UnidadeDbField[] =
+        dbUnidadeField === 'unidade_medida' ? ['unidade_medida', 'unidade'] : ['unidade', 'unidade_medida']
+      const updateTries: Record<string, unknown>[] = []
+      for (const uf of ufs) {
+        const u = patchUnidadeField(uf, unidade)
+        updateTries.push(
+          {
+            descricao,
+            ean,
+            dun,
+            ...u,
+            ean_alterado_em,
+            ean_alterado_em_hora,
+            ean_alterado_conferente,
+            dun_alterado_em,
+            dun_alterado_em_hora,
+            dun_alterado_conferente,
+          },
+          { descricao, ean, dun, ...u, ean_alterado_em, dun_alterado_em },
+          { descricao, ean, dun, ean_alterado_em, dun_alterado_em },
+          { descricao, ean, dun, ...u, ean_dun_alterado_em: legacy_combo },
+          { descricao, ean, dun, ean_dun_alterado_em: legacy_combo },
+          { descricao, ean, dun, ...u },
+        )
+      }
+      updateTries.push({ descricao, ean, dun })
 
       type IdCodRow = { id: unknown; codigo_interno: unknown }
       let data: IdCodRow[] | null = null
@@ -552,7 +564,7 @@ export default function BaseProdutos() {
         if (!isColumnMissingError(uErr)) break
       }
 
-      if (uErr) throw uErr
+      if (uErr) throw new Error(formatUnknownError(uErr))
       if (!data || data.length === 0) {
         throw new Error(
           'Nenhuma linha foi atualizada no banco (0 linhas). No Supabase, execute o script ' +
@@ -565,8 +577,7 @@ export default function BaseProdutos() {
       setEditSnapshot(null)
       await load()
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setError(msg || 'Erro ao salvar.')
+      setError(formatUnknownError(e) || 'Erro ao salvar.')
     } finally {
       setSavingKey(null)
     }
@@ -633,8 +644,7 @@ export default function BaseProdutos() {
       }
       await load()
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setError(msg || 'Erro ao excluir.')
+      setError(formatUnknownError(e) || 'Erro ao excluir.')
     } finally {
       setDeletingKey(null)
     }
@@ -698,7 +708,7 @@ export default function BaseProdutos() {
         if (!isColumnMissingError(insErr)) break
       }
 
-      if (insErr) throw insErr
+      if (insErr) throw new Error(formatUnknownError(insErr))
       if (!data || data.length === 0) {
         throw new Error(
           'Insert não retornou linha. Verifique permissões RLS (INSERT) na tabela "Todos os Produtos".',
@@ -714,8 +724,7 @@ export default function BaseProdutos() {
       setCadastroDun('')
       await load()
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setError(msg || 'Erro ao cadastrar.')
+      setError(formatUnknownError(e) || 'Erro ao cadastrar.')
     } finally {
       setCadastroSaving(false)
     }
