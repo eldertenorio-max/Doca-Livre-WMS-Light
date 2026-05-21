@@ -48,16 +48,55 @@ const PRIORIDADE_CORES: Record<PrioridadeCruzada, { bg: string; fg: string; bord
 }
 
 const MATRIZ_ESTOQUE: { key: NivelEstoque; label: string }[] = [
-  { key: 'pouco', label: 'Pouco estoque' },
-  { key: 'ok', label: 'Estoque ok' },
-  { key: 'muito', label: 'Muito estoque' },
+  { key: 'pouco', label: 'Estoque baixo' },
+  { key: 'ok', label: 'Estoque bom' },
+  { key: 'muito', label: 'Estoque alto' },
 ]
 
+const MATRIZ_ESTOQUE_CORES: Record<NivelEstoque, { fg: string; border: string }> = {
+  pouco: { fg: '#fca5a5', border: '#dc2626' },
+  ok: { fg: '#86efac', border: '#16a34a' },
+  muito: { fg: '#fde047', border: '#ca8a04' },
+}
+
 const MATRIZ_SHELF: { key: Exclude<NivelShelf, 'sem'>; label: string }[] = [
-  { key: 'boa', label: 'Data boa' },
-  { key: 'atencao', label: 'Atenção' },
-  { key: 'ruim', label: 'Data ruim' },
+  { key: 'boa', label: 'Longe do vencimento' },
+  { key: 'atencao', label: 'Vencendo em breve' },
+  { key: 'ruim', label: 'Vencimento crítico' },
 ]
+
+const MATRIZ_SHELF_CORES: Record<
+  Exclude<NivelShelf, 'sem'>,
+  { bg: string; bgEmpty: string; border: string; borderActive: string; fg: string; fgEmpty: string; headerFg: string }
+> = {
+  boa: {
+    bg: 'rgba(34, 197, 94, 0.28)',
+    bgEmpty: 'rgba(34, 197, 94, 0.08)',
+    border: '#16a34a',
+    borderActive: '#4ade80',
+    fg: '#dcfce7',
+    fgEmpty: '#4ade80',
+    headerFg: '#86efac',
+  },
+  atencao: {
+    bg: 'rgba(234, 179, 8, 0.28)',
+    bgEmpty: 'rgba(234, 179, 8, 0.08)',
+    border: '#ca8a04',
+    borderActive: '#facc15',
+    fg: '#fef9c3',
+    fgEmpty: '#eab308',
+    headerFg: '#fde047',
+  },
+  ruim: {
+    bg: 'rgba(239, 68, 68, 0.28)',
+    bgEmpty: 'rgba(239, 68, 68, 0.08)',
+    border: '#dc2626',
+    borderActive: '#f87171',
+    fg: '#fee2e2',
+    fgEmpty: '#f87171',
+    headerFg: '#fca5a5',
+  },
+}
 
 function todayYmdLocal(): string {
   const d = new Date()
@@ -367,46 +406,72 @@ export default function VisaoCruzadaEstoqueShelfPanel({ rowsEstoque, estoqueCarr
               <thead>
                 <tr>
                   <th style={{ ...th, width: 120, background: 'transparent' }} />
-                  {MATRIZ_SHELF.map((col) => (
-                    <th key={col.key} style={{ ...th, textAlign: 'center', color: '#94a3b8' }}>
-                      {col.label}
-                    </th>
-                  ))}
+                  {MATRIZ_SHELF.map((col) => {
+                    const cores = MATRIZ_SHELF_CORES[col.key]
+                    return (
+                      <th
+                        key={col.key}
+                        style={{
+                          ...th,
+                          textAlign: 'center',
+                          color: cores.headerFg,
+                          fontWeight: 700,
+                          borderBottom: `2px solid ${cores.border}`,
+                        }}
+                      >
+                        {col.label}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {MATRIZ_ESTOQUE.map((row) => (
-                  <tr key={row.key}>
-                    <th style={{ ...th, color: '#94a3b8', fontWeight: 600 }}>{row.label}</th>
-                    {MATRIZ_SHELF.map((col) => {
-                      const key = `${row.key}-${col.key}` as MatrizCruzadaKey
-                      const n = matriz[key]
-                      const active = filtroMatriz?.estoque === row.key && filtroMatriz?.shelf === col.key
-                      return (
-                        <td key={col.key} style={{ padding: 4, textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => toggleMatriz(row.key, col.key)}
-                            style={{
-                              width: '100%',
-                              minWidth: 72,
-                              padding: '12px 8px',
-                              borderRadius: 8,
-                              border: `2px solid ${active ? '#a78bfa' : 'var(--border, #2e303a)'}`,
-                              background: active ? 'rgba(139,92,246,.25)' : n > 0 ? 'rgba(30,41,59,.6)' : 'rgba(15,23,42,.4)',
-                              color: n > 0 ? '#f1f5f9' : '#64748b',
-                              fontWeight: 800,
-                              fontSize: 18,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {n}
-                          </button>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
+                {MATRIZ_ESTOQUE.map((row) => {
+                  const rowCores = MATRIZ_ESTOQUE_CORES[row.key]
+                  return (
+                    <tr key={row.key}>
+                      <th
+                        style={{
+                          ...th,
+                          color: rowCores.fg,
+                          fontWeight: 700,
+                          borderLeft: `3px solid ${rowCores.border}`,
+                        }}
+                      >
+                        {row.label}
+                      </th>
+                      {MATRIZ_SHELF.map((col) => {
+                        const key = `${row.key}-${col.key}` as MatrizCruzadaKey
+                        const n = matriz[key]
+                        const cores = MATRIZ_SHELF_CORES[col.key]
+                        const active = filtroMatriz?.estoque === row.key && filtroMatriz?.shelf === col.key
+                        return (
+                          <td key={col.key} style={{ padding: 4, textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => toggleMatriz(row.key, col.key)}
+                              style={{
+                                width: '100%',
+                                minWidth: 72,
+                                padding: '12px 8px',
+                                borderRadius: 8,
+                                border: `2px solid ${active ? cores.borderActive : cores.border}`,
+                                background: active ? cores.bg : n > 0 ? cores.bg : cores.bgEmpty,
+                                color: n > 0 ? cores.fg : cores.fgEmpty,
+                                fontWeight: 800,
+                                fontSize: 18,
+                                cursor: 'pointer',
+                                boxShadow: active ? `0 0 0 1px ${cores.borderActive}` : undefined,
+                              }}
+                            >
+                              {n}
+                            </button>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             <p style={{ margin: '8px 0 0', fontSize: 11, color: '#64748b' }}>
