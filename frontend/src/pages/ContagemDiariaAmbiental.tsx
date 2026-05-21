@@ -11,8 +11,9 @@ import {
   type SVGProps,
 } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import ControleShelfLifePanel from '../components/ControleShelfLifePanel'
 
-type TabKey = 'temperatura' | 'ocupacao'
+type TabKey = 'temperatura' | 'ocupacao' | 'shelf_life'
 
 type Conferente = { id: string; nome: string }
 
@@ -3792,6 +3793,28 @@ export default function ContagemDiariaAmbiental() {
     [tempHistoricoDesc, tempHistPage],
   )
 
+  /** Metadados exibidos ao lado do título dos gráficos (último registro salvo na data do formulário). */
+  const tempGraficosMeta = useMemo(() => {
+    const day = tempData
+    const rowsDoDia = tempRows.filter((r) => String(r.data_registro).slice(0, 10) === day)
+    const nomeForm = conferentes.find((c) => c.id === tempConferenteId)?.nome?.trim() ?? ''
+    if (rowsDoDia.length) {
+      const r = rowsDoDia.reduce((best, cur) =>
+        new Date(cur.created_at).getTime() > new Date(best.created_at).getTime() ? cur : best,
+      )
+      return {
+        data: formatDataBr(r.data_registro),
+        hora: formatHoraRegistro(r.created_at),
+        conferente: r.conferente_nome?.trim() || nomeForm || '—',
+      }
+    }
+    return {
+      data: day ? formatDataBr(day) : '—',
+      hora: '—',
+      conferente: nomeForm || '—',
+    }
+  }, [tempRows, tempData, tempConferenteId, conferentes])
+
   const ocupResumoAtual = useMemo(() => {
     const v11 = asInt(vazias11)
     const v12 = asInt(vazias12)
@@ -3885,6 +3908,21 @@ export default function ContagemDiariaAmbiental() {
         >
           Ocupação
         </button>
+        <button
+          type="button"
+          onClick={() => setTab('shelf_life')}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: `1px solid ${tab === 'shelf_life' ? '#f97316' : 'var(--border, #2e303a)'}`,
+            background: tab === 'shelf_life' ? '#f97316' : 'transparent',
+            color: tab === 'shelf_life' ? '#431407' : '#fb923c',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Shelf Life
+        </button>
       </div>
 
       {ok ? (
@@ -3948,8 +3986,10 @@ export default function ContagemDiariaAmbiental() {
           <div
             style={{
               display: 'flex',
+              flexWrap: 'wrap',
               alignItems: 'center',
-              gap: 10,
+              justifyContent: 'space-between',
+              gap: 12,
               padding: '12px 14px',
               borderRadius: 14,
               border: '1px solid rgba(34, 197, 94, .32)',
@@ -3957,23 +3997,126 @@ export default function ContagemDiariaAmbiental() {
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
             }}
           >
-            <span
-              aria-hidden
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 999,
-                background: '#22c55e',
-                boxShadow: '0 0 18px rgba(34,197,94,.9)',
-                flex: '0 0 auto',
-              }}
-            />
-            <div>
-              <div style={{ fontWeight: 900, color: '#f8fafc', fontSize: 19, letterSpacing: '.01em' }}>
-                Gráficos de temperatura por câmara
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 220px' }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: '#22c55e',
+                  boxShadow: '0 0 18px rgba(34,197,94,.9)',
+                  flex: '0 0 auto',
+                }}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 900, color: '#f8fafc', fontSize: 19, letterSpacing: '.01em' }}>
+                  Gráficos de temperatura por câmara
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
+                  Acompanhe a variação diária das Câmaras 11, 12 e 13.
+                </div>
               </div>
-              <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
-                Acompanhe a variação diária das Câmaras 11, 12 e 13.
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'stretch',
+                flex: '0 1 auto',
+                padding: '6px 10px',
+                borderRadius: 10,
+                border: '1px solid rgba(34, 197, 94, .22)',
+                background: 'rgba(15, 23, 42, .35)',
+              }}
+            >
+              <div style={{ minWidth: 88 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: '#86efac',
+                    marginBottom: 2,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  Data da contagem
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#f8fafc', fontVariantNumeric: 'tabular-nums' }}>
+                  {tempGraficosMeta.data}
+                </div>
+              </div>
+              <div
+                style={{
+                  width: 1,
+                  alignSelf: 'stretch',
+                  background: 'rgba(34, 197, 94, .25)',
+                  margin: '2px 0',
+                }}
+                aria-hidden
+              />
+              <div style={{ minWidth: 100 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: '#86efac',
+                    marginBottom: 2,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  Horário do registro
+                </div>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: '#a5f3fc',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {tempGraficosMeta.hora}
+                </div>
+              </div>
+              <div
+                style={{
+                  width: 1,
+                  alignSelf: 'stretch',
+                  background: 'rgba(34, 197, 94, .25)',
+                  margin: '2px 0',
+                }}
+                aria-hidden
+              />
+              <div style={{ minWidth: 120, maxWidth: 220 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: '#86efac',
+                    marginBottom: 2,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  Conferente
+                </div>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: '#e2e8f0',
+                    lineHeight: 1.2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={tempGraficosMeta.conferente}
+                >
+                  {tempGraficosMeta.conferente}
+                </div>
               </div>
             </div>
           </div>
@@ -4026,6 +4169,8 @@ export default function ContagemDiariaAmbiental() {
             />
           </div>
         </div>
+      ) : tab === 'shelf_life' ? (
+        <ControleShelfLifePanel />
       ) : (
         <div style={{ display: 'grid', gap: 14 }}>
           <div

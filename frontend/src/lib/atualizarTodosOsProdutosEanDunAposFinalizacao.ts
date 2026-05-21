@@ -45,6 +45,7 @@ export async function atualizarTodosOsProdutosEanDunAposFinalizacao<
   rows: Array<{ codigo_interno: string; ean: string | null; dun: string | null }>,
   productByCode: Map<string, T>,
   productByCodeNoDots: Map<string, T>,
+  opts?: { conferenteNome?: string | null },
 ): Promise<{ atualizados: number; avisos: string[] }> {
   const avisos: string[] = []
   const lastByNorm = new Map<string, (typeof rows)[0]>()
@@ -56,6 +57,8 @@ export async function atualizarTodosOsProdutosEanDunAposFinalizacao<
 
   let atualizados = 0
   const today = todayYmdLocal()
+  const agoraIso = new Date().toISOString()
+  const nomeConf = String(opts?.conferenteNome ?? '').trim() || 'Contagem diária'
 
   for (const it of lastByNorm.values()) {
     const codRaw = String(it.codigo_interno ?? '').trim()
@@ -77,10 +80,14 @@ export async function atualizarTodosOsProdutosEanDunAposFinalizacao<
     if (eanChanged) {
       patchBase.ean = finalEan
       patchBase.ean_alterado_em = today
+      patchBase.ean_alterado_em_hora = agoraIso
+      patchBase.ean_alterado_conferente = nomeConf
     }
     if (dunChanged) {
       patchBase.dun = finalDun
       patchBase.dun_alterado_em = today
+      patchBase.dun_alterado_em_hora = agoraIso
+      patchBase.dun_alterado_conferente = nomeConf
     }
     if (eanChanged || dunChanged) {
       patchBase.ean_dun_alterado_em = today

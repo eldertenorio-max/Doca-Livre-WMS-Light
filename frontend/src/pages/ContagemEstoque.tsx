@@ -3149,6 +3149,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           })),
           productByCodeRef.current,
           productByCodeNoDotsRef.current,
+          { conferenteNome: nomeConf },
         )
       if (avisosCadastroEanDun.length) {
         console.warn('[ContagemEstoque] Cadastro EAN/DUN:', avisosCadastroEanDun)

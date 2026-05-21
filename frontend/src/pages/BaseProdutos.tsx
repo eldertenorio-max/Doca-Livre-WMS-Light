@@ -16,8 +16,14 @@ type ProdutoDbRow = {
   dun: string | null
   /** Data (YYYY-MM-DD) da última alteração do EAN no cadastro. */
   ean_alterado_em: string | null
+  /** Horário ISO da última alteração do EAN (quando a coluna existir no banco). */
+  ean_alterado_em_hora: string | null
+  /** Conferente da última alteração do EAN. */
+  ean_alterado_conferente: string | null
   /** Data (YYYY-MM-DD) da última alteração do DUN no cadastro. */
   dun_alterado_em: string | null
+  dun_alterado_em_hora: string | null
+  dun_alterado_conferente: string | null
   /** Só preenchido se o banco ainda expuser a coluna legada `ean_dun_alterado_em`. */
   ean_dun_alterado_em?: string | null
 }
@@ -47,6 +53,63 @@ function formatDateBRFromYmd(ymd: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(s)
   if (!m) return s
   return `${m[3]}/${m[2]}/${m[1]}`
+}
+
+function formatHoraRegistroAlteracao(iso: string | null | undefined): string {
+  if (!iso?.trim()) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function formatDataAlteracaoFromIso(iso: string | null | undefined): string {
+  if (!iso?.trim()) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function CelulaAlteracaoCodigo(props: {
+  dataYmd: string | null | undefined
+  emHora: string | null | undefined
+  conferente: string | null | undefined
+}) {
+  const data =
+    props.emHora && formatDataAlteracaoFromIso(props.emHora)
+      ? formatDataAlteracaoFromIso(props.emHora)
+      : formatDateBRFromYmd(props.dataYmd)
+  const hora = formatHoraRegistroAlteracao(props.emHora)
+  const conf = String(props.conferente ?? '').trim()
+  if (data === '—' && !hora && !conf) return <>—</>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.35 }}>
+      <span>{data}</span>
+      {hora ? (
+        <span style={{ fontSize: 11, color: 'var(--chart-caption, #94a3b8)', fontVariantNumeric: 'tabular-nums' }}>
+          {hora}
+        </span>
+      ) : null}
+      {conf ? (
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--text, #cbd5e1)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 160,
+          }}
+          title={conf}
+        >
+          {conf}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function nowIsoLocal(): string {
+  return new Date().toISOString()
 }
 
 function onlyDigits(s: string): string {
@@ -160,6 +223,10 @@ export default function BaseProdutos() {
   const [bipCodigoBarras, setBipCodigoBarras] = useState('')
   /** Quando definido, a tabela mostra só esta linha (produto encontrado pelo bip). */
   const [bipSoloKey, setBipSoloKey] = useState<string | null>(null)
+
+  const [conferentes, setConferentes] = useState<Array<{ id: string; nome: string }>>([])
+  const [conferentesLoading, setConferentesLoading] = useState(false)
+  const [alteracaoConferenteId, setAlteracaoConferenteId] = useState('')
   const bipInputRef = useRef<HTMLInputElement | null>(null)
   const rowRefs = useRef<Map<string, HTMLElement | null>>(new Map())
 
@@ -171,6 +238,26 @@ export default function BaseProdutos() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  useEffect(() => {
+    void (async () => {
+      setConferentesLoading(true)
+      try {
+        const { data, error: qErr } = await supabase.from('conferentes').select('id,nome').order('nome')
+        if (qErr) throw qErr
+        setConferentes(data ?? [])
+      } catch {
+        setConferentes([])
+      } finally {
+        setConferentesLoading(false)
+      }
+    })()
+  }, [])
+
+  const alteracaoConferenteNome = useMemo(() => {
+    const n = conferentes.find((c) => c.id === alteracaoConferenteId)?.nome?.trim()
+    return n || 'Edição manual'
+  }, [conferentes, alteracaoConferenteId])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -186,13 +273,18 @@ export default function BaseProdutos() {
       const trySelect = async (cols: string) =>
         supabase.from(TABELA_PRODUTOS).select(cols).order('codigo_interno', { ascending: true }).limit(20000)
 
+      const selMeta =
+        'ean_alterado_em,ean_alterado_em_hora,ean_alterado_conferente,dun_alterado_em,dun_alterado_em_hora,dun_alterado_conferente'
       const candidates = [
+        `${selFull},${selMeta}`,
         `${selFull},ean_alterado_em,dun_alterado_em`,
         `${selFull},ean_dun_alterado_em`,
         selFull,
+        `${selLegado},${selMeta}`,
         `${selLegado},ean_alterado_em,dun_alterado_em`,
         `${selLegado},ean_dun_alterado_em`,
         selLegado,
+        `${selBasico},${selMeta}`,
         `${selBasico},ean_alterado_em,dun_alterado_em`,
         `${selBasico},ean_dun_alterado_em`,
         selBasico,
@@ -226,7 +318,23 @@ export default function BaseProdutos() {
           ean: r.ean != null && String(r.ean).trim() !== '' ? String(r.ean) : null,
           dun: r.dun != null && String(r.dun).trim() !== '' ? String(r.dun) : null,
           ean_alterado_em: eanStr,
+          ean_alterado_em_hora:
+            r.ean_alterado_em_hora != null && String(r.ean_alterado_em_hora).trim() !== ''
+              ? String(r.ean_alterado_em_hora)
+              : null,
+          ean_alterado_conferente:
+            r.ean_alterado_conferente != null && String(r.ean_alterado_conferente).trim() !== ''
+              ? String(r.ean_alterado_conferente).trim()
+              : null,
           dun_alterado_em: dunStr,
+          dun_alterado_em_hora:
+            r.dun_alterado_em_hora != null && String(r.dun_alterado_em_hora).trim() !== ''
+              ? String(r.dun_alterado_em_hora)
+              : null,
+          dun_alterado_conferente:
+            r.dun_alterado_conferente != null && String(r.dun_alterado_conferente).trim() !== ''
+              ? String(r.dun_alterado_conferente).trim()
+              : null,
           ean_dun_alterado_em: legStr,
         }
       })
@@ -382,8 +490,14 @@ export default function BaseProdutos() {
       const snap = editSnapshot
       const eanChanged = normEanDun(r.ean) !== normEanDun(snap?.ean)
       const dunChanged = normEanDun(r.dun) !== normEanDun(snap?.dun)
+      const agoraIso = nowIsoLocal()
+      const nomeAlt = alteracaoConferenteNome
       const ean_alterado_em = eanChanged ? todayYmdLocal() : (r.ean_alterado_em ?? null)
+      const ean_alterado_em_hora = eanChanged ? agoraIso : (r.ean_alterado_em_hora ?? null)
+      const ean_alterado_conferente = eanChanged ? nomeAlt : (r.ean_alterado_conferente ?? null)
       const dun_alterado_em = dunChanged ? todayYmdLocal() : (r.dun_alterado_em ?? null)
+      const dun_alterado_em_hora = dunChanged ? agoraIso : (r.dun_alterado_em_hora ?? null)
+      const dun_alterado_conferente = dunChanged ? nomeAlt : (r.dun_alterado_conferente ?? null)
       const legacy_combo =
         eanChanged || dunChanged
           ? todayYmdLocal()
@@ -407,6 +521,18 @@ export default function BaseProdutos() {
       }
 
       const updateTries: Record<string, unknown>[] = [
+        {
+          descricao,
+          ean,
+          dun,
+          unidade,
+          ean_alterado_em,
+          ean_alterado_em_hora,
+          ean_alterado_conferente,
+          dun_alterado_em,
+          dun_alterado_em_hora,
+          dun_alterado_conferente,
+        },
         { descricao, ean, dun, unidade, ean_alterado_em, dun_alterado_em },
         { descricao, ean, dun, ean_alterado_em, dun_alterado_em },
         { descricao, ean, dun, unidade, ean_dun_alterado_em: legacy_combo },
@@ -534,9 +660,19 @@ export default function BaseProdutos() {
         return supabase.from(TABELA_PRODUTOS).insert(payload).select('id,codigo_interno').limit(1)
       }
 
+      const agoraIso = nowIsoLocal()
+      const nomeAlt = alteracaoConferenteNome
       const patchNew: Record<string, unknown> = {}
-      if (ean != null) patchNew.ean_alterado_em = todayYmdLocal()
-      if (dun != null) patchNew.dun_alterado_em = todayYmdLocal()
+      if (ean != null) {
+        patchNew.ean_alterado_em = todayYmdLocal()
+        patchNew.ean_alterado_em_hora = agoraIso
+        patchNew.ean_alterado_conferente = nomeAlt
+      }
+      if (dun != null) {
+        patchNew.dun_alterado_em = todayYmdLocal()
+        patchNew.dun_alterado_em_hora = agoraIso
+        patchNew.dun_alterado_conferente = nomeAlt
+      }
       const legacyIns =
         ean != null || dun != null ? { ean_dun_alterado_em: todayYmdLocal() as string } : {}
 
@@ -630,6 +766,23 @@ export default function BaseProdutos() {
               style={baseToolbarInputStyle}
               placeholder="descrição"
             />
+          </label>
+          <label style={{ ...baseToolbarLabelStyle, gridColumn: isMobile ? 'auto' : 'span 12' }}>
+            Conferente (ao alterar EAN/DUN)
+            <select
+              value={alteracaoConferenteId}
+              onChange={(e) => setAlteracaoConferenteId(e.target.value)}
+              disabled={conferentesLoading}
+              style={baseToolbarInputStyle}
+              title="Nome gravado em Alteração EAN/DUN ao salvar na base"
+            >
+              <option value="">{conferentesLoading ? 'Carregando…' : 'Edição manual (padrão)'}</option>
+              {conferentes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
 
@@ -981,10 +1134,20 @@ export default function BaseProdutos() {
                       }}
                     >
                       <span title="Última alteração do EAN no cadastro">
-                        Alt. EAN: {formatDateBRFromYmd(r.ean_alterado_em)}
+                        Alt. EAN:{' '}
+                        <CelulaAlteracaoCodigo
+                          dataYmd={r.ean_alterado_em}
+                          emHora={r.ean_alterado_em_hora}
+                          conferente={r.ean_alterado_conferente}
+                        />
                       </span>
                       <span title="Última alteração do DUN no cadastro">
-                        Alt. DUN: {formatDateBRFromYmd(r.dun_alterado_em)}
+                        Alt. DUN:{' '}
+                        <CelulaAlteracaoCodigo
+                          dataYmd={r.dun_alterado_em}
+                          emHora={r.dun_alterado_em_hora}
+                          conferente={r.dun_alterado_conferente}
+                        />
                       </span>
                     </div>
                     {saving ? (
@@ -1049,8 +1212,8 @@ export default function BaseProdutos() {
                     <th style={thStyle}>Unidade de medida</th>
                     <th style={thStyle}>EAN</th>
                     <th style={thStyle}>DUN</th>
-                    <th style={{ ...thStyle, minWidth: 110 }}>Alteração EAN</th>
-                    <th style={{ ...thStyle, minWidth: 110 }}>Alteração DUN</th>
+                    <th style={{ ...thStyle, minWidth: 140 }}>Alteração EAN</th>
+                    <th style={{ ...thStyle, minWidth: 140 }}>Alteração DUN</th>
                     <th style={thStyle}>Ações</th>
                   </tr>
                 </thead>
@@ -1140,26 +1303,34 @@ export default function BaseProdutos() {
                       <td
                         style={{
                           ...tdStyle,
-                          whiteSpace: 'nowrap',
                           fontSize: 12,
                           fontWeight: 600,
                           color: 'var(--text, #bbb)',
+                          verticalAlign: 'top',
                         }}
                         title="Última alteração do EAN no cadastro"
                       >
-                        {formatDateBRFromYmd(r.ean_alterado_em)}
+                        <CelulaAlteracaoCodigo
+                          dataYmd={r.ean_alterado_em}
+                          emHora={r.ean_alterado_em_hora}
+                          conferente={r.ean_alterado_conferente}
+                        />
                       </td>
                       <td
                         style={{
                           ...tdStyle,
-                          whiteSpace: 'nowrap',
                           fontSize: 12,
                           fontWeight: 600,
                           color: 'var(--text, #bbb)',
+                          verticalAlign: 'top',
                         }}
                         title="Última alteração do DUN no cadastro"
                       >
-                        {formatDateBRFromYmd(r.dun_alterado_em)}
+                        <CelulaAlteracaoCodigo
+                          dataYmd={r.dun_alterado_em}
+                          emHora={r.dun_alterado_em_hora}
+                          conferente={r.dun_alterado_conferente}
+                        />
                       </td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
