@@ -94,7 +94,8 @@ function CelulaAlteracaoCodigo(props: {
         <span
           style={{
             fontSize: 11,
-            color: 'var(--text, #cbd5e1)',
+            color: conf.startsWith('Selecione o conferente') ? '#fca5a5' : 'var(--text, #cbd5e1)',
+            fontStyle: conf.startsWith('Selecione o conferente') ? 'italic' : 'normal',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -221,6 +222,9 @@ function patchUnidadeField(field: UnidadeDbField, unidade: string | null): Recor
   return field === 'unidade_medida' ? { unidade_medida: unidade } : { unidade }
 }
 
+const MSG_CONFERENTE_OBRIGATORIO =
+  'Selecione o conferente no campo «Conferente (ao alterar EAN/DUN)» antes de salvar alteração de EAN ou DUN.'
+
 function propsAlteracaoCodigo(
   r: ProdutoDbRow,
   edit: boolean,
@@ -237,10 +241,11 @@ function propsAlteracaoCodigo(
     snap != null &&
     (tipo === 'ean' ? normEanDun(r.ean) !== normEanDun(snap.ean) : normEanDun(r.dun) !== normEanDun(snap.dun))
   if (changed) {
+    const conf = conferenteNome.trim()
     return {
       dataYmd: todayYmdLocal(),
       emHora: nowIsoLocal(),
-      conferente: conferenteNome,
+      conferente: conf || 'Selecione o conferente acima',
     }
   }
   if (tipo === 'ean') {
@@ -319,8 +324,19 @@ export default function BaseProdutos() {
 
   const alteracaoConferenteNome = useMemo(() => {
     const n = conferentes.find((c) => c.id === alteracaoConferenteId)?.nome?.trim()
-    return n || 'Edição manual'
+    return n || ''
   }, [conferentes, alteracaoConferenteId])
+
+  const conferenteSelectRef = useRef<HTMLSelectElement | null>(null)
+
+  const precisaConferenteNaEdicao = useMemo(() => {
+    if (!editingKey || !editSnapshot) return false
+    const r = rows.find((x) => rowKey(x) === editingKey)
+    if (!r) return false
+    return (
+      normEanDun(r.ean) !== normEanDun(editSnapshot.ean) || normEanDun(r.dun) !== normEanDun(editSnapshot.dun)
+    )
+  }, [editingKey, editSnapshot, rows])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -557,6 +573,12 @@ export default function BaseProdutos() {
       const snap = editSnapshot
       const eanChanged = normEanDun(r.ean) !== normEanDun(snap?.ean)
       const dunChanged = normEanDun(r.dun) !== normEanDun(snap?.dun)
+      if ((eanChanged || dunChanged) && !alteracaoConferenteId.trim()) {
+        setError(MSG_CONFERENTE_OBRIGATORIO)
+        setSavingKey(null)
+        window.setTimeout(() => conferenteSelectRef.current?.focus(), 0)
+        return
+      }
       const agoraIso = nowIsoLocal()
       const nomeAlt = alteracaoConferenteNome
       const ean_alterado_em = eanChanged ? todayYmdLocal() : (r.ean_alterado_em ?? null)
@@ -781,6 +803,13 @@ export default function BaseProdutos() {
       const unidadeRaw = cadastroUnidade.trim()
       const unidade = unidadeRaw === '' ? null : unidadeRaw
 
+      if ((ean != null || dun != null) && !alteracaoConferenteId.trim()) {
+        setError(MSG_CONFERENTE_OBRIGATORIO)
+        setCadastroSaving(false)
+        window.setTimeout(() => conferenteSelectRef.current?.focus(), 0)
+        return
+      }
+
       const tryInsert = async (payload: Record<string, unknown>) => {
         return supabase.from(TABELA_PRODUTOS).insert(payload).select('id,codigo_interno').limit(1)
       }
@@ -892,15 +921,25 @@ export default function BaseProdutos() {
             />
           </label>
           <label style={{ ...baseToolbarLabelStyle, gridColumn: isMobile ? 'auto' : 'span 12' }}>
-            Conferente (ao alterar EAN/DUN)
+            Conferente (ao alterar EAN/DUN) *
             <select
+              ref={conferenteSelectRef}
               value={alteracaoConferenteId}
-              onChange={(e) => setAlteracaoConferenteId(e.target.value)}
+              onChange={(e) => {
+                setAlteracaoConferenteId(e.target.value)
+                if (e.target.value.trim()) setError('')
+              }}
               disabled={conferentesLoading}
-              style={baseToolbarInputStyle}
-              title="Nome gravado em Alteração EAN/DUN ao salvar na base"
+              required={precisaConferenteNaEdicao || cadastroOpen}
+              style={{
+                ...baseToolbarInputStyle,
+                ...(precisaConferenteNaEdicao && !alteracaoConferenteId.trim()
+                  ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px rgba(220,38,38,.35)' }
+                  : {}),
+              }}
+              title="Obrigatório ao alterar ou cadastrar EAN/DUN — nome gravado em Alteração EAN/DUN"
             >
-              <option value="">{conferentesLoading ? 'Carregando…' : 'Edição manual (padrão)'}</option>
+              <option value="">{conferentesLoading ? 'Carregando…' : 'Selecione um conferente…'}</option>
               {conferentes.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nome}
@@ -1117,24 +1156,6 @@ export default function BaseProdutos() {
 
       {error ? <div style={{ color: '#b00020', marginBottom: 10 }}>{error}</div> : null}
       {success ? <div style={{ color: '#0f7a0f', marginBottom: 10 }}>{success}</div> : null}
-      {dbMetaCap !== 'full' && !loading ? (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: '10px 12px',
-            borderRadius: 8,
-            border: '1px solid rgba(234, 179, 8, 0.45)',
-            background: 'rgba(113, 63, 18, 0.25)',
-            color: '#fde047',
-            fontSize: 12,
-            lineHeight: 1.45,
-          }}
-        >
-          Hora e nome do conferente nas alterações de EAN/DUN dependem das colunas no Supabase. Rode{' '}
-          <code style={{ fontSize: 11 }}>supabase/sql/alter_todos_os_produtos_ean_dun_alterado_meta.sql</code> no SQL
-          Editor e clique em <strong>Carregar</strong> de novo.
-        </div>
-      ) : null}
 
       {filtered.length > 0 ? (
         <>
