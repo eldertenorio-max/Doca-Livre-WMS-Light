@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { ComparativoLinhasSvgChart, type SvgChartSeries } from '../components/ComparativoLinhasSvgChart'
 import ControleShelfLifePanel from '../components/ControleShelfLifePanel'
+import VisaoCruzadaEstoqueShelfPanel from '../components/VisaoCruzadaEstoqueShelfPanel'
 
-type EstoqueSegurancaAba = 'estoque' | 'shelf_life'
+type EstoqueSegurancaAba = 'estoque' | 'shelf_life' | 'visao_cruzada'
 
 const SHEET_ID = '1KBDdsl4GeQL97mAvJS_J7uf0a6M7LRr0fHtPZE_QFhU'
 const SHEET_GID = '1626679618'
@@ -746,10 +747,29 @@ export default function EstoqueSeguranca() {
         >
           Shelf Life
         </button>
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('visao_cruzada')}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: `1px solid ${abaAtiva === 'visao_cruzada' ? '#a78bfa' : 'var(--border, #2e303a)'}`,
+            background: abaAtiva === 'visao_cruzada' ? '#8b5cf6' : 'transparent',
+            color: abaAtiva === 'visao_cruzada' ? '#2e1065' : '#c4b5fd',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Visão cruzada
+        </button>
       </div>
 
       {abaAtiva === 'shelf_life' ? (
         <ControleShelfLifePanel />
+      ) : null}
+
+      {abaAtiva === 'visao_cruzada' ? (
+        <VisaoCruzadaEstoqueShelfPanel rowsEstoque={rows} estoqueCarregando={loading} estoqueErro={error} />
       ) : null}
 
       {abaAtiva === 'estoque' && painelAlertasAberto ? (
