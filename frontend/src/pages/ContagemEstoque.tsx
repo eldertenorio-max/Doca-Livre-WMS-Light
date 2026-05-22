@@ -33,8 +33,12 @@ import {
   getArmazemContagem,
   getArmazemContagemForItem,
   getArmazemPos,
-  listArmazemContagemCodigosOrdered,
 } from '../lib/armazemInventarioMap'
+import {
+  listArmazemListaOficialOrdered,
+  lookupArmazemListaOficial,
+  ARMAZEM_LISTA_OFICIAL_TOTAL,
+} from '../lib/armazemListaOficial'
 import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
 import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
@@ -820,6 +824,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       setStartFreshNotice('')
     }
   }, [sessionMode])
+
+  /** Inventário físico: lista padrão = armazém (1ª–4ª contagem), salvo sessão já aberta. */
+  useEffect(() => {
+    if (!inventario) return
+    if (offlineSession?.status === 'aberta') return
+    setChecklistListMode((prev) => (prev === 'todos' ? 'armazem' : prev))
+  }, [inventario, offlineSession?.status])
 
   /** Sessões antigas sem UUID de rascunho: gera um para permitir sync em tempo real no Supabase. */
   useEffect(() => {
@@ -2282,15 +2293,15 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           arr.push({ codigo_interno: row.codigo_interno, descricao: row.descricao })
           rowsByNorm.set(k, arr)
         }
-        const PLACEHOLDER_CADASTRO =
-          '(Código ausente em "Todos os Produtos" — rode o SQL de upsert no Supabase ou cadastre o código; depois use Atualizar cadastro / Carregar lista.)'
         const rebuilt: Array<{ codigo_interno: string; descricao: string }> = []
-        for (const { codigo: mapCodigo } of listArmazemContagemCodigosOrdered()) {
-          const k = normalizeCodigoInternoCompareKey(mapCodigo)
+        for (const oficial of listArmazemListaOficialOrdered()) {
+          const k = normalizeCodigoInternoCompareKey(oficial.codigo)
           const bucket = k ? rowsByNorm.get(k) : undefined
           const picked = bucket && bucket.length > 0 ? bucket.shift()! : null
-          if (picked) rebuilt.push({ codigo_interno: picked.codigo_interno, descricao: picked.descricao })
-          else rebuilt.push({ codigo_interno: mapCodigo, descricao: PLACEHOLDER_CADASTRO })
+          rebuilt.push({
+            codigo_interno: picked?.codigo_interno ?? oficial.codigo,
+            descricao: oficial.descricao,
+          })
         }
         itemsRaw = rebuilt
       } else {
@@ -2306,6 +2317,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       let items: OfflineChecklistItem[] = []
       itemsRaw.forEach((row, index) => {
         const p = lookupProductOptionByCodigo(row.codigo_interno.trim(), productByCode, productByCodeNoDots)
+        const oficialUn = isListModeArmazem(listModeEfetivo)
+          ? lookupArmazemListaOficial(row.codigo_interno)?.unidade
+          : undefined
         const repeticoes = inventario ? ([1, 2, 3] as const) : ([1] as const)
         repeticoes.forEach((rep) => {
           const idx = inventario ? index * 3 + (rep - 1) : index
@@ -2322,7 +2336,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             observacao: '',
             data_fabricacao: p?.data_fabricacao ? toDateInputValue(p.data_fabricacao) : '',
             data_validade: p?.data_validade ? toDateInputValue(p.data_validade) : '',
-            unidade_medida: p?.unidade_medida ?? null,
+            unidade_medida: p?.unidade_medida ?? oficialUn ?? null,
             ean: p?.ean ?? null,
             dun: p?.dun ?? null,
           })
@@ -2360,7 +2374,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               isListModeArmazem(listModeEfetivo)
                 ? listModeEfetivo === 'planilha'
                   ? ', formato planilha (CAMARA/RUA, abas por grupo)'
-                  : ', ordem armazém (grupos 1ª–4ª contagem)'
+                  : `, ordem armazém (${ARMAZEM_LISTA_OFICIAL_TOTAL} produtos × 3 contagens, grupos 1ª–4ª)`
                 : ''
             }. Preencha as quantidades e finalize.`
           : `Lista carregada: ${items.length} itens.${

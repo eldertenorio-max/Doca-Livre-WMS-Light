@@ -1,116 +1,29 @@
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
+import { ARMAZEM_LISTA_OFICIAL } from './armazemListaOficial'
 import type { OfflineChecklistItem } from './offlineContagemSession'
 
 /** Grupos 1–4 no inventário; alinhado a `INVENTARIO_ARMAZEM_NUM_GRUPOS` em inventarioPlanilhaModel. */
 const INVENTARIO_ARMAZEM_NUM_GRUPOS = 4
 
+function buildArmazemContagemCodes(): Record<number, string[]> {
+  const out: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [], 8: [] }
+  for (const row of ARMAZEM_LISTA_OFICIAL) {
+    out[row.grupo].push(row.codigo)
+  }
+  return out
+}
+
 /**
- * Ordem do armazém dividida em rotas/contagens.
- * A lista abaixo define SOMENTE a divisão (grupo) e a ordem relativa de exibição.
+ * Ordem do armazém dividida em rotas/contagens (derivada de `ARMAZEM_LISTA_OFICIAL`).
+ * Define SOMENTE a divisão (grupo) e a ordem relativa de exibição.
  */
-const ARMAZEM_CONTAGEM_CODES = {
-  1: [
-    '01.01.0001',
-    '01.01.0002',
-    '01.02.0001',
-    '01.02.0003',
-    '01.02.0005',
-    '01.02.0007',
-    '01.04.0008',
-    '01.04.0009',
-    '01.10.0003',
-    '01.10.0004',
-    '01.10.0006',
-    '01.02.0011',
-    '01.03.0019',
-    '02.04.0001',
-    '02.01.0005',
-    '02.01.0004',
-    '01.10.0013',
-    '01.10.0014',
-    '01.04.0066',
-  ],
-  2: [
-    '01.09.0007',
-    '01.09.0008',
-    '01.09.0009',
-    '01.09.0010',
-    '01.09.0012',
-    '01.06.0001',
-    '01.06.0002',
-    '01.06.0059',
-    '02.03.0001',
-    '02.03.0039',
-    '02.03.0042',
-    '02.02.0045',
-    '02.03.0013',
-    '01.04.0063',
-    '01.04.0064',
-    '02.02.0038',
-    '02.02.0044',
-    '02.02.0047',
-    '02.02.0048',
-    '02.02.0049',
-  ],
-  3: [
-    '02.01.0007',
-    '02.02.0034',
-    '02.02.0033',
-    '02.02.0046',
-    '02.02.0036',
-    '02.02.0035',
-    '02.02.0032',
-    '02.03.1018',
-    '01.04.0014',
-    '01.04.0025',
-    '01.04.0026',
-    '01.04.0054',
-    '01.04.0055',
-    '01.06.0058',
-    '01.06.0022',
-    '01.06.0024',
-    '01.06.0027',
-    '01.06.0030',
-    '01.10.0015',
-  ],
-  4: [
-    '02.03.1003',
-    '02.03.1004',
-    '02.03.1005',
-    '02.03.1006',
-    '02.03.1007',
-    '02.03.1008',
-    '02.03.1009',
-    '02.03.1010',
-    '02.03.1011',
-    '02.03.1012',
-    '02.03.1013',
-    '02.03.1014',
-    '02.03.1015',
-    '02.03.1016',
-    '02.03.1017',
-    '01.04.0058',
-    '01.04.0062',
-    '01.04.0067',
-    '01.04.0060',
-    '01.04.0068',
-    '01.04.0061',
-  ],
-  /** CAMARA 13 - RUA W (grupo 5). */
-  5: [],
-  /** CAMARA 13 - RUA Z (grupo 6). */
-  6: [],
-  /** CAMARA 21 - RUA A (grupo 7). */
-  7: [],
-  /** CAMARA 21 - RUA B (grupo 8). */
-  8: [],
-} as const satisfies Record<number, string[]>
+const ARMAZEM_CONTAGEM_CODES = buildArmazemContagemCodes()
 
 const ARMAZEM_POS_BY_CODIGO = (() => {
   const m = new Map<string, { contagem: number; pos: number }>()
   for (const contagemStr of Object.keys(ARMAZEM_CONTAGEM_CODES)) {
     const contagem = Number(contagemStr)
-    const codes = (ARMAZEM_CONTAGEM_CODES as Record<string, string[]>)[contagemStr] as string[]
+    const codes = ARMAZEM_CONTAGEM_CODES[contagem] ?? []
     codes.forEach((codigo, pos) => {
       const meta = { contagem, pos }
       m.set(codigo, meta)
@@ -123,16 +36,12 @@ const ARMAZEM_POS_BY_CODIGO = (() => {
 
 /** Códigos do mapa armazém na ordem oficial (apenas grupos 1–4). */
 export function listArmazemContagemCodigosOrdered(): ReadonlyArray<{ grupo: number; pos: number; codigo: string }> {
-  const out: { grupo: number; pos: number; codigo: string }[] = []
-  const map = ARMAZEM_CONTAGEM_CODES as unknown as Record<number, readonly string[]>
-  for (let grupo = 1; grupo <= INVENTARIO_ARMAZEM_NUM_GRUPOS; grupo++) {
-    const codes = map[grupo]
-    if (!Array.isArray(codes)) continue
-    codes.forEach((codigo, pos) => {
-      out.push({ grupo, pos, codigo })
-    })
-  }
-  return out
+  const posInGrupo: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 }
+  return ARMAZEM_LISTA_OFICIAL.map((row) => {
+    const pos = posInGrupo[row.grupo] ?? 0
+    posInGrupo[row.grupo] = pos + 1
+    return { grupo: row.grupo, pos, codigo: row.codigo }
+  })
 }
 
 /** Chaves candidatas para bater o mapa (cadastro às vezes perde zero à esquerda no 1º bloco). */
@@ -177,7 +86,7 @@ export function getArmazemContagemForItem(it: OfflineChecklistItem): number | nu
  * Ordem canônica: grupo armazém (1ª–4ª contagem), posição no mapa, código e (no inventário) 1ª–3ª repetição.
  * Usada em POS/Nível ao finalizar (`buildPlanilhaLayoutPorItens` → `inventario_planilha_linhas`) e na checklist.
  *
- * Sem `planilha_ordem_na_aba` (lista armazém), não é ordem alfabética pura: segue `ARMAZEM_CONTAGEM_CODES`.
+ * Sem `planilha_ordem_na_aba` (lista armazém), não é ordem alfabética pura: segue `ARMAZEM_LISTA_OFICIAL`.
  */
 export function compareInventarioPlanilhaItens(a: OfflineChecklistItem, b: OfflineChecklistItem): number {
   const oa = a.planilha_ordem_na_aba
