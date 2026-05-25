@@ -300,6 +300,13 @@
   box-sizing: border-box;
 }
 
+@media (min-width: 1025px) {
+  #root {
+    width: 100%;
+    max-width: none;
+  }
+}
+
 body {
   margin: 0;
 }
