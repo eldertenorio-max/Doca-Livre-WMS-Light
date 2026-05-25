@@ -4587,8 +4587,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     <div
       style={{
         padding: isMobile ? 10 : 16,
-        maxWidth: 1200,
+        width: '100%',
+        maxWidth: isMobile ? 1200 : 1680,
         margin: '0 auto',
+        boxSizing: 'border-box',
         textAlign: 'left',
         color: '#ffd95c',
       }}
