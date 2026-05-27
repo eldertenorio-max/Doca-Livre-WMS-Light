@@ -338,9 +338,19 @@ export default function App() {
               <EstoqueSeguranca key="seguranca" />
             </PanelErrorBoundary>
           ) : view === 'relatorio' ? (
-            <RelatorioContagem key="relatorio" mode="periodo" />
+            <RelatorioContagem
+              key={preferredChecklistView === 'inventario' ? 'relatorio-inventario' : 'relatorio-contagem'}
+              mode="periodo"
+              listColumnPrefsInventario={preferredChecklistView === 'inventario'}
+              lockListColumnMode
+            />
           ) : (
-            <RelatorioContagem key="todas" mode="dia" />
+            <RelatorioContagem
+              key={preferredChecklistView === 'inventario' ? 'todas-inventario' : 'todas-contagem'}
+              mode="dia"
+              listColumnPrefsInventario={preferredChecklistView === 'inventario'}
+              lockListColumnMode
+            />
           )}
         </>
       )}

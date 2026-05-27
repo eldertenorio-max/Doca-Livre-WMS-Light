@@ -13,6 +13,7 @@ import {
   ordenarLinhasInventarioComoPrevia,
   prepararContagemDiariaOficialListaUnicaPorProduto,
   type ConferenteDetalheGrupo,
+  type ModoListagemContagem,
 } from '../lib/contagemListagemCompat'
 import { formatContagemLabel, inventarioCamaraLabelFromGrupo } from '../components/inventario/inventarioPlanilhaModel'
 import { deleteInventarioPlanilhaLinhasForContagensIds } from '../lib/inventarioPlanilhaLinhasDelete'
@@ -251,6 +252,8 @@ type HistoricoContagemItem = {
   dataYmd: string
   /** `null` = registros sem coluna de sessão (legado) ou vazio; UUID = uma finalização específica. */
   finalizacaoSessaoId: string | null
+  /** Rodada do inventário (1–4), quando o histórico é do modo inventário. */
+  inventarioNumeroContagem?: number | null
   /** Horário(ões) de registro (`data_hora_contagem`) no grupo: primeiro–último ou único. */
   horaInputLabel: string
   totalItens: number
@@ -296,6 +299,8 @@ type RelatorioContagemProps = {
   mode?: 'periodo' | 'dia'
   /** Valor inicial: última tela Contagem vs Inventário (sessionStorage no App). */
   listColumnPrefsInventario?: boolean
+  /** Quando true, não alterna para contagem diária (painel só Inventário ou só Contagem). */
+  lockListColumnMode?: boolean
 }
 
 const relPanelStyle: React.CSSProperties = {
@@ -365,6 +370,7 @@ const relBtnDark: React.CSSProperties = {
 export default function RelatorioContagem({
   mode = 'periodo',
   listColumnPrefsInventario = false,
+  lockListColumnMode = false,
 }: RelatorioContagemProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
@@ -384,6 +390,16 @@ export default function RelatorioContagem({
 
   /** Preferências de colunas: inventário vs contagem diária (toggle ou valor vindo do App). */
   const [useInventarioCols, setUseInventarioCols] = useState(listColumnPrefsInventario)
+
+  useEffect(() => {
+    setUseInventarioCols(listColumnPrefsInventario)
+    setRows([])
+    setSuccess('')
+    setError('')
+    setConferenteFiltroHistorico(null)
+  }, [listColumnPrefsInventario])
+
+  const modoListagem: ModoListagemContagem = useInventarioCols ? 'inventario' : 'contagem_diaria'
 
   const isDiaMode = mode === 'dia'
   /** Excel só no relatório por período — nunca em “Todas as contagens” (`mode="dia"`). */
@@ -1014,15 +1030,14 @@ export default function RelatorioContagem({
   ): Promise<{ modo: 'inventario' | 'contagem_diaria'; filtered: ContagemRow[] }> {
     const { minY, maxY } = planilhaIntervalYmdForPrevia(data)
     const planilhaIds = await fetchPlanilhaContagemIdsParaIntervalo(supabase, minY, maxY)
-    const modo = useInventarioCols ? 'inventario' : 'contagem_diaria'
     const asRec = data.map((r) => ({ ...r }) as Record<string, unknown>)
     const filtered = filterContagensPorModoListagem(
       asRec,
-      modo,
+      modoListagem,
       planilhaIds,
       origemAusenteNoResultado,
     ) as ContagemRow[]
-    return { modo, filtered }
+    return { modo: modoListagem, filtered }
   }
 
   /** Regra do relatório: inventário ordenado como prévia; contagem diária = uma linha por produto (último lançamento; sem somar conferentes). */
@@ -1130,17 +1145,21 @@ export default function RelatorioContagem({
   async function buildHistoricoLista(
     raw: ContagemRow[],
     origemAusenteNoResultado: boolean,
+    modo: ModoListagemContagem,
   ): Promise<HistoricoContagemItem[]> {
     if (!raw.length) return []
     const { minY, maxY } = computeMinMaxYmdDataContagemOnly(raw)
     const planilhaIds = await fetchPlanilhaContagemIdsParaIntervalo(supabase, minY, maxY)
     const asRec = raw.map((r) => ({ ...r }) as Record<string, unknown>)
-    const filtered = filterContagensPorModoListagem(
+    let filtered = filterContagensPorModoListagem(
       asRec,
-      'contagem_diaria',
+      modo,
       planilhaIds,
       origemAusenteNoResultado,
-    ).filter((r) => isCodigoRelatorioArmazem(String(r.codigo_interno ?? ''))) as ContagemRow[]
+    ) as ContagemRow[]
+    if (modo === 'contagem_diaria') {
+      filtered = filtered.filter((r) => isCodigoRelatorioArmazem(String(r.codigo_interno ?? '')))
+    }
 
     const bucket = new Map<
       string,
@@ -1148,6 +1167,7 @@ export default function RelatorioContagem({
         dataYmd: string
         conferenteId: string | null
         finalizacaoSessaoId: string | null
+        inventarioNumeroContagem: number | null
         codigos: Set<string>
         minTs: number | null
         maxTs: number | null
@@ -1159,8 +1179,15 @@ export default function RelatorioContagem({
       const cidRaw = String(r.conferente_id ?? '').trim()
       const conferenteId = cidRaw === '' ? null : cidRaw
       const sidRaw = String(r.finalizacao_sessao_id ?? '').trim()
-      const finalizacaoSessaoId = sidRaw === '' ? null : sidRaw
-      const key = `${dataYmd}|${conferenteId ?? '__sem__'}|${finalizacaoSessaoId ?? '__legacy__'}`
+      const finalizacaoSessaoId = modo === 'inventario' ? null : sidRaw === '' ? null : sidRaw
+      const invNc =
+        modo === 'inventario'
+          ? Number(r.inventario_numero_contagem ?? 1) || 1
+          : null
+      const key =
+        modo === 'inventario'
+          ? `${dataYmd}|${conferenteId ?? '__sem__'}|inv-${invNc}`
+          : `${dataYmd}|${conferenteId ?? '__sem__'}|${finalizacaoSessaoId ?? '__legacy__'}`
       const codigoKey = normalizeCodigoInternoCompareKey(String(r.codigo_interno ?? '')).toLowerCase()
       const ts = tsFromDataHoraContagem(r.data_hora_contagem)
       const prev = bucket.get(key)
@@ -1175,6 +1202,7 @@ export default function RelatorioContagem({
           dataYmd,
           conferenteId,
           finalizacaoSessaoId,
+          inventarioNumeroContagem: invNc,
           codigos: new Set(codigoKey ? [codigoKey] : []),
           minTs: ts,
           maxTs: ts,
@@ -1186,13 +1214,18 @@ export default function RelatorioContagem({
     const nomes = await fetchConferentesNomesPorIds(ids)
     const out: HistoricoContagemItem[] = []
     for (const v of bucket.values()) {
-      const nome =
+      const nomeBase =
         v.conferenteId == null ? 'Sem conferente' : nomes.get(v.conferenteId)?.trim() || v.conferenteId
+      const nome =
+        modo === 'inventario' && v.inventarioNumeroContagem != null
+          ? `${nomeBase} (${v.inventarioNumeroContagem}ª contagem inventário)`
+          : nomeBase
       out.push({
         conferenteId: v.conferenteId,
         conferenteNome: nome,
         dataYmd: v.dataYmd,
         finalizacaoSessaoId: v.finalizacaoSessaoId,
+        inventarioNumeroContagem: v.inventarioNumeroContagem,
         horaInputLabel: formatHistoricoHorarioInput(v.minTs, v.maxTs),
         totalItens: v.codigos.size,
       })
@@ -1239,10 +1272,10 @@ export default function RelatorioContagem({
     setHistoricoError('')
     try {
       const { rows: raw, origemAusenteNoResultado } = await fetchHistoricoRawRows()
-      let items = await buildHistoricoLista(raw, origemAusenteNoResultado)
-      // Alinha os números/horário do dia atual com a mesma fonte do painel da Contagem.
+      let items = await buildHistoricoLista(raw, origemAusenteNoResultado, modoListagem)
+      // Alinha os números/horário do dia atual com a mesma fonte do painel da Contagem (só contagem diária).
       const day = diaCivilFiltroAtual() ?? toISODateLocal(new Date())
-      const painelDia = await fetchResumoPainelDia(day)
+      const painelDia = modoListagem === 'contagem_diaria' ? await fetchResumoPainelDia(day) : null
       if (painelDia && painelDia.size > 0) {
         items = items.map((it) => {
           if (it.dataYmd !== day || !it.conferenteId) return it
@@ -1272,14 +1305,14 @@ export default function RelatorioContagem({
   useEffect(() => {
     if (!isDiaMode) return
     void loadHistoricoContagens()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- recarrega histórico só ao entrar na aba
-  }, [isDiaMode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recarrega histórico ao entrar na aba ou trocar modo
+  }, [isDiaMode, modoListagem])
 
   async function loadFromHistoricoItem(item: HistoricoContagemItem) {
     setAllTime(false)
     setUseSingleDay(true)
     setSingleDay(item.dataYmd)
-    setUseInventarioCols(false)
+    if (!lockListColumnMode) setUseInventarioCols(false)
     setConferenteFiltroHistorico(item.conferenteId == null ? '__sem__' : item.conferenteId)
     setLoading(true)
     setError('')
@@ -1295,7 +1328,13 @@ export default function RelatorioContagem({
       let dataForPrevia = data
       if (fh === '__sem__') dataForPrevia = data.filter((r) => !String(r.conferente_id ?? '').trim())
       else dataForPrevia = data.filter((r) => String(r.conferente_id ?? '').trim() === fh)
-      if (item.finalizacaoSessaoId != null) {
+      if (useInventarioCols) {
+        if (item.inventarioNumeroContagem != null) {
+          dataForPrevia = dataForPrevia.filter(
+            (r) => Number(r.inventario_numero_contagem ?? NaN) === item.inventarioNumeroContagem,
+          )
+        }
+      } else if (item.finalizacaoSessaoId != null) {
         dataForPrevia = dataForPrevia.filter(
           (r) => String(r.finalizacao_sessao_id ?? '').trim() === item.finalizacaoSessaoId,
         )
@@ -1334,10 +1373,11 @@ export default function RelatorioContagem({
       allTimeOverride: false,
       includeRascunho: true,
     })
-    const { filtered } = await filtrarLinhasParaPrevia(rowsComRascunho, origemAusenteNoResultado)
-    const rowsDia = filtered.filter(
-      (r) => diaCivilYmdContagemRow(r) === diaYmd && isCodigoRelatorioArmazem(r.codigo_interno),
-    )
+    const { modo, filtered } = await filtrarLinhasParaPrevia(rowsComRascunho, origemAusenteNoResultado)
+    let rowsDia = filtered.filter((r) => diaCivilYmdContagemRow(r) === diaYmd)
+    if (modo === 'contagem_diaria') {
+      rowsDia = rowsDia.filter((r) => isCodigoRelatorioArmazem(r.codigo_interno))
+    }
     if (rowsDia.length === 0) return { kind: 'vazio' }
     const pendentes = rowsDia.filter((r) => r.contagem_rascunho === true)
     if (pendentes.length > 0) {
@@ -2031,29 +2071,36 @@ export default function RelatorioContagem({
             {isDiaMode ? 'Filtros da lista' : 'Relatório — filtros e exportação'}
           </h3>
 
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-              fontSize: 13,
-              cursor: 'pointer',
-              maxWidth: 900,
-              lineHeight: 1.45,
-              marginBottom: 12,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={useInventarioCols}
-              onChange={(e) => setUseInventarioCols(e.target.checked)}
-              style={{ marginTop: 3 }}
-            />
-            <span>
-              Usar colunas da tela <strong>Inventário</strong> (Câmara, Rua, POS, Nível, rodada). Desmarcado ={' '}
-              <strong>Contagem diária</strong>.
-            </span>
-          </label>
+          {lockListColumnMode ? (
+            <p style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 12, maxWidth: 900, color: 'var(--text, #888)' }}>
+              Modo fixo: <strong>{useInventarioCols ? 'Inventário' : 'Contagem diária'}</strong> (independente do outro
+              modo).
+            </p>
+          ) : (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                fontSize: 13,
+                cursor: 'pointer',
+                maxWidth: 900,
+                lineHeight: 1.45,
+                marginBottom: 12,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={useInventarioCols}
+                onChange={(e) => setUseInventarioCols(e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                Usar colunas da tela <strong>Inventário</strong> (Câmara, Rua, POS, Nível, rodada). Desmarcado ={' '}
+                <strong>Contagem diária</strong>.
+              </span>
+            </label>
+          )}
 
           <div
             style={{
