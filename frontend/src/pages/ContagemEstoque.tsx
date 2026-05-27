@@ -2873,9 +2873,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       setChecklistError('Não há sessão aberta. Carregue a lista de produtos primeiro.')
       return
     }
-    if (!conferenteId || offlineSession.conferente_id !== conferenteId) {
-      setChecklistError('Selecione o mesmo conferente da sessão (ou recarregue a lista).')
+    const conferenteSessao = String(offlineSession.conferente_id || '').trim()
+    if (!conferenteSessao) {
+      setChecklistError('Selecione um conferente para finalizar a sessão.')
       return
+    }
+    if (String(conferenteId || '').trim() !== conferenteSessao) {
+      // Sessão offline já define o conferente válido; sincroniza o seletor visual e segue.
+      setConferenteId(conferenteSessao)
     }
 
     const missing = offlineSession.items.filter((it) => {
