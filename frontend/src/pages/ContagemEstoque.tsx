@@ -42,6 +42,7 @@ import {
 import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
 import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
+import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
 import {
   codigoInternoIguais,
   lookupInCatalogMapGeneric as lookupInCatalogMap,
@@ -460,6 +461,8 @@ function newSessionId() {
 
 export default function ContagemEstoque({ inventario = false }: { inventario?: boolean }) {
   const sessionMode: OfflineSessionMode = inventario ? 'inventario' : 'contagem'
+  const tContagens = tableContagens(inventario)
+  const tPlanilhaFk = planilhaFkContagemColumn(inventario)
   const [conferentes, setConferentes] = useState<Conferente[]>([])
   const [conferentesLoading, setConferentesLoading] = useState(true)
   const [showAddConferente, setShowAddConferente] = useState(false)
@@ -1899,7 +1902,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       let from = 0
       while (true) {
         const { data: batch, error: batchErr } = await supabase
-          .from('contagens_estoque')
+          .from(tContagens)
           .select(selectStr)
           .eq('data_contagem', dayKey)
           .order('data_hora_contagem', { ascending: false })
@@ -2007,11 +2010,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         try {
           const { data: plData } = await supabase
             .from('inventario_planilha_linhas')
-            .select('contagens_estoque_id')
+            .select(`${tPlanilhaFk},contagens_estoque_id,contagens_inventario_id`)
             .eq('data_inventario', dayKey)
             .limit(5000)
           for (const pr of plData ?? []) {
-            const cid = (pr as { contagens_estoque_id?: string | null }).contagens_estoque_id
+            const row = pr as Record<string, unknown>
+            const cid = row[tPlanilhaFk] ?? row.contagens_inventario_id ?? row.contagens_estoque_id
             if (cid != null) planilhaContagemIds.add(String(cid))
           }
         } catch {
@@ -2019,21 +2023,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
       }
 
-      const hasInventarioMeta = (r: Record<string, unknown>) =>
-        (r.inventario_repeticao != null && String(r.inventario_repeticao).trim() !== '') ||
-        (r.inventario_numero_contagem != null && String(r.inventario_numero_contagem).trim() !== '')
-
-      const byOrigem = (r: Record<string, unknown>) => {
-        const o = r.origem != null ? String(r.origem) : ''
-        const rid = String(r.id ?? '')
-        if (!inventario) return o !== 'inventario'
-        if (o === 'inventario') return true
-        /** Vínculo na tabela planilha (mesmo quando o SELECT legado não traz origem/repetição/nº). */
-        if (planilhaContagemIds.has(rid)) return true
-        /** Sem coluna `origem` no banco: só inventário se houver repetição ou nº da rodada (não misturar contagem diária). */
-        if (previewOrigemAusenteNoResultado) return hasInventarioMeta(r)
-        return hasInventarioMeta(r)
-      }
+      const byOrigem = inventario
+        ? () => true
+        : (r: Record<string, unknown>) => {
+            const o = r.origem != null ? String(r.origem) : ''
+            return o !== 'inventario'
+          }
       const rawRows = (data ?? []).filter(byOrigem).map((r: Record<string, any>) => {
         const nomeJoin = conferenteNomeFromJoin(r)
         const cid = String(r.conferente_id ?? '')
@@ -2435,7 +2430,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (!cid || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
     if (dr && isUuid(dr)) {
       const { error } = await supabase
-        .from('contagens_estoque')
+        .from(tContagens)
         .delete()
         .eq('conferente_id', cid)
         .eq('finalizacao_sessao_id', dr)
@@ -2445,7 +2440,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
     }
     const { error: e2 } = await supabase
-      .from('contagens_estoque')
+      .from(tContagens)
       .delete()
       .eq('conferente_id', cid)
       .eq('data_contagem', ymd)
@@ -2488,7 +2483,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
     const delLinha = async () => {
       const { error } = await supabase
-        .from('contagens_estoque')
+        .from(tContagens)
         .delete()
         .eq('data_contagem', ymd)
         .eq('conferente_id', cid)
@@ -2497,7 +2492,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (!error) return
       if (isMissingDbColumnError(error, 'finalizacao_sessao_id')) {
         const r2 = await supabase
-          .from('contagens_estoque')
+          .from(tContagens)
           .delete()
           .eq('data_contagem', ymd)
           .eq('conferente_id', cid)
@@ -2559,7 +2554,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
     {
       const { error: delErr } = await supabase
-        .from('contagens_estoque')
+        .from(tContagens)
         .delete()
         .eq('data_contagem', ymd)
         .eq('conferente_id', cid)
@@ -2570,7 +2565,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
       if (delErr && isMissingDbColumnError(delErr, 'finalizacao_sessao_id')) {
         const r2 = await supabase
-          .from('contagens_estoque')
+          .from(tContagens)
           .delete()
           .eq('data_contagem', ymd)
           .eq('conferente_id', cid)
@@ -2580,14 +2575,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
     }
 
-    let ins = await supabase.from('contagens_estoque').insert(rowPayload).select('id').limit(1)
+    let ins = await supabase.from(tContagens).insert(rowPayload).select('id').limit(1)
     if (ins.error && isMissingDbColumnError(ins.error, 'contagem_rascunho')) {
       rowPayload = stripContagensEstoqueContagemRascunhoColumn(rowPayload)
-      ins = await supabase.from('contagens_estoque').insert(rowPayload).select('id').limit(1)
+      ins = await supabase.from(tContagens).insert(rowPayload).select('id').limit(1)
     }
     if (ins.error && isMissingDbColumnError(ins.error, 'finalizacao_sessao_id')) {
       rowPayload = stripContagensEstoqueFinalizacaoSessaoColumn(rowPayload)
-      ins = await supabase.from('contagens_estoque').insert(rowPayload).select('id').limit(1)
+      ins = await supabase.from(tContagens).insert(rowPayload).select('id').limit(1)
     }
     if (ins.error) {
       if (import.meta.env.DEV) console.warn('[contagem rascunho] insert', ins.error)
@@ -3033,7 +3028,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           dun: it.dun != null && String(it.dun).trim() !== '' ? String(it.dun).trim() : null,
         }
         if (inventario) {
-          rowPayload.origem = 'inventario'
           rowPayload.inventario_repeticao = it.inventario_repeticao ?? null
           rowPayload.inventario_numero_contagem = clampInventarioNumeroContagem(
             session.inventario_numero_contagem ?? 1,
@@ -3076,25 +3070,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         const chunk = rows.slice(i, i + CHUNK) as Record<string, unknown>[]
         let attemptPayload: Record<string, unknown>[] = chunk
         let { data: insertedChunk, error: insErr } = await supabase
-          .from('contagens_estoque')
+          .from(tContagens)
           .insert(attemptPayload)
           .select('id')
         if (insErr && inventario && isMissingAnyInventarioContagensColumn(insErr)) {
           insertWithoutInventarioColumns = true
           attemptPayload = chunk.map((r) => stripContagensEstoqueInventarioColumns(r))
-          const res = await supabase.from('contagens_estoque').insert(attemptPayload).select('id')
+          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
           insertedChunk = res.data
           insErr = res.error
         }
         if (insErr && isMissingDbColumnError(insErr, 'finalizacao_sessao_id')) {
           attemptPayload = attemptPayload.map((r) => stripContagensEstoqueFinalizacaoSessaoColumn(r))
-          const res = await supabase.from('contagens_estoque').insert(attemptPayload).select('id')
+          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
           insertedChunk = res.data
           insErr = res.error
         }
         if (insErr && isMissingDbColumnError(insErr, 'contagem_rascunho')) {
           attemptPayload = attemptPayload.map((r) => stripContagensEstoqueContagemRascunhoColumn(r))
-          const res = await supabase.from('contagens_estoque').insert(attemptPayload).select('id')
+          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
           insertedChunk = res.data
           insErr = res.error
         }
@@ -3109,7 +3103,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
       if (insertedContagensIds.length !== rows.length) {
         throw new Error(
-          'O banco não devolveu o id de cada linha em contagens_estoque. Verifique a política de SELECT após INSERT.',
+          `O banco não devolveu o id de cada linha em ${tContagens}. Verifique a política de SELECT após INSERT.`,
         )
       }
 
@@ -3140,7 +3134,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             up_quantidade: meta.up_adicional,
             observacao: String(meta.it.observacao ?? '').trim() || null,
             produto_id: meta.produtoId,
-            contagens_estoque_id: insertedContagensIds[idx],
+            [tPlanilhaFk]: insertedContagensIds[idx],
           }
         })
         for (let i = 0; i < planilhaRows.length; i += CHUNK) {
@@ -3378,49 +3372,15 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         await deleteInventarioPlanilhaLinhasForDay(supabase, dayKey)
       }
 
-      let delQ = supabase.from('contagens_estoque').delete().eq('data_contagem', dayKey)
-      if (inventario) {
-        delQ = delQ.eq('origem', 'inventario')
-      } else {
+      let delQ = supabase.from(tContagens).delete().eq('data_contagem', dayKey)
+      if (!inventario) {
         delQ = delQ.or('origem.is.null,origem.neq.inventario')
       }
       let { error } = await delQ
 
-      if (error && isMissingDbColumnError(error, 'origem')) {
-        if (inventario) {
-          /** Sem `origem`: apaga linhas com metadados de inventário (mesma ideia da prévia). */
-          const delPorMeta = await supabase
-            .from('contagens_estoque')
-            .delete()
-            .eq('data_contagem', dayKey)
-            .or('inventario_repeticao.not.is.null,inventario_numero_contagem.not.is.null')
-          if (!delPorMeta.error) {
-            error = null
-          } else if (isMissingAnyInventarioContagensColumn(delPorMeta.error)) {
-            /** Mesmo escopo do delete por metadados, sem depender da prévia na tela (evita outro dia se o seletor mudou). */
-            const rFetch = await supabase
-              .from('contagens_estoque')
-              .select('id')
-              .eq('data_contagem', dayKey)
-              .or('inventario_repeticao.not.is.null,inventario_numero_contagem.not.is.null')
-              .limit(5000)
-            const idList = (rFetch.data ?? [])
-              .map((row: { id?: string }) => String(row.id ?? ''))
-              .filter(Boolean)
-            if (idList.length === 0) {
-              throw new Error(
-                'Sem coluna origem e nenhum registro de inventário encontrado para este dia. Rode supabase/sql/alter_contagens_estoque_origem_inventario.sql no Supabase se necessário.',
-              )
-            }
-            const delPorIds = await supabase.from('contagens_estoque').delete().in('id', idList)
-            error = delPorIds.error
-          } else {
-            error = delPorMeta.error
-          }
-        } else {
-          const simple = await supabase.from('contagens_estoque').delete().eq('data_contagem', dayKey)
-          error = simple.error
-        }
+      if (error && !inventario && isMissingDbColumnError(error, 'origem')) {
+        const simple = await supabase.from(tContagens).delete().eq('data_contagem', dayKey)
+        error = simple.error
       }
 
       if (error) throw error
@@ -3447,7 +3407,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (inventario) {
         await deleteInventarioPlanilhaLinhasForContagensIds(supabase, idsToDelete)
       }
-      const { error } = await supabase.from('contagens_estoque').delete().in('id', idsToDelete)
+      const { error } = await supabase.from(tContagens).delete().in('id', idsToDelete)
       if (error) throw error
 
       setEditingPreviewId(null)
@@ -3469,7 +3429,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     try {
       const idsToUpdate = previewSourceIdsParaAcaoPrevia(row)
       const { error } = await supabase
-        .from('contagens_estoque')
+        .from(tContagens)
         .update({ foto_base64: null })
         .in('id', idsToUpdate)
       if (error) throw error
@@ -3505,11 +3465,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
       const sourceIds = previewSourceIdsParaAcaoPrevia(row)
       const keepId = sourceIds[0]
-      const { error } = await supabase.from('contagens_estoque').update({ quantidade_up: qtd }).eq('id', keepId)
+      const { error } = await supabase.from(tContagens).update({ quantidade_up: qtd }).eq('id', keepId)
       if (error) throw error
       const otherIds = sourceIds.slice(1)
       if (otherIds.length) {
-        const { error: delError } = await supabase.from('contagens_estoque').delete().in('id', otherIds)
+        const { error: delError } = await supabase.from(tContagens).delete().in('id', otherIds)
         if (delError) throw delError
       }
       setEditingPreviewId(null)

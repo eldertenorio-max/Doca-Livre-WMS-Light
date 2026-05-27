@@ -9,6 +9,7 @@ export async function fetchPlanilhaContagemIdsParaIntervalo(
   supabase: SupabaseClient,
   dataInventarioMinYmd: string,
   dataInventarioMaxYmd: string,
+  fkColumn: 'contagens_estoque_id' | 'contagens_inventario_id' = 'contagens_inventario_id',
 ): Promise<Set<string>> {
   const out = new Set<string>()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dataInventarioMinYmd) || !/^\d{4}-\d{2}-\d{2}$/.test(dataInventarioMaxYmd)) {
@@ -17,12 +18,16 @@ export async function fetchPlanilhaContagemIdsParaIntervalo(
   try {
     const { data } = await supabase
       .from('inventario_planilha_linhas')
-      .select('contagens_estoque_id')
+      .select(`${fkColumn},contagens_estoque_id,contagens_inventario_id`)
       .gte('data_inventario', dataInventarioMinYmd)
       .lte('data_inventario', dataInventarioMaxYmd)
       .limit(20000)
     for (const pr of data ?? []) {
-      const cid = (pr as { contagens_estoque_id?: string | null }).contagens_estoque_id
+      const row = pr as Record<string, unknown>
+      const cid =
+        row[fkColumn] ??
+        row.contagens_inventario_id ??
+        row.contagens_estoque_id
       if (cid != null) out.add(String(cid))
     }
   } catch {
@@ -50,7 +55,9 @@ export function filterContagensPorModoListagem(
 ): Record<string, unknown>[] {
   return rows.filter((r) => {
     const o = r.origem != null ? String(r.origem) : ''
-    if (modo === 'contagem_diaria') return o !== 'inventario'
+    if (modo === 'contagem_diaria') return o !== 'inventario' && !hasInventarioMetaRow(r)
+    /** Tabela dedicada `contagens_inventario`: todas as linhas já são inventário. */
+    if (previewOrigemAusenteNoResultado && modo === 'inventario' && o === '') return true
     if (o === 'inventario') return true
     const rid = String(r.id ?? '')
     if (planilhaContagemIds.has(rid)) return true

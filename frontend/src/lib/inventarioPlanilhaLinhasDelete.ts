@@ -21,8 +21,10 @@ export async function deleteInventarioPlanilhaLinhasForContagensIds(
 ): Promise<void> {
   const ids = contagensIds.filter(Boolean)
   if (ids.length === 0) return
-  const { error } = await supabase.from('inventario_planilha_linhas').delete().in('contagens_estoque_id', ids)
-  if (error && !isMissingInventarioPlanilhaTableError(error)) throw error
+  const { error: e1 } = await supabase.from('inventario_planilha_linhas').delete().in('contagens_inventario_id', ids)
+  if (e1 && !isMissingInventarioPlanilhaTableError(e1)) throw e1
+  const { error: e2 } = await supabase.from('inventario_planilha_linhas').delete().in('contagens_estoque_id', ids)
+  if (e2 && !isMissingInventarioPlanilhaTableError(e2)) throw e2
 }
 
 /** Apaga todas as linhas da planilha de inventário do dia (alinhado a “Excluir tudo” da prévia no modo inventário). */

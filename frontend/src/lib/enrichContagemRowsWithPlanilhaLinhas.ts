@@ -60,18 +60,24 @@ export async function enrichContagemRowsWithPlanilhaLinhas<T extends { id: strin
   try {
     for (let i = 0; i < ids.length; i += PLANILHA_ENRICH_CHUNK) {
       const chunk = ids.slice(i, i + PLANILHA_ENRICH_CHUNK)
-      const { data, error } = await supabase
-        .from('inventario_planilha_linhas')
-        .select(
-          'contagens_estoque_id, grupo_armazem, rua, posicao, nivel, numero_contagem, data_fabricacao, data_validade, lote, up_quantidade, observacao',
-        )
-        .in('contagens_estoque_id', chunk)
+      const sel =
+        'contagens_estoque_id, contagens_inventario_id, grupo_armazem, rua, posicao, nivel, numero_contagem, data_fabricacao, data_validade, lote, up_quantidade, observacao'
+      const [resInv, resLeg] = await Promise.all([
+        supabase.from('inventario_planilha_linhas').select(sel).in('contagens_inventario_id', chunk),
+        supabase.from('inventario_planilha_linhas').select(sel).in('contagens_estoque_id', chunk),
+      ])
+      const error = resInv.error ?? resLeg.error
+      const data = [...(resInv.data ?? []), ...(resLeg.data ?? [])]
       if (error) {
         console.warn(`[${logLabel}] inventario_planilha_linhas:`, error)
         return rows.map(withNullPlanilha)
       }
       for (const row of data ?? []) {
-        const cid = row.contagens_estoque_id != null ? String(row.contagens_estoque_id) : ''
+        const cidRaw =
+          row.contagens_inventario_id != null
+            ? row.contagens_inventario_id
+            : row.contagens_estoque_id
+        const cid = cidRaw != null ? String(cidRaw) : ''
         if (!cid || byContagem.has(cid)) continue
         const nc = row.numero_contagem
         const upq = row.up_quantidade

@@ -21,6 +21,7 @@ import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import { getArmazemContagem, getArmazemPos } from '../lib/armazemInventarioMap'
 import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
+import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
 
 type ContagemRow = {
   id: string
@@ -400,6 +401,8 @@ export default function RelatorioContagem({
   }, [listColumnPrefsInventario])
 
   const modoListagem: ModoListagemContagem = useInventarioCols ? 'inventario' : 'contagem_diaria'
+  const tContagens = tableContagens(useInventarioCols)
+  const tPlanilhaFk = planilhaFkContagemColumn(useInventarioCols)
 
   const isDiaMode = mode === 'dia'
   /** Excel só no relatório por período — nunca em “Todas as contagens” (`mode="dia"`). */
@@ -827,7 +830,7 @@ export default function RelatorioContagem({
       const base = () =>
         applyNumeroInventario(
           supabase
-            .from('contagens_estoque')
+            .from(tContagens)
             .select(selectCompact)
             .order('codigo_interno', { ascending: true })
             .order('data_hora_contagem', { ascending: true }),
@@ -1029,7 +1032,7 @@ export default function RelatorioContagem({
     origemAusenteNoResultado: boolean,
   ): Promise<{ modo: 'inventario' | 'contagem_diaria'; filtered: ContagemRow[] }> {
     const { minY, maxY } = planilhaIntervalYmdForPrevia(data)
-    const planilhaIds = await fetchPlanilhaContagemIdsParaIntervalo(supabase, minY, maxY)
+    const planilhaIds = await fetchPlanilhaContagemIdsParaIntervalo(supabase, minY, maxY, tPlanilhaFk)
     const asRec = data.map((r) => ({ ...r }) as Record<string, unknown>)
     const filtered = filterContagensPorModoListagem(
       asRec,
@@ -1116,7 +1119,7 @@ export default function RelatorioContagem({
       let from = 0
       while (true) {
         const { data, error } = await supabase
-          .from('contagens_estoque')
+          .from(tContagens)
           .select(sel)
           .order('data_hora_contagem', { ascending: false })
           .range(from, from + RELATORIO_FETCH_CHUNK - 1)
@@ -1149,7 +1152,7 @@ export default function RelatorioContagem({
   ): Promise<HistoricoContagemItem[]> {
     if (!raw.length) return []
     const { minY, maxY } = computeMinMaxYmdDataContagemOnly(raw)
-    const planilhaIds = await fetchPlanilhaContagemIdsParaIntervalo(supabase, minY, maxY)
+    const planilhaIds = await fetchPlanilhaContagemIdsParaIntervalo(supabase, minY, maxY, tPlanilhaFk)
     const asRec = raw.map((r) => ({ ...r }) as Record<string, unknown>)
     let filtered = filterContagensPorModoListagem(
       asRec,
@@ -1470,7 +1473,7 @@ export default function RelatorioContagem({
       await deleteInventarioPlanilhaLinhasForContagensIds(supabase, idsToDelete)
     }
     for (const uid of idsToDelete) {
-      const { error: delError } = await supabase.from('contagens_estoque').delete().eq('id', uid)
+      const { error: delError } = await supabase.from(tContagens).delete().eq('id', uid)
       if (delError) {
         setError(`Erro ao excluir: ${delError.message}`)
         setRowActionLoading(false)
@@ -1510,7 +1513,7 @@ export default function RelatorioContagem({
       if (useInventarioCols) {
         const idsToUpdate = row.source_ids?.length ? row.source_ids : [id]
         for (const uid of idsToUpdate) {
-          const { error: updError } = await supabase.from('contagens_estoque').update({ quantidade_up: qtd }).eq('id', uid)
+          const { error: updError } = await supabase.from(tContagens).update({ quantidade_up: qtd }).eq('id', uid)
           if (updError) {
             setError(`Erro ao atualizar quantidade: ${updError.message}`)
             return
@@ -1528,14 +1531,14 @@ export default function RelatorioContagem({
       } else {
         const sourceIds = relatorioSourceIdsParaAcao(row)
         const keepId = sourceIds[0]
-        const { error: updError } = await supabase.from('contagens_estoque').update({ quantidade_up: qtd }).eq('id', keepId)
+        const { error: updError } = await supabase.from(tContagens).update({ quantidade_up: qtd }).eq('id', keepId)
         if (updError) {
           setError(`Erro ao atualizar quantidade: ${updError.message}`)
           return
         }
         const otherIds = sourceIds.slice(1)
         if (otherIds.length) {
-          const { error: delError } = await supabase.from('contagens_estoque').delete().in('id', otherIds)
+          const { error: delError } = await supabase.from(tContagens).delete().in('id', otherIds)
           if (delError) {
             setError(`Erro ao consolidar registros: ${delError.message}`)
             return
