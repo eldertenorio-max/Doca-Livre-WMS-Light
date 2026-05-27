@@ -4,11 +4,16 @@ import * as XLSX from 'xlsx'
 import { ComparativoLinhasSvgChart, type SvgChartSeries } from '../components/ComparativoLinhasSvgChart'
 import ControleShelfLifePanel from '../components/ControleShelfLifePanel'
 import VisaoCruzadaEstoqueShelfPanel from '../components/VisaoCruzadaEstoqueShelfPanel'
+import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
+import { fetchGoogleSheetCsv } from '../lib/googleSheetsCsv'
 
 type EstoqueSegurancaAba = 'estoque' | 'shelf_life' | 'visao_cruzada'
 
 const SHEET_ID = '1KBDdsl4GeQL97mAvJS_J7uf0a6M7LRr0fHtPZE_QFhU'
 const SHEET_GID = '1626679618'
+/** Aba com saldo por produto — coluna D (QUANTIDADE) alimenta «Estoque Atual» no painel. */
+const SHEET_ABA_ESTOQUE = 'Estoque'
+const COLUNA_ESTOQUE_QUANTIDADE_IDX = 3
 /** Um aviso automático por dia (após carregar os dados do dia). */
 const LS_AVISO_DIARIO_YMD = 'estoque-seguranca.aviso-amarelo-vermelho.ymd'
 
@@ -68,7 +73,7 @@ const CONFIAB = {
 /** Texto de ajuda sob gráficos de uma única coluna (eixo X = itens da lista). */
 const SUBTITULO_GRAFICO_METRICA: Partial<Record<Coluna, string>> = {
   'Estoque Atual':
-    'Quantidade em estoque por item no eixo inferior (SKU ou categoria). Os valores são os mesmos da coluna «Estoque Atual» na planilha e na tabela abaixo.',
+    'Quantidade por item (SKU): coluna D (QUANTIDADE) da aba «Estoque» da planilha Google, cruzada pelo código do produto.',
 }
 
 type GraficoFiltro = null | { kind: 'sku'; label: string } | { kind: 'cond'; cond: CondClass }
@@ -136,6 +141,39 @@ function parseCsv(csvText: string): string[][] {
 
 function isHtmlResponse(txt: string): boolean {
   return /<html|<!doctype html|sign in|google sheets/i.test(txt)
+}
+
+/** Mapa código normalizado → quantidade (aba «Estoque», coluna D). */
+function parseMapaQuantidadeAbaEstoque(csvText: string): Map<string, string> {
+  const grid = parseCsv(csvText)
+  if (grid.length < 2) return new Map()
+  const head = grid[0].map((h) => normalize(String(h || '').trim()))
+  let codigoIdx = head.findIndex((h) => h === 'codigo' || h === 'sku' || h.startsWith('codigo'))
+  let qtdIdx = head.findIndex((h) => h === 'quantidade' || h === 'qtd' || h === 'estoque atual')
+  if (codigoIdx < 0) codigoIdx = 0
+  if (qtdIdx < 0) qtdIdx = COLUNA_ESTOQUE_QUANTIDADE_IDX
+  const map = new Map<string, string>()
+  for (let i = 1; i < grid.length; i++) {
+    const line = grid[i]
+    const cod = String(line[codigoIdx] ?? '').trim()
+    if (!cod) continue
+    const qtd = String(line[qtdIdx] ?? '').trim()
+    const key = normalizeCodigoInternoCompareKey(cod).toLowerCase()
+    if (key) map.set(key, qtd)
+  }
+  return map
+}
+
+function aplicarEstoqueAtualDaAbaEstoque(rows: RowLista[], mapa: Map<string, string>): RowLista[] {
+  if (mapa.size === 0) return rows
+  return rows.map((r) => {
+    const cod = r.sku.trim() || r.Categoria.trim()
+    if (!cod) return r
+    const key = normalizeCodigoInternoCompareKey(cod).toLowerCase()
+    const qtd = mapa.get(key)
+    if (qtd === undefined) return r
+    return { ...r, 'Estoque Atual': qtd }
+  })
 }
 
 /** Status do semáforo a partir da coluna «Para condicional» da planilha (não recalculado na app). */
@@ -534,7 +572,7 @@ export default function EstoqueSeguranca() {
           if (missing.length) {
             throw new Error(`Colunas não encontradas: ${missing.join(', ')}`)
           }
-          const parsed: RowLista[] = grid.slice(1).map((line) => {
+          let parsed: RowLista[] = grid.slice(1).map((line) => {
             const obj = {} as DataRow
             COLUNAS.forEach((c) => {
               obj[c] = String(line[idxMap[c]] ?? '').trim()
@@ -545,6 +583,13 @@ export default function EstoqueSeguranca() {
               descricao: descIdx >= 0 ? String(line[descIdx] ?? '').trim() : '',
             }
           })
+          try {
+            const { text: estoqueCsv } = await fetchGoogleSheetCsv(SHEET_ID, { sheetName: SHEET_ABA_ESTOQUE })
+            const mapaQtd = parseMapaQuantidadeAbaEstoque(estoqueCsv)
+            parsed = aplicarEstoqueAtualDaAbaEstoque(parsed, mapaQtd)
+          } catch (e) {
+            console.warn('[EstoqueSeguranca] Aba Estoque (coluna D):', e)
+          }
           if (!alive) return
           setRows(parsed)
           setSource(url)
