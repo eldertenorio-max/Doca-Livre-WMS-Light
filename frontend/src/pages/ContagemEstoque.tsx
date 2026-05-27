@@ -3152,6 +3152,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         if (!planilhaAviso) planilhaGravada = true
       }
 
+      const confRow = conferentes.find((x) => x.id === session.conferente_id)
+      const nomeConf =
+        confRow?.nome != null && String(confRow.nome).trim() !== '' ? String(confRow.nome).trim() : undefined
+
       setFinalizeProgress('Atualizando cadastro (EAN/DUN)...')
       const { atualizados: cadastroEanDunAtualizados, avisos: avisosCadastroEanDun } =
         await atualizarTodosOsProdutosEanDunAposFinalizacao(
@@ -3176,7 +3180,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       setChecklistListMode('todos')
       const inventarioDbCompatMsg =
         inventario && insertWithoutInventarioColumns
-          ? ' Recomendado: execute no Supabase os scripts `alter_contagens_estoque_origem_inventario.sql` e `alter_contagens_estoque_inventario_numero_contagem.sql` para gravar origem e metadados de inventário.'
+          ? ' Recomendado: verifique a tabela contagens_inventario no Supabase (scripts em supabase/sql).'
           : ''
       setPreviewConsultaDiaYmd(ymd)
       await loadPreview(ymd)
@@ -3185,13 +3189,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         cadastroEanDunAtualizados > 0
           ? ` Cadastro “Todos os Produtos”: ${cadastroEanDunAtualizados} produto(s) com EAN/DUN e datas de alteração atualizados.`
           : ''
-      const confRow = conferentes.find((x) => x.id === session.conferente_id)
-      const nomeConf =
-        confRow?.nome != null && String(confRow.nome).trim() !== '' ? String(confRow.nome).trim() : undefined
 
       if (inventario) {
         setSaveSuccess(
-          `Inventário do dia ${ymd} finalizado: ${rows.length} novo(s) registro(s) em contagens_estoque (acumula com contagens anteriores do mesmo dia).${
+          `Inventário do dia ${ymd} finalizado: ${rows.length} novo(s) registro(s) em ${tContagens} (acumula com contagens anteriores do mesmo dia).${
             planilhaGravada ? ` ${rows.length} linha(s) em inventario_planilha_linhas.` : ''
           }${planilhaAviso ?? ''}${inventarioDbCompatMsg}${msgCadastroEanDun}`,
         )
