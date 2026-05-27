@@ -8,8 +8,8 @@ export type ArmazemListaOficialRow = {
   unidade: string
 }
 
-/** 79 produtos na ordem da planilha de inventário (atualizado maio/2026). */
-export const ARMAZEM_LISTA_OFICIAL: readonly ArmazemListaOficialRow[] = [
+/** Fallback embutido se a planilha Google não carregar. */
+export const ARMAZEM_LISTA_OFICIAL_FALLBACK: readonly ArmazemListaOficialRow[] = [
   // 1° CONTAGEM
   { grupo: 1, codigo: '01.01.0001', descricao: 'MASSA CONGELADA DE PAO FRANCES RAPIDA - 5KG', unidade: 'PT' },
   { grupo: 1, codigo: '01.01.0002', descricao: 'MASSA CONGELADA DE PAO FRANCES MEDIA - 5KG', unidade: 'PT' },
@@ -95,25 +95,43 @@ export const ARMAZEM_LISTA_OFICIAL: readonly ArmazemListaOficialRow[] = [
   { grupo: 4, codigo: '01.04.0061', descricao: 'MASSA CONGELADA DE CHIPA TRADICIONAL - CX 10 KG - 5 UN DE 2 KG', unidade: 'CX' },
 ] as const
 
-const OFICIAL_BY_NORM = (() => {
+/** @deprecated Use `ARMAZEM_LISTA_OFICIAL_FALLBACK` ou `listArmazemListaOficialOrdered()`. */
+export const ARMAZEM_LISTA_OFICIAL = ARMAZEM_LISTA_OFICIAL_FALLBACK
+
+let listaAtiva: ArmazemListaOficialRow[] = [...ARMAZEM_LISTA_OFICIAL_FALLBACK]
+
+function buildLookupMap(rows: readonly ArmazemListaOficialRow[]): Map<string, ArmazemListaOficialRow> {
   const m = new Map<string, ArmazemListaOficialRow>()
-  for (const row of ARMAZEM_LISTA_OFICIAL) {
+  for (const row of rows) {
     m.set(row.codigo, row)
     const norm = normalizeCodigoInternoCompareKey(row.codigo)
     if (norm && !m.has(norm)) m.set(norm, row)
   }
   return m
-})()
+}
+
+let oficialByNorm = buildLookupMap(listaAtiva)
+
+/** Atualiza lista ativa (planilha Base Principal) e mapa de grupos/ordem. */
+export function setArmazemListaAtiva(rows: ArmazemListaOficialRow[]): void {
+  listaAtiva = rows.length > 0 ? [...rows] : [...ARMAZEM_LISTA_OFICIAL_FALLBACK]
+  oficialByNorm = buildLookupMap(listaAtiva)
+}
 
 export function lookupArmazemListaOficial(codigo: string): ArmazemListaOficialRow | undefined {
   const t = String(codigo ?? '').trim()
   if (!t) return undefined
-  return OFICIAL_BY_NORM.get(t) ?? OFICIAL_BY_NORM.get(normalizeCodigoInternoCompareKey(t))
+  return oficialByNorm.get(t) ?? oficialByNorm.get(normalizeCodigoInternoCompareKey(t))
 }
 
 /** Ordem oficial para inventário / contagem armazém (grupos 1–4). */
 export function listArmazemListaOficialOrdered(): ArmazemListaOficialRow[] {
-  return [...ARMAZEM_LISTA_OFICIAL]
+  return [...listaAtiva]
 }
 
-export const ARMAZEM_LISTA_OFICIAL_TOTAL = ARMAZEM_LISTA_OFICIAL.length
+export function getArmazemListaOficialTotal(): number {
+  return listaAtiva.length
+}
+
+/** @deprecated Use `getArmazemListaOficialTotal()`. */
+export const ARMAZEM_LISTA_OFICIAL_TOTAL = ARMAZEM_LISTA_OFICIAL_FALLBACK.length

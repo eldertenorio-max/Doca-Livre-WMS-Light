@@ -37,8 +37,9 @@ import {
 import {
   listArmazemListaOficialOrdered,
   lookupArmazemListaOficial,
-  ARMAZEM_LISTA_OFICIAL_TOTAL,
+  getArmazemListaOficialTotal,
 } from '../lib/armazemListaOficial'
+import { ensureArmazemListaFromBasePrincipal } from '../lib/armazemBasePrincipalSheet'
 import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
 import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
@@ -834,6 +835,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (offlineSession?.status === 'aberta') return
     setChecklistListMode((prev) => (prev === 'todos' ? 'armazem' : prev))
   }, [inventario, offlineSession?.status])
+
+  /** Pré-carrega aba Base Principal (Google Sheets) para modo armazém / inventário. */
+  useEffect(() => {
+    if (!inventario && !isListModeArmazem(checklistListMode)) return
+    void ensureArmazemListaFromBasePrincipal().catch(() => {})
+  }, [inventario, checklistListMode])
 
   /** Sessões antigas sem UUID de rascunho: gera um para permitir sync em tempo real no Supabase. */
   useEffect(() => {
@@ -2274,8 +2281,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
       const catalogListaInicial = await fetchListaChecklistFromDb()
       let itemsRaw: Array<{ codigo_interno: string; descricao: string }> = catalogListaInicial
+      let listaPlanilhaAviso = ''
 
       if (isListModeArmazem(listModeEfetivo)) {
+        try {
+          const { source } = await ensureArmazemListaFromBasePrincipal()
+          if (source === 'planilha') {
+            listaPlanilhaAviso = ` Lista da planilha Base Principal (${getArmazemListaOficialTotal()} produtos).`
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'erro ao ler planilha'
+          listaPlanilhaAviso = ` Aviso: não foi possível carregar Base Principal (${msg}) — usando lista local.`
+        }
+
         const catalogAll = catalogListaInicial.slice()
         const missing = catalogAll.map((it) => it.codigo_interno).filter((codigo) => getArmazemContagem(codigo) === null)
         setArmazemMissingCodes(missing)
@@ -2363,16 +2381,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
       setOfflineSession(sess)
       saveOfflineSession(sess, sessionMode)
+      const sufixoArmazem = isListModeArmazem(listModeEfetivo)
+        ? listaPlanilhaAviso ||
+          (listModeEfetivo === 'planilha'
+            ? ', formato planilha (CAMARA/RUA, abas por grupo)'
+            : `, ordem armazém (${getArmazemListaOficialTotal()} produtos${inventario ? ' × 3 contagens' : ''}, grupos 1ª–4ª)`)
+        : ''
+
       setSaveSuccess(
         inventario
-          ? `Lista de inventário: ${items.length} linhas (${itemsRaw.length} produtos × 3 contagens)${
-              isListModeArmazem(listModeEfetivo)
-                ? listModeEfetivo === 'planilha'
-                  ? ', formato planilha (CAMARA/RUA, abas por grupo)'
-                  : `, ordem armazém (${ARMAZEM_LISTA_OFICIAL_TOTAL} produtos × 3 contagens, grupos 1ª–4ª)`
-                : ''
-            }. Preencha as quantidades e finalize.`
-          : `Lista carregada: ${items.length} itens.${
+          ? `Lista de inventário: ${items.length} linhas (${itemsRaw.length} produtos × 3 contagens)${sufixoArmazem}. Preencha as quantidades e finalize.`
+          : `Lista carregada: ${items.length} itens.${sufixoArmazem}${
               preenchidosDoBanco > 0
                 ? ` ${preenchidosDoBanco} linha(s) já preenchida(s) com o que está no banco hoje (última gravação por código, todos os conferentes).`
                 : ''
