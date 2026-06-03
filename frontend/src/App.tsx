@@ -3,6 +3,7 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { readLastListWasInventario, writeLastListScreen } from './lib/checklistVisibleCols'
 import type React from 'react'
 import './App.css'
+import logoDis from './assets/logo-dis-logistica-inteligente.png'
 import BaseProdutos from './pages/BaseProdutos'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
 import ContagemEstoque from './pages/ContagemEstoque'
@@ -142,12 +143,11 @@ export default function App() {
             textAlign: 'center',
           }}
         >
-          <h1
-            className="home-animated-title"
-            style={{ margin: '0 0 12px', fontSize: 'clamp(22px, 5vw, 28px)', color: '#ffd95c' }}
-          >
-            DIS Logística Inteligente
-          </h1>
+          <img
+            className="home-animated-logo"
+            src={logoDis}
+            alt="DIS Logística Inteligente"
+          />
           <p
             style={{
               margin: '0 0 28px',

@@ -1,4 +1,12 @@
 /* Tela de login: fundo conforme tema escolhido (classe definida no TS). */
+.login-screen-logo {
+  display: block;
+  width: min(100%, 320px);
+  height: auto;
+  margin: 0 auto 16px;
+  border-radius: 12px;
+}
+
 body.login-screen-active.login-screen--light {
   background: linear-gradient(180deg, #eef2f7 0%, #e2e8f0 100%) !important;
 }
