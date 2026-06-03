@@ -559,7 +559,7 @@ export default function LoginScreen() {
 
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <h1 style={{ margin: 0, fontSize: 'clamp(20px, 4vw, 24px)', color: ui.title, fontWeight: 700 }}>
-            Painel de Contagem de Estoque
+            DIS Logística Inteligente
           </h1>
           <p style={{ margin: '10px 0 0', fontSize: 14, color: ui.subtitle, lineHeight: 1.45 }}>
             {mode === 'login' ? 'Entre com usuário e senha' : 'Cadastre usuário e senha (sem e-mail no formulário)'}

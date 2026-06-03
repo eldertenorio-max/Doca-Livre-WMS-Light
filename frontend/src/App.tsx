@@ -146,7 +146,7 @@ export default function App() {
             className="home-animated-title"
             style={{ margin: '0 0 12px', fontSize: 'clamp(22px, 5vw, 28px)', color: '#ffd95c' }}
           >
-            Painel de Contagem de Estoque
+            DIS Logística Inteligente
           </h1>
           <p
             style={{
