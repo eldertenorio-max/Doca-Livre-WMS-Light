@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent, type RefObject } from 'react'
-import logoUltrapao from '../assets/logo-ultrapao.png'
 import { supabase } from '../lib/supabaseClient'
 import './LoginScreen.css'
 
@@ -559,7 +558,6 @@ export default function LoginScreen() {
         </div>
 
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <img className="login-screen-logo" src={logoUltrapao} alt="Ultra Pão Alimentos" />
           <h1 style={{ margin: 0, fontSize: 'clamp(20px, 4vw, 24px)', color: ui.title, fontWeight: 700 }}>
             Painel de Contagem de Estoque
           </h1>
