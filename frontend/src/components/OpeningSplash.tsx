@@ -13,10 +13,17 @@ const LOADING_MESSAGES = [
   'Carregando dashboard...',
 ] as const
 
-/** ~8,8 s — vinheta cinematográfica; barra de progresso ~2,1 s no final */
-const DURATION_MS = 8800
-const LOADER_AT_MS = 6400
+/** ~9,6 s — ícone mais rápido; barra de progresso ~3,2 s no final */
+const DURATION_MS = 9600
+const LOADER_AT_MS = 4000
 const REDUCED_MOTION_MS = 900
+
+const PHASE_MS = {
+  iconBuild: 800,
+  dAndCheck: 1800,
+  logoReveal: 2800,
+  logoHold: 3600,
+} as const
 
 type Phase = 0 | 1 | 2 | 3 | 4 | 5
 
@@ -58,19 +65,19 @@ export default function OpeningSplash({ onComplete }: Props) {
     }
 
     const timers = [
-      window.setTimeout(() => setPhase(1), 1200),
+      window.setTimeout(() => setPhase(1), PHASE_MS.iconBuild),
       window.setTimeout(() => {
         setPhase(2)
         splashSoundCheck()
-      }, 2800),
+      }, PHASE_MS.dAndCheck),
       window.setTimeout(() => {
         setPhase(3)
         splashSoundWhoosh()
-      }, 4400),
+      }, PHASE_MS.logoReveal),
       window.setTimeout(() => {
         setPhase(4)
         splashSoundWhoosh()
-      }, 5800),
+      }, PHASE_MS.logoHold),
       window.setTimeout(() => setPhase(5), LOADER_AT_MS),
       window.setTimeout(() => {
         splashSoundConfirm()
@@ -102,7 +109,7 @@ export default function OpeningSplash({ onComplete }: Props) {
         setMsgIndex((i) => (i + 1) % LOADING_MESSAGES.length)
         setMsgVisible(true)
       }, 280)
-    }, 1050)
+    }, 1100)
 
     return () => {
       timers.forEach(clearTimeout)
@@ -112,7 +119,7 @@ export default function OpeningSplash({ onComplete }: Props) {
   }, [onComplete, reducedMotion])
 
   const showIconBuild = phase >= 1 && phase < 3
-  const showD = phase >= 2 && phase < 3
+  const showD = phase >= 1 && phase < 3
   const showLogo = phase >= 3
   const showLogoHold = phase >= 4
   const showLoader = phase >= 5
@@ -150,12 +157,33 @@ export default function OpeningSplash({ onComplete }: Props) {
 
       <div className="opening-splash__stage">
         <div className={`opening-splash__icon-wrap${showLogoHold ? ' opening-splash__icon-wrap--hold' : ''}`}>
+          <div className={`opening-splash__letter-d${showD ? ' opening-splash__letter-d--on' : ''}`} aria-hidden>
+            <svg viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="splashDGrad" x1="8" y1="6" x2="112" y2="134" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#fff4c4" />
+                  <stop offset="28%" stopColor="#f0d060" />
+                  <stop offset="58%" stopColor="#d4af37" />
+                  <stop offset="100%" stopColor="#8b6914" />
+                </linearGradient>
+                <filter id="splashDGlow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#ffd95c" floodOpacity="0.45" />
+                </filter>
+              </defs>
+              <path
+                className="opening-splash__d-shape"
+                fill="url(#splashDGrad)"
+                fillRule="evenodd"
+                filter="url(#splashDGlow)"
+                d="M 10 8 L 10 132 L 50 132 C 98 132 104 70 98 70 C 104 70 98 8 50 8 Z M 26 30 L 26 110 L 48 110 C 76 110 80 70 76 70 C 80 70 76 30 48 30 Z"
+              />
+            </svg>
+          </div>
           <div className={`opening-splash__pallet${showIconBuild ? ' opening-splash__pallet--on' : ''}`} />
           <div className={`opening-splash__box${showIconBuild ? ' opening-splash__box--on' : ''}`} />
           <div className={`opening-splash__check${showIconBuild ? ' opening-splash__check--on' : ''}`}>
             <span className="opening-splash__check-burst" aria-hidden />
           </div>
-          <div className={`opening-splash__d-ring${showD ? ' opening-splash__d-ring--on' : ''}`} />
           <img
             className={`opening-splash__logo${showLogo ? ' opening-splash__logo--on' : ''}${showLogoHold ? ' opening-splash__logo--hold' : ''}`}
             src={logoDis}
