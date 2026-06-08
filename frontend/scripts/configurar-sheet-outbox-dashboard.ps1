@@ -1,6 +1,8 @@
 # Passos após rodar triggers + cron no banco (scripts locais).
 # Edge Function exige deploy no painel do projeto diegosistemas803 (CLI deu 403 sem login da conta certa).
 #
+# URL do Apps Script CORRETA (a URL antiga AKfycbxSwlCV... retorna 404):
+#
 # 1) Supabase novo → Edge Functions → Deploy via Editor
 #    Nome: dynamic-endpoint
 #    Cole: supabase/functions/dynamic-endpoint/index.ts

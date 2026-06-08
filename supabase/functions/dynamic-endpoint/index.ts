@@ -47,6 +47,12 @@ function quantidadeAsText(v: number | null | undefined): string {
 /** Mesmo dia civil do Postgres (coluna `date`) vira sempre `yyyy-mm-dd` — evita dois grupos/POSTs para o mesmo dia. */
 function normalizeDataContagemToYmd(v: unknown): string {
   if (v == null || v === '') return ''
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const y = v.getUTCFullYear()
+    const mo = String(v.getUTCMonth() + 1).padStart(2, '0')
+    const da = String(v.getUTCDate()).padStart(2, '0')
+    return `${y}-${mo}-${da}`
+  }
   const s = String(v).trim()
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
   if (m) return m[1]
