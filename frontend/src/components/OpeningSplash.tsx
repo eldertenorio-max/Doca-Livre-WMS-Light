@@ -13,8 +13,9 @@ const LOADING_MESSAGES = [
   'Carregando dashboard...',
 ] as const
 
-/** ~7,8 s — vinheta um pouco mais longa e cinematográfica */
-const DURATION_MS = 7800
+/** ~8,8 s — vinheta cinematográfica; barra de progresso ~2,1 s no final */
+const DURATION_MS = 8800
+const LOADER_AT_MS = 6400
 const REDUCED_MOTION_MS = 900
 
 type Phase = 0 | 1 | 2 | 3 | 4 | 5
@@ -70,7 +71,7 @@ export default function OpeningSplash({ onComplete }: Props) {
         setPhase(4)
         splashSoundWhoosh()
       }, 5800),
-      window.setTimeout(() => setPhase(5), 6400),
+      window.setTimeout(() => setPhase(5), LOADER_AT_MS),
       window.setTimeout(() => {
         splashSoundConfirm()
         setExiting(true)
@@ -82,8 +83,15 @@ export default function OpeningSplash({ onComplete }: Props) {
     let raf = 0
     const tick = (now: number) => {
       const elapsed = now - start
-      const eased = 1 - Math.pow(1 - Math.min(1, elapsed / (DURATION_MS - 600)), 1.4)
-      setProgress(Math.min(100, Math.round(eased * 100)))
+      if (elapsed < LOADER_AT_MS) {
+        setProgress(0)
+      } else {
+        const loaderDuration = DURATION_MS - LOADER_AT_MS - 350
+        const loaderElapsed = elapsed - LOADER_AT_MS
+        const t = Math.min(1, loaderElapsed / loaderDuration)
+        const eased = 1 - Math.pow(1 - t, 1.4)
+        setProgress(Math.min(100, Math.round(eased * 100)))
+      }
       if (elapsed < DURATION_MS) raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -94,7 +102,7 @@ export default function OpeningSplash({ onComplete }: Props) {
         setMsgIndex((i) => (i + 1) % LOADING_MESSAGES.length)
         setMsgVisible(true)
       }, 280)
-    }, 950)
+    }, 1050)
 
     return () => {
       timers.forEach(clearTimeout)
