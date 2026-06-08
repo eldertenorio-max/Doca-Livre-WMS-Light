@@ -163,7 +163,11 @@ const td: CSSProperties = {
 }
 
 function todayYmd() {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const da = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${da}`
 }
 
 function asNum(v: unknown, fallback = 0): number {
@@ -3840,10 +3844,14 @@ export default function ContagemDiariaAmbiental() {
     }
   }, [vazias11, vazias12, vazias13, ocupAvariaAcrescimo])
 
-  /** Primeiro item = mais recente (data + horário do registro). */
+  /** Último lançamento salvo na data selecionada no formulário (`ocupData`). */
   const ocupResumoDiaSalvo = useMemo(() => {
-    const r = ocupRows[0]
-    if (!r) return null
+    const day = ocupData
+    const rowsDoDia = ocupRows.filter((r) => String(r.data_registro).slice(0, 10) === day)
+    if (!rowsDoDia.length) return null
+    const r = rowsDoDia.reduce((best, cur) =>
+      new Date(cur.created_at).getTime() > new Date(best.created_at).getTime() ? cur : best,
+    )
     const totalPos = OCUP_TOTAL_POSICOES
     const totalVaz = r.camara11_vazias + r.camara12_vazias + r.camara13_vazias
     const av = r.avaria_acrescimo_ocupacao
@@ -3866,7 +3874,7 @@ export default function ContagemDiariaAmbiental() {
       totalSaldoLivre,
       percSaldoLivre,
     }
-  }, [ocupRows])
+  }, [ocupRows, ocupData])
 
   /** Um ponto por dia civil nos gráficos — último `created_at` daquele dia (todos os gráficos alinhados). */
   const ocupRowsChronoCharts = useMemo(() => ocupRowsForCharts(ocupRows), [ocupRows])
@@ -4171,8 +4179,9 @@ export default function ContagemDiariaAmbiental() {
               resumo: 'Resumo do dia',
               form: 'Lançar ocupação (vagas vazias nas câmaras 11, 12 e 13 + avaria, se houver)',
               tabela: 'Últimos lançamentos de ocupação',
-              emptyHint:
-                'ainda não há lançamentos salvos. Preencha o formulário abaixo e salve para ver o resumo aqui.',
+              emptyHint: ocupData
+                ? `Ainda não há lançamento salvo para ${formatDataBr(ocupData)}. Preencha o formulário abaixo e salve.`
+                : 'Ainda não há lançamentos salvos. Preencha o formulário abaixo e salve para ver o resumo aqui.',
             }}
             resumoDia={ocupResumoDiaSalvo}
             resumoRascunho={ocupResumoAtual}
