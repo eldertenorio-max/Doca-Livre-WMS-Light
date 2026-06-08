@@ -559,7 +559,11 @@ export default function LoginScreen() {
         </div>
 
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <img className="login-screen-logo" src={logoDis} alt="DIS Logística Inteligente" />
+          <div className="login-screen-logo-wrap">
+            <span className="login-screen-logo-glow" aria-hidden />
+            <img className="login-screen-logo" src={logoDis} alt="DIS Logística Inteligente" />
+            <span className="login-screen-logo-shine" aria-hidden />
+          </div>
           <p style={{ margin: '10px 0 0', fontSize: 14, color: ui.subtitle, lineHeight: 1.45 }}>
             {mode === 'login' ? 'Entre com usuário e senha' : 'Cadastre usuário e senha (sem e-mail no formulário)'}
           </p>
