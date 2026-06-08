@@ -15,7 +15,8 @@
     "start": "serve -s dist -l ${PORT:-4173}",
     "import:relatorio-xlsx": "node scripts/import-relatorio-contagem-xlsx.mjs",
     "seed:users": "node scripts/seed-auth-users.mjs",
-    "backup:usuarios-produtos": "node scripts/backup-usuarios-produtos.mjs"
+    "backup:usuarios-produtos": "node scripts/backup-usuarios-produtos.mjs",
+    "import:auth-users": "node scripts/import-auth-users-postgres.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
@@ -35,6 +36,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "pg": "^8.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1"
   }

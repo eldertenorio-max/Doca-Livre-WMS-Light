@@ -15,7 +15,7 @@
 #   (opcional, legado) auth-register-confirmed, auth-login-ensure
 #
 # project_id = ref do projeto (URL https://<ref>.supabase.co). Ajuste se for outro ambiente.
-project_id = "swnefuddaswgjvhiuxok"
+project_id = "zvazpqdvnlecqadxacgv"
 
 [functions.login-username]
 verify_jwt = false
@@ -27,4 +27,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.auth-login-ensure]
+verify_jwt = false
+
+[functions.dynamic-endpoint]
+verify_jwt = false
+
+[functions.sheet-outbox-sync]
 verify_jwt = false
