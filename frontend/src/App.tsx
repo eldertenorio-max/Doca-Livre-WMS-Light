@@ -8,6 +8,7 @@ import BaseProdutos from './pages/BaseProdutos'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
 import ContagemEstoque from './pages/ContagemEstoque'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
+import OpeningSplash from './components/OpeningSplash'
 import LoginScreen from './pages/LoginScreen'
 import RelatorioContagem from './pages/RelatorioContagem'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
@@ -66,6 +67,7 @@ class PanelErrorBoundary extends Component<{ children: ReactNode }, { error: Err
 
 export default function App() {
   const authEnabled = isSupabaseConfigured()
+  const [splashDone, setSplashDone] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
 
   const [view, setView] = useState<View>('home')
@@ -122,6 +124,10 @@ export default function App() {
     : 'contagem'
   const showContagemBtn = preferredChecklistView === 'contagem'
   const showInventarioBtn = preferredChecklistView === 'inventario'
+
+  if (!splashDone) {
+    return <OpeningSplash onComplete={() => setSplashDone(true)} />
+  }
 
   if (authEnabled && !session) {
     return <LoginScreen />
