@@ -375,7 +375,7 @@ export default function LoginScreen() {
   const [theme, setTheme] = useState<LoginUiTheme>(() => {
     const saved = localStorage.getItem('ui-theme')
     if (saved === 'light' || saved === 'dark') return saved
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return 'dark'
   })
   const ui = useMemo(() => loginUiPalette(theme), [theme])
 

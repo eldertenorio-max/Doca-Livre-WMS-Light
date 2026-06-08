@@ -74,7 +74,7 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('ui-theme')
     if (saved === 'light' || saved === 'dark') return saved
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return 'dark'
   })
 
   useEffect(() => {
