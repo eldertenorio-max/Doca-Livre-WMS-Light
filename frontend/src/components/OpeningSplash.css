@@ -145,11 +145,11 @@
 
 .opening-splash__letter-d {
   position: absolute;
-  inset: 2% 4% 6% 2%;
-  z-index: 0;
+  inset: -4% -2% -2% -6%;
+  z-index: 4;
   opacity: 0;
-  transform: scale(0.82);
-  filter: drop-shadow(0 8px 28px rgba(255, 217, 92, 0.35));
+  transform: scale(0.86);
+  filter: drop-shadow(0 10px 32px rgba(255, 217, 92, 0.45));
   pointer-events: none;
 }
 
@@ -164,20 +164,28 @@
   transform-origin: 50% 50%;
 }
 
+.opening-splash__d-shape--edge {
+  opacity: 0;
+}
+
 .opening-splash__letter-d--on {
   animation: splash-d-frame-in 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.12s forwards;
 }
 
-.opening-splash__letter-d--on .opening-splash__d-shape {
+.opening-splash__letter-d--on .opening-splash__d-shape--fill {
   animation: splash-d-shape-in 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.18s forwards;
+}
+
+.opening-splash__letter-d--on .opening-splash__d-shape--edge {
+  animation: splash-d-shape-in 0.55s ease 0.55s forwards;
 }
 
 .opening-splash__pallet {
   position: absolute;
   z-index: 1;
-  left: 50%;
-  bottom: 28%;
-  width: 44%;
+  left: 54%;
+  bottom: 27%;
+  width: 36%;
   height: 11%;
   transform: translateX(-50%) scaleY(0);
   transform-origin: bottom center;
@@ -220,9 +228,9 @@
 .opening-splash__box {
   position: absolute;
   z-index: 2;
-  left: 50%;
-  bottom: 36%;
-  width: 30%;
+  left: 54%;
+  bottom: 35%;
+  width: 26%;
   height: 24%;
   transform: translateX(-50%) translateY(-180%);
   background: linear-gradient(155deg, #fff0a0 0%, #e8c547 35%, #c9a227 70%, #7a5c10 100%);
@@ -241,9 +249,9 @@
 .opening-splash__check {
   position: absolute;
   z-index: 3;
-  left: 50%;
-  bottom: 41%;
-  width: 15%;
+  left: 54%;
+  bottom: 40%;
+  width: 13%;
   height: 15%;
   transform: translateX(-50%);
   opacity: 0;

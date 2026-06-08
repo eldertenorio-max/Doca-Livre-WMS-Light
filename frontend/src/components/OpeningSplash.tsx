@@ -158,24 +158,31 @@ export default function OpeningSplash({ onComplete }: Props) {
       <div className="opening-splash__stage">
         <div className={`opening-splash__icon-wrap${showLogoHold ? ' opening-splash__icon-wrap--hold' : ''}`}>
           <div className={`opening-splash__letter-d${showD ? ' opening-splash__letter-d--on' : ''}`} aria-hidden>
-            <svg viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg viewBox="0 0 100 120" fill="none" xmlns="http://www.w3.org/2000/svg">
               <defs>
-                <linearGradient id="splashDGrad" x1="8" y1="6" x2="112" y2="134" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%" stopColor="#fff4c4" />
-                  <stop offset="28%" stopColor="#f0d060" />
-                  <stop offset="58%" stopColor="#d4af37" />
+                <linearGradient id="splashDGrad" x1="10" y1="8" x2="92" y2="112" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#fff8dc" />
+                  <stop offset="30%" stopColor="#f5d76e" />
+                  <stop offset="65%" stopColor="#d4af37" />
                   <stop offset="100%" stopColor="#8b6914" />
                 </linearGradient>
-                <filter id="splashDGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#ffd95c" floodOpacity="0.45" />
+                <filter id="splashDGlow" x="-25%" y="-25%" width="150%" height="150%">
+                  <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="#ffd95c" floodOpacity="0.55" />
                 </filter>
               </defs>
               <path
-                className="opening-splash__d-shape"
+                className="opening-splash__d-shape opening-splash__d-shape--fill"
                 fill="url(#splashDGrad)"
                 fillRule="evenodd"
                 filter="url(#splashDGlow)"
-                d="M 10 8 L 10 132 L 50 132 C 98 132 104 70 98 70 C 104 70 98 8 50 8 Z M 26 30 L 26 110 L 48 110 C 76 110 80 70 76 70 C 80 70 76 30 48 30 Z"
+                d="M 10 8 H 42 C 78 8 88 32 88 60 C 88 88 78 112 42 112 H 10 V 8 Z M 26 26 H 40 C 66 26 72 44 72 60 C 72 76 66 94 40 94 H 26 V 26 Z"
+              />
+              <path
+                className="opening-splash__d-shape opening-splash__d-shape--edge"
+                fill="none"
+                stroke="rgba(255, 248, 220, 0.55)"
+                strokeWidth="1.2"
+                d="M 14 12 H 40 C 72 12 82 34 82 60 C 82 86 72 108 40 108 H 14 V 12 Z"
               />
             </svg>
           </div>
