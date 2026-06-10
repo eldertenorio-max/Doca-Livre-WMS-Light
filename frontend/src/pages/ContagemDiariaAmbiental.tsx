@@ -512,7 +512,9 @@ function TinyLineChart<T extends { data_registro: string }>({
   const gradMid = isTempChart ? 0.14 : 0.06
   const lineShadowStyle: CSSProperties = isTempChart
     ? { filter: `drop-shadow(0 0 16px ${color}bb) drop-shadow(0 6px 22px ${color}55)` }
-    : { filter: `drop-shadow(0 0 8px ${color}66)` }
+    : color.toLowerCase() === '#f0f9ff'
+      ? { filter: 'drop-shadow(0 0 8px rgba(240,249,255,.55))' }
+      : { filter: `drop-shadow(0 0 8px ${color}66)` }
   const fmt = (v: number) => v.toFixed(decimals)
   const lineAnimKey = useMemo(
     () => rows.map((r) => `${r.data_registro}-${String((r as { id?: string }).id ?? '')}`).join('|'),
@@ -948,20 +950,13 @@ function TinyLineChart<T extends { data_registro: string }>({
                 </div>
               </div>
             ) : null}
-            <div
-              style={{
-                width: '100%',
-                ...(compact
-                  ? { aspectRatio: `${wC} / ${hC}`, maxHeight: 158, minHeight: 118 }
-                  : {}),
-              }}
-            >
+            <div style={{ width: '100%', height: compact ? 148 : undefined }}>
             <svg
               width="100%"
-              height={compact ? '100%' : undefined}
+              height={compact ? 148 : undefined}
               viewBox={`0 0 ${wC} ${hC}`}
               preserveAspectRatio="xMidYMid meet"
-              style={{ display: 'block', cursor: 'crosshair', ...(compact ? { minHeight: 118 } : {}) }}
+              style={{ display: 'block', cursor: 'crosshair' }}
               onMouseEnter={onChartHoverCard}
               onMouseMove={onSvgMoveCard}
               onMouseLeave={onSvgLeave}
@@ -4291,14 +4286,14 @@ export default function ContagemDiariaAmbiental() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
-                gap: 14,
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
+                gap: 12,
                 marginTop: 18,
               }}
             >
               <TinyLineChart
                 title="% Ocupada geral (11+12+13, inclui avaria)"
-                color="#38bdf8"
+                color="#f0f9ff"
                 rows={ocupRowsChronoCharts}
                 valueOf={ocupPercGeral}
                 valueSuffix="%"
