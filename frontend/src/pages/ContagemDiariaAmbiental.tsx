@@ -499,6 +499,8 @@ function buildTinyLineGeom<T extends { data_registro: string }>(
 const TINY_LAYOUT_CARD: TinyChartLayout = { width: 520, height: 218, padL: 48, padR: 14, padT: 16, padB: 44 }
 /** Card compacto (ocupação): alinhado ao comparativo acima — menor e fontes reduzidas. */
 const TINY_LAYOUT_COMPACT: TinyChartLayout = { width: 520, height: 152, padL: 40, padR: 10, padT: 10, padB: 28 }
+/** Gráfico geral de ocupação: ainda menor, com rótulos numéricos reduzidos. */
+const TINY_LAYOUT_COMPACT_SM: TinyChartLayout = { width: 520, height: 128, padL: 34, padR: 8, padT: 8, padB: 22 }
 /** Largura/pad direito maiores no modal: área útil igual ao card, sobra margem para rótulos e tooltip. */
 const TINY_LAYOUT_MODAL: TinyChartLayout = { width: 1140, height: 440, padL: 64, padR: 84, padT: 26, padB: 76 }
 
@@ -514,6 +516,7 @@ function TinyLineChart<T extends { data_registro: string }>({
   showSeriesInsight,
   showPointValues,
   compact,
+  compactSm,
 }: {
   title: string
   color: string
@@ -532,6 +535,8 @@ function TinyLineChart<T extends { data_registro: string }>({
   showPointValues?: boolean
   /** Card menor, fontes reduzidas e rodapé simples (como o comparativo). */
   compact?: boolean
+  /** Variante extra-pequena (ex.: ocupação geral). */
+  compactSm?: boolean
 }) {
   const uid = useId().replace(/:/g, '')
   const gradId = `tgrad-${uid}`
@@ -561,13 +566,16 @@ function TinyLineChart<T extends { data_registro: string }>({
   const modalScrollRef = useRef<HTMLDivElement>(null)
   useScrollChartModalToEnd(expanded, lineAnimKey, modalScrollRef)
 
-  const layoutCard = compact ? TINY_LAYOUT_COMPACT : TINY_LAYOUT_CARD
-  const fsY = compact ? 9 : 11
-  const fsX = compact ? 8 : 10
-  const fsCap = compact ? 8 : 10
-  const fsPt = compact ? 8 : 10
-  const strokeW = compact ? (isTempChart ? 2.5 : 2.25) : isTempChart ? 3.25 : 3
-  const tipR = compact ? 4.5 : 6
+  const isCompact = compact || compactSm
+  const layoutCard = compactSm ? TINY_LAYOUT_COMPACT_SM : isCompact ? TINY_LAYOUT_COMPACT : TINY_LAYOUT_CARD
+  const fsY = compactSm ? 8 : isCompact ? 9 : 11
+  const fsX = compactSm ? 7 : isCompact ? 8 : 10
+  const fsCap = compactSm ? 7 : isCompact ? 8 : 10
+  const fsPt = compactSm ? 7 : isCompact ? 8 : 10
+  const fsTitle = compactSm ? 11 : isCompact ? 12 : 15
+  const chartMinH = compactSm ? 124 : isCompact ? 148 : 200
+  const strokeW = isCompact ? (isTempChart ? 2.5 : 2.25) : isTempChart ? 3.25 : 3
+  const tipR = compactSm ? 4 : isCompact ? 4.5 : 6
 
   const geomCard = useMemo(
     () => buildTinyLineGeom(rows, valueOf, layoutCard, !!denseTimeline, false),
@@ -921,9 +929,9 @@ function TinyLineChart<T extends { data_registro: string }>({
           </div>
         </div>
       ) : null}
-      <div style={{ ...chartCardStyle, padding: compact ? 10 : 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: compact ? 6 : 10 }}>
-        <div style={{ fontWeight: 700, color, fontSize: compact ? 12 : 15, letterSpacing: '0.02em', lineHeight: 1.25 }}>{title}</div>
+      <div style={{ ...chartCardStyle, padding: compactSm ? 8 : isCompact ? 10 : 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: isCompact ? 6 : 10 }}>
+        <div style={{ fontWeight: 700, color, fontSize: fsTitle, letterSpacing: '0.02em', lineHeight: 1.25 }}>{title}</div>
         <button
           type="button"
           onClick={() => setExpanded(true)}
@@ -931,9 +939,9 @@ function TinyLineChart<T extends { data_registro: string }>({
             border: `1px solid ${color}55`,
             background: 'var(--chart-expand-bg)',
             color,
-            borderRadius: compact ? 6 : 8,
-            padding: compact ? '3px 7px' : '4px 9px',
-            fontSize: compact ? 10 : 11,
+            borderRadius: isCompact ? 6 : 8,
+            padding: compactSm ? '2px 6px' : isCompact ? '3px 7px' : '4px 9px',
+            fontSize: compactSm ? 9 : isCompact ? 10 : 11,
             fontWeight: 700,
             cursor: 'pointer',
             whiteSpace: 'nowrap',
@@ -990,7 +998,7 @@ function TinyLineChart<T extends { data_registro: string }>({
             <div
               style={{
                 width: '100%',
-                minHeight: compact ? 148 : 200,
+                minHeight: chartMinH,
                 aspectRatio: `${wC} / ${hC}`,
               }}
             >
@@ -999,7 +1007,7 @@ function TinyLineChart<T extends { data_registro: string }>({
               height="100%"
               viewBox={`0 0 ${wC} ${hC}`}
               preserveAspectRatio="xMidYMid meet"
-              style={{ display: 'block', cursor: 'crosshair', minHeight: compact ? 148 : 200 }}
+              style={{ display: 'block', cursor: 'crosshair', minHeight: chartMinH }}
               onMouseEnter={onChartHoverCard}
               onMouseMove={onSvgMoveCard}
               onMouseLeave={onSvgLeave}
@@ -1069,16 +1077,16 @@ function TinyLineChart<T extends { data_registro: string }>({
                 r={tipR}
                 fill={color}
                 stroke="var(--chart-point-ring)"
-                strokeWidth={compact ? 1.5 : 2}
+                strokeWidth={isCompact ? 1.5 : 2}
               />
-            ) : (showSeriesInsight || compact) && geomCard.lastPt ? (
+            ) : (showSeriesInsight || isCompact) && geomCard.lastPt ? (
               <circle
                 cx={geomCard.lastPt.x}
                 cy={geomCard.lastPt.y}
-                r={compact ? 4 : 5}
+                r={compactSm ? 3.5 : isCompact ? 4 : 5}
                 fill={color}
                 stroke="var(--chart-point-ring)"
-                strokeWidth={compact ? 1.5 : 2}
+                strokeWidth={isCompact ? 1.5 : 2}
               />
             ) : null}
             {showPointValues
@@ -1092,7 +1100,7 @@ function TinyLineChart<T extends { data_registro: string }>({
                       <text
                         key={`pv-${i}`}
                         x={pt.x}
-                        y={Math.max(pTC + 8, pt.y - (compact ? 6 : 8))}
+                        y={Math.max(pTC + 8, pt.y - (compactSm ? 5 : isCompact ? 6 : 8))}
                         textAnchor="middle"
                         fill={color}
                         fontSize={fsPt}
@@ -1126,7 +1134,7 @@ function TinyLineChart<T extends { data_registro: string }>({
               x2={wC - pRC}
               y2={geomCard.bottomY}
               stroke="var(--chart-axis-line)"
-              strokeWidth={compact ? 1 : 1.5}
+              strokeWidth={isCompact ? 1 : 1.5}
             />
             <line
               x1={pLC}
@@ -1134,11 +1142,11 @@ function TinyLineChart<T extends { data_registro: string }>({
               x2={pLC}
               y2={geomCard.bottomY}
               stroke="var(--chart-axis-line)"
-              strokeWidth={compact ? 1 : 1.5}
+              strokeWidth={isCompact ? 1 : 1.5}
             />
             <text
               x={pLC}
-              y={pTC - (compact ? 2 : 4)}
+              y={pTC - (isCompact ? 2 : 4)}
               fill="var(--chart-caption)"
               fontSize={fsCap}
               fontFamily="system-ui, sans-serif"
@@ -1149,7 +1157,7 @@ function TinyLineChart<T extends { data_registro: string }>({
               <text
                 key={`xl-${i}`}
                 x={xl.x}
-                y={hC - (compact ? 6 : 10)}
+                y={hC - (compactSm ? 5 : isCompact ? 6 : 10)}
                 textAnchor="middle"
                 fill="var(--chart-svg-x-label)"
                 fontSize={fsX}
@@ -1161,14 +1169,14 @@ function TinyLineChart<T extends { data_registro: string }>({
             </svg>
             </div>
           </div>
-          {compact ? (
+          {isCompact ? (
             <div
               style={{
                 display: 'flex',
                 flexWrap: 'wrap',
                 gap: 10,
                 marginTop: 8,
-                fontSize: 11,
+                fontSize: compactSm ? 10 : 11,
                 paddingTop: 8,
                 borderTop: '1px solid var(--chart-divider)',
                 color: 'var(--chart-footer-muted)',
@@ -4346,7 +4354,7 @@ export default function ContagemDiariaAmbiental() {
                 axisCaption="%"
                 denseTimeline
                 showPointValues
-                showSeriesInsight
+                compactSm
               />
             </div>
 
