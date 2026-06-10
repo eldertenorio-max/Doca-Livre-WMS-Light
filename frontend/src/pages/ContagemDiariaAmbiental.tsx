@@ -287,35 +287,72 @@ const CHART_ANIM_CSS = `
   from { opacity: 0; }
   to { opacity: var(--chart-area-op, 1); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .contagem-chart-stroke-anim {
+    stroke-dashoffset: 0 !important;
+    animation: none !important;
+  }
+}
 `
+
+/** Cor da série geral (ocupação): visível no tema escuro e distinta da câmara 12. */
+const OCUP_COLOR_GERAL = '#22d3ee'
+
+function isOcupGeralStroke(color: string) {
+  const c = color.toLowerCase()
+  return c === '#22d3ee' || c === '#f0f9ff'
+}
 
 type AnimatedStrokePathProps = SVGProps<SVGPathElement> & { animKey: string; strokeDelaySec?: number }
 
 function AnimatedStrokePath({ animKey, strokeDelaySec = 0, d, style, ...rest }: AnimatedStrokePathProps) {
   const ref = useRef<SVGPathElement>(null)
   const [dashLen, setDashLen] = useState(0)
+  const [revealed, setRevealed] = useState(false)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el || !d) {
       setDashLen(0)
+      setRevealed(true)
       return
     }
+    setRevealed(false)
     try {
       const L = el.getTotalLength()
       setDashLen(Number.isFinite(L) && L > 0 ? L : 0)
     } catch {
       setDashLen(0)
+      setRevealed(true)
     }
   }, [d, animKey])
+  useEffect(() => {
+    if (dashLen <= 0) {
+      setRevealed(true)
+      return
+    }
+    const ms = 1200 + strokeDelaySec * 1000
+    const id = window.setTimeout(() => setRevealed(true), ms)
+    return () => clearTimeout(id)
+  }, [dashLen, strokeDelaySec, animKey])
   const drawStyle: CSSProperties =
-    dashLen > 0
+    dashLen > 0 && !revealed
       ? {
           strokeDasharray: dashLen,
           strokeDashoffset: dashLen,
           animation: `contagem-chart-line-draw 1.12s cubic-bezier(0.33, 1, 0.68, 1) ${strokeDelaySec}s forwards`,
         }
-      : {}
-  return <path ref={ref} d={d} fill="none" {...rest} style={{ ...drawStyle, ...(style as CSSProperties) }} />
+      : { strokeDashoffset: 0 }
+  return (
+    <path
+      ref={ref}
+      d={d}
+      fill="none"
+      className="contagem-chart-stroke-anim"
+      onAnimationEnd={() => setRevealed(true)}
+      {...rest}
+      style={{ ...drawStyle, ...(style as CSSProperties) }}
+    />
+  )
 }
 
 function AnimatedAreaPath({
@@ -512,8 +549,8 @@ function TinyLineChart<T extends { data_registro: string }>({
   const gradMid = isTempChart ? 0.14 : 0.06
   const lineShadowStyle: CSSProperties = isTempChart
     ? { filter: `drop-shadow(0 0 16px ${color}bb) drop-shadow(0 6px 22px ${color}55)` }
-    : color.toLowerCase() === '#f0f9ff'
-      ? { filter: 'drop-shadow(0 0 8px rgba(240,249,255,.55))' }
+    : isOcupGeralStroke(color)
+      ? { filter: 'drop-shadow(0 0 8px rgba(34,211,238,.55))' }
       : { filter: `drop-shadow(0 0 8px ${color}66)` }
   const fmt = (v: number) => v.toFixed(decimals)
   const lineAnimKey = useMemo(
@@ -950,13 +987,19 @@ function TinyLineChart<T extends { data_registro: string }>({
                 </div>
               </div>
             ) : null}
-            <div style={{ width: '100%', height: compact ? 148 : undefined }}>
+            <div
+              style={{
+                width: '100%',
+                minHeight: compact ? 148 : 200,
+                aspectRatio: `${wC} / ${hC}`,
+              }}
+            >
             <svg
               width="100%"
-              height={compact ? 148 : undefined}
+              height="100%"
               viewBox={`0 0 ${wC} ${hC}`}
               preserveAspectRatio="xMidYMid meet"
-              style={{ display: 'block', cursor: 'crosshair' }}
+              style={{ display: 'block', cursor: 'crosshair', minHeight: compact ? 148 : 200 }}
               onMouseEnter={onChartHoverCard}
               onMouseMove={onSvgMoveCard}
               onMouseLeave={onSvgLeave}
@@ -2071,7 +2114,7 @@ function CombinedTempChart({ rows }: { rows: TempRow[] }) {
 }
 
 const COMBINED_OCP_SERIES = [
-  { color: '#f0f9ff', valueOf: ocupPercGeral, label: 'Geral (11+12+13 + avaria)', strokeWidth: 3.35 },
+  { color: OCUP_COLOR_GERAL, valueOf: ocupPercGeral, label: 'Geral (11+12+13 + avaria)', strokeWidth: 3.35 },
   { color: '#22c55e', valueOf: ocupPercCam11, label: 'Câmara 11', strokeWidth: 2.7 },
   { color: '#38bdf8', valueOf: ocupPercCam12, label: 'Câmara 12', strokeWidth: 2.7 },
   { color: '#f59e0b', valueOf: ocupPercCam13, label: 'Câmara 13', strokeWidth: 2.7 },
@@ -2293,8 +2336,8 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                     gap: 8,
                     padding: '6px 12px',
                     borderRadius: 999,
-                    border: `1px solid ${p.color === '#f0f9ff' ? 'rgba(240,249,255,.45)' : `${p.color}55`}`,
-                    background: `${p.color === '#f0f9ff' ? 'rgba(240,249,255,.12)' : `${p.color}14`}`,
+                    border: `1px solid ${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.45)' : `${p.color}55`}`,
+                    background: `${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.12)' : `${p.color}14`}`,
                   }}
                 >
                   <span
@@ -2303,7 +2346,7 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                       height: 10,
                       borderRadius: 999,
                       background: p.color,
-                      boxShadow: `0 0 10px ${p.color === '#f0f9ff' ? 'rgba(240,249,255,.5)' : p.color}`,
+                      boxShadow: `0 0 10px ${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.5)' : p.color}`,
                     }}
                   />
                   {p.label}
@@ -2338,9 +2381,9 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                     {formatHoraRegistro(rows[tip.idx].created_at)}
                   </div>
                   <div style={{ display: 'grid', gap: 7 }}>
-                    <div style={{ color: '#f0f9ff' }}>
-                      Geral: <strong>{ocupPercGeral(rows[tip.idx]).toFixed(1)} %</strong>
-                    </div>
+                    <div style={{ color: OCUP_COLOR_GERAL }}>
+                    Geral: <strong>{ocupPercGeral(rows[tip.idx]).toFixed(1)} %</strong>
+                  </div>
                     <div style={{ color: '#22c55e' }}>
                       Câm. 11: <strong>{ocupPercCam11(rows[tip.idx]).toFixed(1)} %</strong>
                     </div>
@@ -2445,7 +2488,7 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                     strokeWidth={p.strokeWidth}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ filter: `drop-shadow(0 0 6px ${p.color === '#f0f9ff' ? 'rgba(240,249,255,.45)' : `${p.color}55`})` }}
+                    style={{ filter: `drop-shadow(0 0 6px ${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.45)' : `${p.color}55`})` }}
                   />
                 ))}
                 {(() => {
@@ -2646,8 +2689,8 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                   gap: 8,
                   padding: '6px 12px',
                   borderRadius: 999,
-                  border: `1px solid ${p.color === '#f0f9ff' ? 'rgba(240,249,255,.45)' : `${p.color}55`}`,
-                  background: `${p.color === '#f0f9ff' ? 'rgba(240,249,255,.12)' : `${p.color}14`}`,
+                  border: `1px solid ${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.45)' : `${p.color}55`}`,
+                  background: `${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.12)' : `${p.color}14`}`,
                 }}
               >
                 <span
@@ -2656,7 +2699,7 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                     height: 10,
                     borderRadius: 999,
                     background: p.color,
-                    boxShadow: `0 0 10px ${p.color === '#f0f9ff' ? 'rgba(240,249,255,.5)' : p.color}`,
+                    boxShadow: `0 0 10px ${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.5)' : p.color}`,
                   }}
                 />
                 {p.label}
@@ -2695,7 +2738,7 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                   {formatHoraRegistro(rows[tip.idx].created_at)}
                 </div>
                 <div style={{ display: 'grid', gap: 7 }}>
-                  <div style={{ color: '#f0f9ff' }}>
+                    <div style={{ color: OCUP_COLOR_GERAL }}>
                     Geral: <strong>{ocupPercGeral(rows[tip.idx]).toFixed(1)} %</strong>
                   </div>
                   <div style={{ color: '#22c55e' }}>
@@ -2721,11 +2764,19 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                 </div>
               </div>
             ) : null}
+            <div
+              style={{
+                width: '100%',
+                minHeight: 200,
+                aspectRatio: `${width} / ${height}`,
+              }}
+            >
             <svg
               width="100%"
+              height="100%"
               viewBox={`0 0 ${width} ${height}`}
               preserveAspectRatio="xMidYMid meet"
-              style={{ display: 'block', cursor: 'crosshair' }}
+              style={{ display: 'block', cursor: 'crosshair', minHeight: 200 }}
               onMouseEnter={onChartHoverCard}
               onMouseMove={onSvgMoveCard}
               onMouseLeave={onSvgLeave}
@@ -2802,7 +2853,7 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                   strokeWidth={p.strokeWidth}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  style={{ filter: `drop-shadow(0 0 6px ${p.color === '#f0f9ff' ? 'rgba(240,249,255,.45)' : `${p.color}55`})` }}
+                  style={{ filter: `drop-shadow(0 0 6px ${isOcupGeralStroke(p.color) ? 'rgba(34,211,238,.45)' : `${p.color}55`})` }}
                 />
               ))}
               {(() => {
@@ -2900,6 +2951,7 @@ function CombinedOcupacaoChart({ rows }: { rows: OcupRow[] }) {
                 </text>
               ))}
             </svg>
+            </div>
           </div>
           <div
             style={{
@@ -4286,7 +4338,7 @@ export default function ContagemDiariaAmbiental() {
             <div style={{ marginTop: 18 }}>
               <TinyLineChart
                 title="% Ocupada geral (11+12+13, inclui avaria)"
-                color="#38bdf8"
+                color={OCUP_COLOR_GERAL}
                 rows={ocupRowsChronoCharts}
                 valueOf={ocupPercGeral}
                 valueSuffix="%"
@@ -4294,7 +4346,7 @@ export default function ContagemDiariaAmbiental() {
                 axisCaption="%"
                 denseTimeline
                 showPointValues
-                compact
+                showSeriesInsight
               />
             </div>
 
