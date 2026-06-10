@@ -4244,20 +4244,18 @@ export default function ContagemDiariaAmbiental() {
                 marginTop: 18,
               }}
             >
-              <div style={{ gridColumn: '1 / -1' }}>
-                <TinyLineChart
-                  title="% Ocupada geral (11+12+13, inclui avaria)"
-                  color="#38bdf8"
-                  rows={ocupRowsChronoCharts}
-                  valueOf={ocupPercGeral}
-                  valueSuffix="%"
-                  decimals={1}
-                  axisCaption="%"
-                  denseTimeline
-                  showSeriesInsight
-                  showPointValues
-                />
-              </div>
+              <TinyLineChart
+                title="% Ocupada geral (11+12+13, inclui avaria)"
+                color="#38bdf8"
+                rows={ocupRowsChronoCharts}
+                valueOf={ocupPercGeral}
+                valueSuffix="%"
+                decimals={1}
+                axisCaption="%"
+                denseTimeline
+                showSeriesInsight
+                showPointValues
+              />
               <TinyLineChart
                 title="% Ocupada — Câmara 11"
                 color="#22c55e"
