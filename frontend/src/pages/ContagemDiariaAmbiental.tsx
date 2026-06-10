@@ -948,11 +948,20 @@ function TinyLineChart<T extends { data_registro: string }>({
                 </div>
               </div>
             ) : null}
+            <div
+              style={{
+                width: '100%',
+                ...(compact
+                  ? { aspectRatio: `${wC} / ${hC}`, maxHeight: 158, minHeight: 118 }
+                  : {}),
+              }}
+            >
             <svg
               width="100%"
+              height={compact ? '100%' : undefined}
               viewBox={`0 0 ${wC} ${hC}`}
               preserveAspectRatio="xMidYMid meet"
-              style={{ display: 'block', cursor: 'crosshair', maxHeight: compact ? 158 : undefined }}
+              style={{ display: 'block', cursor: 'crosshair', ...(compact ? { minHeight: 118 } : {}) }}
               onMouseEnter={onChartHoverCard}
               onMouseMove={onSvgMoveCard}
               onMouseLeave={onSvgLeave}
@@ -1024,7 +1033,7 @@ function TinyLineChart<T extends { data_registro: string }>({
                 stroke="var(--chart-point-ring)"
                 strokeWidth={compact ? 1.5 : 2}
               />
-            ) : showSeriesInsight && geomCard.lastPt ? (
+            ) : (showSeriesInsight || compact) && geomCard.lastPt ? (
               <circle
                 cx={geomCard.lastPt.x}
                 cy={geomCard.lastPt.y}
@@ -1112,6 +1121,7 @@ function TinyLineChart<T extends { data_registro: string }>({
               </text>
             ))}
             </svg>
+            </div>
           </div>
           {compact ? (
             <div
