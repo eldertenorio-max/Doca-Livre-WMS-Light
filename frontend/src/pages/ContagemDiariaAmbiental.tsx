@@ -4283,17 +4283,10 @@ export default function ContagemDiariaAmbiental() {
 
             <CombinedOcupacaoChart rows={ocupRowsChronoCharts} />
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
-                gap: 12,
-                marginTop: 18,
-              }}
-            >
+            <div style={{ marginTop: 18 }}>
               <TinyLineChart
                 title="% Ocupada geral (11+12+13, inclui avaria)"
-                color="#f0f9ff"
+                color="#38bdf8"
                 rows={ocupRowsChronoCharts}
                 valueOf={ocupPercGeral}
                 valueSuffix="%"
@@ -4303,6 +4296,16 @@ export default function ContagemDiariaAmbiental() {
                 showPointValues
                 compact
               />
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
+                gap: 12,
+                marginTop: 12,
+              }}
+            >
               <TinyLineChart
                 title="% Ocupada — Câmara 11"
                 color="#22c55e"
