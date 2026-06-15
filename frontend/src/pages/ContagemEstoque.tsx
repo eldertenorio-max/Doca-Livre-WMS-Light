@@ -4279,6 +4279,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const isHeader = 'kind' in item && item.kind === 'header'
     return acc + (isHeader ? 0 : 1)
   }, 0)
+  const metaLinhasContagemDiaria = useMemo(() => {
+    if (checklistProductTotal > 0) return checklistProductTotal
+    let meta = 0
+    for (const p of presencaContagemHoje) {
+      if (p.linhasTotal != null && p.linhasTotal > meta) meta = p.linhasTotal
+    }
+    return meta
+  }, [checklistProductTotal, presencaContagemHoje])
   const checklistTotalPages = Math.max(
     1,
     isArmazemPaginado && !checklistShowAll
@@ -4621,24 +4629,41 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     </span>
                   </>
                 ) : null}
-                {p.linhasGravadas > 0 ? (
+                {!p.checklistAtiva &&
+                p.linhasGravadas > 0 &&
+                p.ultimaGravacao &&
+                metaLinhasContagemDiaria > 0 &&
+                p.linhasGravadas >= metaLinhasContagemDiaria ? (
                   <>
                     {' · '}
-                    <span style={{ opacity: 0.95 }}>{p.linhasGravadas} linha(s) já gravada(s) no banco</span>
+                    <span style={{ opacity: 0.95 }}>
+                      {formatHorarioUltimaGravacao(p.ultimaGravacao)} · contagem completa gravada no banco
+                    </span>
                   </>
-                ) : null}
-                {p.checklistAtiva ? (
+                ) : (
                   <>
-                    {' · '}
-                    <span style={{ opacity: 0.85 }}>{formatPresencaRelativo(p.atualizado_em)}</span>
-                    {' (checklist)'}
+                    {p.linhasGravadas > 0 ? (
+                      <>
+                        {' · '}
+                        <span style={{ opacity: 0.95 }}>{p.linhasGravadas} linha(s) já gravada(s) no banco</span>
+                      </>
+                    ) : null}
+                    {p.checklistAtiva ? (
+                      <>
+                        {' · '}
+                        <span style={{ opacity: 0.85 }}>{formatPresencaRelativo(p.atualizado_em)}</span>
+                        {' (checklist)'}
+                      </>
+                    ) : p.ultimaGravacao ? (
+                      <>
+                        {' · '}
+                        <span style={{ opacity: 0.85 }}>
+                          última gravação {formatHorarioUltimaGravacao(p.ultimaGravacao)}
+                        </span>
+                      </>
+                    ) : null}
                   </>
-                ) : p.ultimaGravacao ? (
-                  <>
-                    {' · '}
-                    <span style={{ opacity: 0.85 }}>última gravação {formatHorarioUltimaGravacao(p.ultimaGravacao)}</span>
-                  </>
-                ) : null}
+                )}
               </li>
             ))}
           </ul>
