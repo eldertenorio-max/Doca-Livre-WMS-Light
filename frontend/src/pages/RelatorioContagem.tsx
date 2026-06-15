@@ -70,6 +70,41 @@ function semLinhasRascunhoRelatorio<T extends { contagem_rascunho?: boolean | nu
   return rows.filter((r) => r.contagem_rascunho !== true)
 }
 
+function isContagemRascunhoRelatorio(v: unknown): boolean {
+  if (v === true) return true
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase()
+    return t === 'true' || t === 't' || t === '1'
+  }
+  return false
+}
+
+/**
+ * Rascunho só bloqueia relatório se ainda não foi substituído por linha finalizada
+ * do mesmo conferente + código (evita aviso falso quando sobram rascunhos órfãos no banco).
+ */
+function isRascunhoPendenteRelatorio(r: ContagemRow, rowsDia: ContagemRow[]): boolean {
+  if (!isContagemRascunhoRelatorio(r.contagem_rascunho)) return false
+  const cid = String(r.conferente_id ?? '').trim()
+  const cod = String(r.codigo_interno ?? '').trim()
+  if (!cid || !cod) return true
+  const rascTs = tsFromDataHoraContagem(r.data_hora_contagem) ?? 0
+  let maxFinalTs = 0
+  for (const o of rowsDia) {
+    if (isContagemRascunhoRelatorio(o.contagem_rascunho)) continue
+    if (String(o.conferente_id ?? '').trim() !== cid) continue
+    if (String(o.codigo_interno ?? '').trim() !== cod) continue
+    const ts = tsFromDataHoraContagem(o.data_hora_contagem)
+    if (ts != null) maxFinalTs = Math.max(maxFinalTs, ts)
+  }
+  if (maxFinalTs === 0) return true
+  return rascTs > maxFinalTs
+}
+
+function filtrarRascunhosPendentesRelatorio(rowsDia: ContagemRow[]): ContagemRow[] {
+  return rowsDia.filter((r) => isRascunhoPendenteRelatorio(r, rowsDia))
+}
+
 function toISODateLocal(d: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -1382,7 +1417,7 @@ export default function RelatorioContagem({
       rowsDia = rowsDia.filter((r) => isCodigoRelatorioArmazem(r.codigo_interno))
     }
     if (rowsDia.length === 0) return { kind: 'vazio' }
-    const pendentes = rowsDia.filter((r) => r.contagem_rascunho === true)
+    const pendentes = filtrarRascunhosPendentesRelatorio(rowsDia)
     if (pendentes.length > 0) {
       const conferentes = new Set(
         pendentes
@@ -1698,10 +1733,10 @@ export default function RelatorioContagem({
           rowsComRascunho,
           origemAusenteComRascunho,
         )
-        const pendentesNoDia = filteredComRascunho.filter((r) => {
-          const ymd = diaCivilYmdContagemRow(r) ?? ''
-          return ymd === diaAlvo && r.contagem_rascunho === true && isCodigoRelatorioArmazem(r.codigo_interno)
-        })
+        const rowsDiaAlvo = filteredComRascunho.filter((r) => (diaCivilYmdContagemRow(r) ?? '') === diaAlvo)
+        const pendentesNoDia = filtrarRascunhosPendentesRelatorio(rowsDiaAlvo).filter((r) =>
+          isCodigoRelatorioArmazem(r.codigo_interno),
+        )
         if (pendentesNoDia.length > 0) {
           const conferentesPendentes = Array.from(
             new Set(
