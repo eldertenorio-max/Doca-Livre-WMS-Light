@@ -67,6 +67,7 @@ import {
   fetchContagemDiariaPresencaDia,
   fetchResumoFinalizadosContagemDiariaDia,
   formatPresencaRelativo,
+  formatHorarioUltimaGravacao,
   isPresencaAtiva,
   PRESENCA_PING_INTERVAL_MS,
   PRESENCA_POLL_INTERVAL_MS,
@@ -4635,7 +4636,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                 ) : p.ultimaGravacao ? (
                   <>
                     {' · '}
-                    <span style={{ opacity: 0.85 }}>última gravação {formatPresencaRelativo(p.ultimaGravacao)}</span>
+                    <span style={{ opacity: 0.85 }}>última gravação {formatHorarioUltimaGravacao(p.ultimaGravacao)}</span>
                   </>
                 ) : null}
               </li>

@@ -20,7 +20,23 @@ export function formatPresencaRelativo(iso: string): string {
   const sec = Math.floor((Date.now() - t) / 1000)
   if (sec < 45) return 'agora'
   if (sec < 3600) return `há ${Math.max(1, Math.floor(sec / 60))} min`
-  return 'há muito tempo'
+  return formatHorarioUltimaGravacao(iso)
+}
+
+/** Horário civil da última gravação (ex.: `às 14:35` ou `15/06 às 14:35`). */
+export function formatHorarioUltimaGravacao(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return '—'
+  const d = new Date(t)
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return `às ${hora}`
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} às ${hora}`
 }
 
 export type PresencaRow = {
