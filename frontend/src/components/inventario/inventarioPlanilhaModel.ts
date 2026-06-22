@@ -17,7 +17,7 @@ function formatArmazemGroupLabel(contagem: number | null) {
 }
 
 /** Quantidade de abas (grupos) no inventário armazém / planilha. */
-export const INVENTARIO_ARMAZEM_NUM_GRUPOS = 4
+export const INVENTARIO_ARMAZEM_NUM_GRUPOS = 8
 
 /** IDs dos grupos 1..N (abas CAMARA/RUA). */
 export const INVENTARIO_ARMAZEM_GRUPO_IDS: readonly number[] = Array.from(
@@ -27,26 +27,26 @@ export const INVENTARIO_ARMAZEM_GRUPO_IDS: readonly number[] = Array.from(
 
 /** Títulos das abas alinhados à planilha `CONTAGEM DE INVENTARIO.xlsx` (uma aba por grupo armazém). */
 export const INVENTARIO_ARMAZEM_ABA_TITULOS: Partial<Record<number, string>> = {
-  1: 'CAMARA 11 - RUA V',
-  2: 'CAMARA 11 - RUA U',
-  3: 'CAMARA 12 - RUA X',
-  4: 'CAMARA 12 - RUA Y',
-  5: 'CAMARA 13 - RUA W',
-  6: 'CAMARA 13 - RUA Z',
-  7: 'CAMARA 21 - RUA A',
-  8: 'CAMARA 21 - RUA B',
+  1: 'CAMARA 11 - RUA A',
+  2: 'CAMARA 11 - RUA B',
+  3: 'CAMARA 12 - RUA C',
+  4: 'CAMARA 12 - RUA D',
+  5: 'CAMARA 13 - RUA E',
+  6: 'CAMARA 13 - RUA F',
+  7: 'CAMARA 21 - RUA G',
+  8: 'CAMARA 21 - RUA H',
 }
 
 /** Coluna RUA na planilha (letra da rua por grupo). */
 export const INVENTARIO_ARMAZEM_RUA: Partial<Record<number, string>> = {
-  1: 'V',
-  2: 'U',
-  3: 'X',
-  4: 'Y',
-  5: 'W',
-  6: 'Z',
-  7: 'A',
-  8: 'B',
+  1: 'A',
+  2: 'B',
+  3: 'C',
+  4: 'D',
+  5: 'E',
+  6: 'F',
+  7: 'G',
+  8: 'H',
 }
 
 export function getInventarioRuaArmazem(contagem: number | null | undefined): string {
@@ -120,7 +120,7 @@ export function filtrarItensPlanilhaInventario(
 
 /** Metadados alinhados à planilha / tabela `inventario_planilha_linhas`. */
 export type PlanilhaLayoutMeta = {
-  /** Aba física (CAMARA + RUA), 1–4. */
+  /** Aba física (CAMARA + RUA), 1–8. */
   grupo_armazem: number
   /** Rodada da contagem escolhida pelo usuário (1–4), mesma em todas as abas. */
   numero_contagem: number

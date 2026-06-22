@@ -25,15 +25,14 @@ function normalizeHeader(s: string): string {
     .replace(/\s+/g, ' ')
 }
 
-/** Coluna D da planilha: «1ª Contagem» … «4ª Contagem». */
-export function parseGrupoContagemFromPlanilha(raw: string): 1 | 2 | 3 | 4 {
+/** Coluna D da planilha: «1ª Contagem» … «8ª Contagem» (abas CAMARA/RUA). */
+export function parseGrupoContagemFromPlanilha(raw: string): ArmazemListaOficialRow['grupo'] {
   const t = normalizeHeader(raw)
-  const m = t.match(/(\d)/)
+  const m = t.match(/(\d+)/)
   const n = m ? Number(m[1]) : 1
-  if (n >= 4) return 4
-  if (n === 3) return 3
-  if (n === 2) return 2
-  return 1
+  if (n >= 8) return 8
+  if (n <= 1) return 1
+  return n as ArmazemListaOficialRow['grupo']
 }
 
 export function parseBasePrincipalArmazemCsv(csvText: string): ArmazemListaOficialRow[] {

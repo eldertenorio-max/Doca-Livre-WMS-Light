@@ -1,8 +1,8 @@
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
 
-/** Item da lista oficial do inventário armazém (1ª–4ª contagem). Fonte única para ordem, descrição e unidade. */
+/** Item da lista oficial do inventário armazém (1ª–8ª contagem / aba CAMARA-RUA). Fonte única para ordem, descrição e unidade. */
 export type ArmazemListaOficialRow = {
-  grupo: 1 | 2 | 3 | 4
+  grupo: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
   codigo: string
   descricao: string
   unidade: string
@@ -124,7 +124,7 @@ export function lookupArmazemListaOficial(codigo: string): ArmazemListaOficialRo
   return oficialByNorm.get(t) ?? oficialByNorm.get(normalizeCodigoInternoCompareKey(t))
 }
 
-/** Ordem oficial para inventário / contagem armazém (grupos 1–4). */
+/** Ordem oficial para inventário / contagem armazém (grupos 1–8). */
 export function listArmazemListaOficialOrdered(): ArmazemListaOficialRow[] {
   return [...listaAtiva]
 }

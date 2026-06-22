@@ -5,16 +5,16 @@
 import * as XLSX from 'xlsx'
 
 export const INVENTARIO_ARMAZEM_ABA_TITULOS = {
-  1: 'CAMARA 11 - RUA V',
-  2: 'CAMARA 11 - RUA U',
-  3: 'CAMARA 12 - RUA X',
-  4: 'CAMARA 12 - RUA Y',
-  5: 'CAMARA 13 - RUA W',
-  6: 'CAMARA 13 - RUA Z',
-  7: 'CAMARA 21 - RUA A',
-  8: 'CAMARA 21 - RUA B',
+  1: 'CAMARA 11 - RUA A',
+  2: 'CAMARA 11 - RUA B',
+  3: 'CAMARA 12 - RUA C',
+  4: 'CAMARA 12 - RUA D',
+  5: 'CAMARA 13 - RUA E',
+  6: 'CAMARA 13 - RUA F',
+  7: 'CAMARA 21 - RUA G',
+  8: 'CAMARA 21 - RUA H',
 }
-export const RUA_BY_GRUPO = { 1: 'V', 2: 'U', 3: 'X', 4: 'Y', 5: 'W', 6: 'Z', 7: 'A', 8: 'B' }
+export const RUA_BY_GRUPO = { 1: 'A', 2: 'B', 3: 'C', 4: 'D', 5: 'E', 6: 'F', 7: 'G', 8: 'H' }
 
 export function grupoFromCamaraRua(camara, rua) {
   const c = String(camara ?? '').trim().toUpperCase()

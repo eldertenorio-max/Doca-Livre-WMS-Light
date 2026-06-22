@@ -30,7 +30,7 @@ export type OfflineChecklistItem = {
   /** No inventário: 1ª, 2ª e 3ª linha do mesmo produto (três contagens). */
   inventario_repeticao?: 1 | 2 | 3
   /**
-   * Modo planilha em branco: grupo da aba (1–4) sem depender do mapa de códigos do armazém.
+   * Modo planilha em branco: grupo da aba (1–8) sem depender do mapa de códigos do armazém.
    * Quando preenchido, o item entra na aba correspondente mesmo com código vazio.
    */
   /**
@@ -38,7 +38,7 @@ export type OfflineChecklistItem = {
    * (entre todos os conferentes; preenchido ao carregar/atualizar do banco).
    */
   contagem_banco_ultimo_conferente_nome?: string
-  /** 1–4: aba (CAMARA 11/12 × RUA — ver INVENTARIO_ARMAZEM_ABA_TITULOS no frontend). */
+  /** 1–8: aba (CAMARA/RUA — ver INVENTARIO_ARMAZEM_ABA_TITULOS no frontend). */
   armazem_grupo?: number
   /**
    * Modo planilha em branco: ordem fixa da linha na aba (0…N), para POS/NIVEL não mudarem ao digitar o código.

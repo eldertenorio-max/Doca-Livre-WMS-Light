@@ -2,8 +2,8 @@ import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
 import { ARMAZEM_LISTA_OFICIAL_FALLBACK, type ArmazemListaOficialRow } from './armazemListaOficial'
 import type { OfflineChecklistItem } from './offlineContagemSession'
 
-/** Grupos 1–4 no inventário; alinhado a `INVENTARIO_ARMAZEM_NUM_GRUPOS` em inventarioPlanilhaModel. */
-const INVENTARIO_ARMAZEM_NUM_GRUPOS = 4
+/** Grupos 1–8 no inventário; alinhado a `INVENTARIO_ARMAZEM_NUM_GRUPOS` em inventarioPlanilhaModel. */
+const INVENTARIO_ARMAZEM_NUM_GRUPOS = 8
 
 function buildArmazemContagemCodes(lista: readonly ArmazemListaOficialRow[]): Record<number, string[]> {
   const out: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [], 8: [] }
@@ -38,9 +38,9 @@ export function rebuildArmazemInventarioMap(lista: readonly ArmazemListaOficialR
   armazemPosByCodigo = buildPosByCodigo(listaMapa)
 }
 
-/** Códigos do mapa armazém na ordem oficial (apenas grupos 1–4). */
+/** Códigos do mapa armazém na ordem oficial (grupos 1–8). */
 export function listArmazemContagemCodigosOrdered(): ReadonlyArray<{ grupo: number; pos: number; codigo: string }> {
-  const posInGrupo: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 }
+  const posInGrupo: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0 }
   return listaMapa.map((row) => {
     const pos = posInGrupo[row.grupo] ?? 0
     posInGrupo[row.grupo] = pos + 1
