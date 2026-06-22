@@ -1912,7 +1912,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           inventarioPlanilhaNivel,
         )
         if (!target) {
-          setSaveError('Não há linha nesta RUA/POS/NÍVEL.')
+          setSaveError(
+            'As 3 repetições desta RUA/POS/NÍVEL já estão preenchidas. Avance POS, NÍVEL ou RUA para continuar.',
+          )
           setSaving(false)
           return
         }
@@ -1920,6 +1922,16 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           aplicarCatalogoPorCodigoPlanilha(target.key, codeFinal)
         }
         idx = offlineSession.items.findIndex((it) => it.key === target.key)
+      } else if (inventario) {
+        const matches = offlineSession.items
+          .map((it, i) => ({ it, i }))
+          .filter(
+            ({ it }) =>
+              codigoInternoIguais(it.codigo_interno, code) &&
+              it.descricao.trim().toLowerCase() === descNorm,
+          )
+        const pendente = matches.find(({ it }) => String(it.quantidade_contada ?? '').trim() === '')
+        idx = pendente?.i ?? matches[0]?.i ?? -1
       } else {
         idx = offlineSession.items.findIndex(
           (it) => codigoInternoIguais(it.codigo_interno, code) && it.descricao.trim().toLowerCase() === descNorm,
@@ -2765,6 +2777,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
     if (inventario) {
       rowPayload.inventario_numero_contagem = rodadaInv
+      if (it.inventario_repeticao != null) rowPayload.inventario_repeticao = it.inventario_repeticao
       if (it.armazem_grupo != null) rowPayload.planilha_grupo_armazem = it.armazem_grupo
       if (it.planilha_ordem_na_aba != null) rowPayload.planilha_ordem_na_aba = it.planilha_ordem_na_aba
     }
@@ -3093,7 +3106,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       inventarioPlanilhaNivel,
     )
     if (!target) {
-      setProdutoError('Não há linha disponível nesta RUA/POS/NÍVEL.')
+      setProdutoError(
+        'As 3 repetições desta RUA/POS/NÍVEL já estão preenchidas. Avance POS, NÍVEL ou RUA para continuar.',
+      )
       return false
     }
     aplicarCatalogoPorCodigoPlanilha(target.key, codigo)

@@ -111,7 +111,7 @@ export function planilhaOrdemFromPosNivel(pos: number, nivel: number, repeticao 
   return (p - 1) * INVENTARIO_PLANILHA_LINHAS_POR_POSICAO + (n - 1) * INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL + r
 }
 
-/** Localiza linha da planilha em branco por grupo + POS + NÍVEL (prefere slot sem código). */
+/** Localiza linha da planilha em branco por grupo + POS + NÍVEL (1ª repetição vazia, depois 2ª, 3ª). */
 export function findPlanilhaItemInGrupo(
   items: OfflineChecklistItem[],
   grupo: number,
@@ -127,7 +127,12 @@ export function findPlanilhaItemInGrupo(
     const it = inGrupo.find((x) => x.planilha_ordem_na_aba === ordem)
     if (it && !String(it.codigo_interno ?? '').trim()) return it
   }
-  return inGrupo.find((x) => x.planilha_ordem_na_aba === base)
+  for (let rep = 0; rep < INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL; rep++) {
+    const ordem = base + rep
+    const it = inGrupo.find((x) => x.planilha_ordem_na_aba === ordem)
+    if (it && String(it.quantidade_contada ?? '').trim() === '') return it
+  }
+  return undefined
 }
 
 /** Lista em branco: 8 abas × 225 linhas (POS/NÍVEL fixos; código e descrição vazios). */

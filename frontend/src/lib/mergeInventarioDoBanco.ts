@@ -38,6 +38,7 @@ type RowSnapshot = {
   planilha_grupo_armazem: number | null
   planilha_ordem_na_aba: number | null
   inventario_numero_contagem: number | null
+  inventario_repeticao: number | null
 }
 
 function inventarioPlanilhaMergeKey(
@@ -49,6 +50,16 @@ function inventarioPlanilhaMergeKey(
   return `${ymd}|rod${rodada}|g${grupo}|o${ordem}`
 }
 
+function inventarioRepeticaoMergeKey(
+  ymd: string,
+  codigo: string,
+  repeticao: number,
+  rodada: number,
+): string {
+  const codeNorm = normalizeCodigoInternoCompareKey(codigo).toLowerCase()
+  return `${ymd}|rod${rodada}|rep${repeticao}|${codeNorm}`
+}
+
 function inventarioItemMergeKey(
   ymd: string,
   it: OfflineChecklistItem,
@@ -56,6 +67,11 @@ function inventarioItemMergeKey(
 ): string | null {
   if (it.armazem_grupo != null && it.planilha_ordem_na_aba != null) {
     return inventarioPlanilhaMergeKey(ymd, it.armazem_grupo, it.planilha_ordem_na_aba, rodada)
+  }
+  if (it.inventario_repeticao != null) {
+    const codRaw = String(it.codigo_interno ?? '').trim()
+    if (!normalizeCodigoInternoCompareKey(codRaw)) return null
+    return inventarioRepeticaoMergeKey(ymd, codRaw, it.inventario_repeticao, rodada)
   }
   const codRaw = String(it.codigo_interno ?? '').trim()
   if (!normalizeCodigoInternoCompareKey(codRaw)) return null
@@ -68,6 +84,10 @@ function rowToMergeKey(ymd: string, r: RowSnapshot): string | null {
     return inventarioPlanilhaMergeKey(ymd, r.planilha_grupo_armazem, r.planilha_ordem_na_aba, rod)
   }
   const codRaw = String(r.codigo_interno ?? '').trim()
+  if (r.inventario_repeticao != null && normalizeCodigoInternoCompareKey(codRaw)) {
+    const rod = r.inventario_numero_contagem ?? 1
+    return inventarioRepeticaoMergeKey(ymd, codRaw, r.inventario_repeticao, rod)
+  }
   if (!normalizeCodigoInternoCompareKey(codRaw)) return null
   return contagemDiariaChaveProdutoDia(ymd, codRaw, String(r.descricao ?? ''))
 }
@@ -82,7 +102,7 @@ async function fetchUltimasInventarioPorChave(
   const rodada = Math.min(4, Math.max(1, Math.round(numeroContagemRodada)))
 
   const sel =
-    'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,inventario_numero_contagem,planilha_grupo_armazem,planilha_ordem_na_aba'
+    'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,inventario_numero_contagem,inventario_repeticao,planilha_grupo_armazem,planilha_ordem_na_aba'
 
   const acc: Record<string, unknown>[] = []
   let from = 0
@@ -148,6 +168,10 @@ async function fetchUltimasInventarioPorChave(
           ? Number(r.planilha_ordem_na_aba)
           : null,
       inventario_numero_contagem: Number.isFinite(nc) ? Math.round(nc) : 1,
+      inventario_repeticao:
+        r.inventario_repeticao != null && Number.isFinite(Number(r.inventario_repeticao))
+          ? Number(r.inventario_repeticao)
+          : null,
     }
 
     const key = rowToMergeKey(ymd, snap)
@@ -212,18 +236,23 @@ export async function mergeInventarioDoDiaParaItems(
   const ymd = String(dataContagemYmd ?? '').trim()
   const next = items.map((it) => {
     const itemKey = inventarioItemMergeKey(ymd, it, rodada)
+    const codigoFallbackKey = normalizeCodigoInternoCompareKey(String(it.codigo_interno ?? '')).toLowerCase()
+    /** Não espalhar a mesma linha do banco para as 3 repetições do produto (inventário armazém). */
+    const canUseCodigoFallback =
+      it.planilha_ordem_na_aba == null && it.inventario_repeticao == null && codigoFallbackKey !== ''
+
+    const snapForItem = () =>
+      (itemKey ? porChave.get(itemKey) : undefined) ??
+      (canUseCodigoFallback ? porCodigoNorm.get(codigoFallbackKey) : undefined)
+
     if (skipKeys?.has(it.key)) {
-      const snapSkip =
-        (itemKey ? porChave.get(itemKey) : undefined) ??
-        porCodigoNorm.get(normalizeCodigoInternoCompareKey(String(it.codigo_interno ?? '')).toLowerCase())
+      const snapSkip = snapForItem()
       if (!snapSkip) return { ...it }
       const nomeUltimo = nomesPorId.get(snapSkip.conferente_id)?.trim() || snapSkip.conferente_id
       return { ...it, contagem_banco_ultimo_conferente_nome: nomeUltimo }
     }
 
-    const snap =
-      (itemKey ? porChave.get(itemKey) : undefined) ??
-      porCodigoNorm.get(normalizeCodigoInternoCompareKey(String(it.codigo_interno ?? '')).toLowerCase())
+    const snap = snapForItem()
     if (!snap) {
       return { ...it, contagem_banco_ultimo_conferente_nome: undefined }
     }
