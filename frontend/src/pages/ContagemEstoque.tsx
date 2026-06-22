@@ -42,7 +42,13 @@ import {
 import { ensureArmazemListaFromBasePrincipal } from '../lib/armazemBasePrincipalSheet'
 import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
-import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
+import {
+  clampDataFabricacaoYmd,
+  isDatasProdutoContagemInvalidas,
+  isFabricacaoAposHoje,
+  isVencimentoAntesFabricacao,
+  maxDataFabricacaoHoje,
+} from '../lib/contagemDatasValidacao'
 import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
 import {
   codigoInternoIguais,
@@ -1672,7 +1678,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   }, [codigoInterno, productByCode, productByCodeNoDots])
 
   const canSubmit = useMemo(() => {
-    const datasOk = !isVencimentoAntesFabricacao(dataFabricacao, dataVencimento)
+    const datasOk = !isDatasProdutoContagemInvalidas(dataFabricacao, dataVencimento)
     const descricaoFinal = (descricaoInput.trim() || produto?.descricao || '').trim()
     const codigoFinal = (() => {
       const code = codigoInterno.trim()
@@ -1773,6 +1779,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const qtd = quantidadeContada.trim() === '' ? 0 : Number(quantidadeContada.replace(',', '.'))
     if (!Number.isFinite(qtd) || qtd < 0) {
       setSaveError('Quantidade contada inválida.')
+      return
+    }
+
+    if (isFabricacaoAposHoje(dataFabricacao)) {
+      setSaveError('Data de fabricação não pode ser posterior a hoje.')
       return
     }
 
@@ -2534,6 +2545,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const dfRaw = String(it.data_fabricacao ?? '').trim()
     const dvRaw = String(it.data_validade ?? '').trim()
     if (isVencimentoAntesFabricacao(dfRaw, dvRaw)) return
+    if (isFabricacaoAposHoje(dfRaw)) return
     const upRaw = String(it.up_quantidade ?? '').trim()
     let up_adicional: number | null = null
     if (upRaw !== '') {
@@ -2998,6 +3010,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
         const dfRaw = String(it.data_fabricacao ?? '').trim()
         const dvRaw = String(it.data_validade ?? '').trim()
+        if (isFabricacaoAposHoje(dfRaw)) {
+          setChecklistError(
+            `Data de fabricação não pode ser posterior a hoje para ${it.codigo_interno}${it.inventario_repeticao ? ` (${it.inventario_repeticao}ª contagem)` : ''}.`,
+          )
+          return
+        }
         if (isVencimentoAntesFabricacao(dfRaw, dvRaw)) {
           setChecklistError(
             `Datas inválidas para ${it.codigo_interno}${it.inventario_repeticao ? ` (${it.inventario_repeticao}ª contagem)` : ''}: validade antes da fabricação.`,
@@ -3730,7 +3748,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           >
             {displayPreviewRows.map((r) => {
               const hasPhoto = Boolean(String(r.foto_base64 ?? '').trim())
-              const datasOrdemInvalida = isVencimentoAntesFabricacao(r.data_fabricacao, r.data_validade)
+              const datasOrdemInvalida = isDatasProdutoContagemInvalidas(r.data_fabricacao, r.data_validade)
               return (
                 <div
                   key={r.id}
@@ -4000,7 +4018,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           <tbody data-checklist-nav-root onKeyDown={handleChecklistFieldNavKeyDown}>
             {displayPreviewRows.map((r) => {
               const hasPhoto = Boolean(String(r.foto_base64 ?? '').trim())
-              const datasOrdemInvalida = isVencimentoAntesFabricacao(r.data_fabricacao, r.data_validade)
+              const datasOrdemInvalida = isDatasProdutoContagemInvalidas(r.data_fabricacao, r.data_validade)
               return (
                 <tr
                   key={r.id}
@@ -5118,7 +5136,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                             ''
                           : String(it.quantidade_contada ?? '').trim() === ''
                       const isEditing = checklistEditingKey === it.key && checklistEditDraft
-                      const datasOrdemInvalida = isVencimentoAntesFabricacao(it.data_fabricacao, it.data_validade)
+                      const datasOrdemInvalida = isDatasProdutoContagemInvalidas(it.data_fabricacao, it.data_validade)
                       const itemArmazemContagem = inventario ? getArmazemContagemForItem(it) : null
                       const itemRua =
                         inventario && offlineSession?.listMode === 'planilha'
@@ -5365,8 +5383,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       <span>Data de fabricação</span>
                                       <input
                                         type="date"
+                                        max={maxDataFabricacaoHoje()}
                                         value={it.data_fabricacao ?? ''}
-                                        onChange={(e) => updateOfflineItemFields(it.key, { data_fabricacao: e.target.value })}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, {
+                                            data_fabricacao: clampDataFabricacaoYmd(e.target.value),
+                                          })
+                                        }
                                         style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
                                       />
                                     </label>
@@ -5624,7 +5647,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                           const it = item as OfflineChecklistItem
                           const hasPhoto = Boolean(String(it.foto_base64 ?? '').trim())
                           const isEditing = checklistEditingKey === it.key && checklistEditDraft
-                          const datasOrdemInvalida = isVencimentoAntesFabricacao(it.data_fabricacao, it.data_validade)
+                          const datasOrdemInvalida = isDatasProdutoContagemInvalidas(it.data_fabricacao, it.data_validade)
                           return (
                             <tr
                               key={it.key}
@@ -5743,8 +5766,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                     <td style={tdStyle}>
                                       <input
                                         type="date"
+                                        max={maxDataFabricacaoHoje()}
                                         value={it.data_fabricacao ?? ''}
-                                        onChange={(e) => updateOfflineItemFields(it.key, { data_fabricacao: e.target.value })}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, {
+                                            data_fabricacao: clampDataFabricacaoYmd(e.target.value),
+                                          })
+                                        }
                                         style={{ ...checklistQtdInputStyle, width: 145 }}
                                         aria-label={`Data de fabricação ${it.codigo_interno}`}
                                       />
@@ -5904,8 +5932,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                     <td style={tdStyle}>
                                       <input
                                         type="date"
+                                        max={maxDataFabricacaoHoje()}
                                         value={it.data_fabricacao ?? ''}
-                                        onChange={(e) => updateOfflineItemFields(it.key, { data_fabricacao: e.target.value })}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, {
+                                            data_fabricacao: clampDataFabricacaoYmd(e.target.value),
+                                          })
+                                        }
                                         style={{ ...checklistQtdInputStyle, width: 145 }}
                                         aria-label={`Data de fabricação ${it.codigo_interno}`}
                                       />
@@ -6788,7 +6821,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               display: 'grid',
               gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
               gap: 12,
-              ...(isVencimentoAntesFabricacao(dataFabricacao, dataVencimento)
+              ...(isDatasProdutoContagemInvalidas(dataFabricacao, dataVencimento)
                 ? {
                     padding: '10px 12px',
                     borderRadius: 8,
@@ -6803,8 +6836,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               Data de fabricação
               <input
                 type="date"
+                max={maxDataFabricacaoHoje()}
                 value={dataFabricacao}
-                onChange={(e) => setDataFabricacao(e.target.value)}
+                onChange={(e) => setDataFabricacao(clampDataFabricacaoYmd(e.target.value))}
                 style={inputStyle}
               />
             </label>

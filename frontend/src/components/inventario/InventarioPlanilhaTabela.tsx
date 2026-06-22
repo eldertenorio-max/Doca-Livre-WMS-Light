@@ -1,6 +1,10 @@
 import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import type { OfflineChecklistItem } from '../../lib/offlineContagemSession'
-import { isVencimentoAntesFabricacao } from '../../lib/contagemDatasValidacao'
+import {
+  clampDataFabricacaoYmd,
+  isDatasProdutoContagemInvalidas,
+  maxDataFabricacaoHoje,
+} from '../../lib/contagemDatasValidacao'
 import {
   CHECKLIST_QTY_NAV_ATTR,
   handleChecklistFieldNavKeyDown,
@@ -170,7 +174,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
             const isEditing = checklistEditingKey === it.key && checklistEditDraft
             const pn =
               armazemItemsSorted.length > 0 ? inventarioArmazemPosNivel(armazemItemsSorted, it) : { pos: 0, nivel: 0 }
-            const datasOrdemInvalida = isVencimentoAntesFabricacao(it.data_fabricacao, it.data_validade)
+            const datasOrdemInvalida = isDatasProdutoContagemInvalidas(it.data_fabricacao, it.data_validade)
             return (
               <tr
                 key={it.key}
@@ -281,9 +285,12 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                       <td style={tdPlanilha}>
                         <input
                           type="date"
+                          max={maxDataFabricacaoHoje()}
                           value={it.data_fabricacao ?? ''}
                           onChange={(e) =>
-                            updateOfflineItemFields(it.key, { data_fabricacao: e.target.value })
+                            updateOfflineItemFields(it.key, {
+                              data_fabricacao: clampDataFabricacaoYmd(e.target.value),
+                            })
                           }
                           style={{ ...inputPlanilha, width: 145 }}
                           aria-label={`Data de fabricação ${it.codigo_interno}`}
@@ -490,9 +497,12 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                       <td style={tdPlanilha}>
                         <input
                           type="date"
+                          max={maxDataFabricacaoHoje()}
                           value={it.data_fabricacao ?? ''}
                           onChange={(e) =>
-                            updateOfflineItemFields(it.key, { data_fabricacao: e.target.value })
+                            updateOfflineItemFields(it.key, {
+                              data_fabricacao: clampDataFabricacaoYmd(e.target.value),
+                            })
                           }
                           style={{ ...inputPlanilha, width: 145 }}
                           aria-label={`Data de fabricação ${it.codigo_interno}`}
