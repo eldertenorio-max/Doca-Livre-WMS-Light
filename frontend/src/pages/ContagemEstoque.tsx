@@ -64,6 +64,7 @@ import {
   lookupProductOptionByCodigoGeneric as lookupProductOptionByCodigo,
   normalizeCodigoInternoCompareKey,
 } from '../lib/codigoInternoCompare'
+import { buildProductByBarcodeMap, lookupProductByBarcode } from '../lib/barcodeProductLookup'
 import {
   CHECKLIST_QTY_NAV_ATTR,
   handleChecklistFieldNavKeyDown,
@@ -92,8 +93,15 @@ import {
 } from '../lib/contagemListagemCompat'
 import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 import { mergeContagensDiariasDoDiaParaItems } from '../lib/mergeContagemDiariaDoBanco'
+import { mergeInventarioDoDiaParaItems } from '../lib/mergeInventarioDoBanco'
 import { atualizarTodosOsProdutosEanDunAposFinalizacao } from '../lib/atualizarTodosOsProdutosEanDunAposFinalizacao'
 import { subscribeContagensEstoqueDia } from '../lib/subscribeContagensEstoqueRealtime'
+import { subscribeContagensInventarioDia } from '../lib/subscribeContagensInventarioRealtime'
+import {
+  fetchResumoFinalizadosInventarioRodada,
+  inventarioRodadaCompleta,
+  INVENTARIO_CONFERENTES_META_RODADA,
+} from '../lib/inventarioPresenca'
 import {
   calcHistoryKeyForCodigo,
   ChecklistCalculatorModal,
@@ -432,6 +440,33 @@ function stripContagensEstoqueContagemRascunhoColumn(row: Record<string, unknown
   return r
 }
 
+function stripContagensInventarioPlanilhaMergeColumns(row: Record<string, unknown>): Record<string, unknown> {
+  const r = { ...row }
+  delete r.planilha_grupo_armazem
+  delete r.planilha_ordem_na_aba
+  return r
+}
+
+function inventarioRodadaSucessoStorageKey(ymd: string, rodada: number): string {
+  return `inventario-rodada-sucesso-visto:${ymd}:rod${rodada}`
+}
+
+function marcarInventarioRodadaSucessoVisto(ymd: string, rodada: number) {
+  try {
+    localStorage.setItem(inventarioRodadaSucessoStorageKey(ymd, rodada), '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+function inventarioRodadaSucessoJaVisto(ymd: string, rodada: number): boolean {
+  try {
+    return localStorage.getItem(inventarioRodadaSucessoStorageKey(ymd, rodada)) === '1'
+  } catch {
+    return false
+  }
+}
+
 /** Valor de `contagem_rascunho` vindo do PostgREST (boolean; em raros casos string). */
 function isContagemRascunhoValorDb(v: unknown): boolean {
   if (v === true) return true
@@ -630,6 +665,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [permitirEdicaoAposBloqueio, setPermitirEdicaoAposBloqueio] = useState(false)
   /** Modal customizado no lugar de `confirm` quando a contagem diária está bloqueada (2 finalizações). */
   const [bloqueioContagemDiariaModalOpen, setBloqueioContagemDiariaModalOpen] = useState(false)
+  /** Exibido quando 8 conferentes finalizam a mesma rodada do inventário (1ª–4ª contagem). */
+  const [inventarioRodadaSucessoModal, setInventarioRodadaSucessoModal] = useState<{
+    ymd: string
+    rodada: 1 | 2 | 3 | 4
+  } | null>(null)
   const bloqueioResolverRef = useRef<null | ((v: 'editar' | 'zero' | 'fechar') => void)>(null)
   const bloqueioPendingActionRef = useRef<(() => void) | null>(null)
   const checklistQtyCalcApplyRef = useRef<((value: string) => void) | null>(null)
@@ -863,7 +903,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   /** Sessões antigas sem UUID de rascunho: gera um para permitir sync em tempo real no Supabase. */
   useEffect(() => {
-    if (inventario) return
     setOfflineSession((prev) => {
       if (!prev || prev.status !== 'aberta') return prev
       if (prev.contagem_diaria_rascunho_sessao_id && isUuid(prev.contagem_diaria_rascunho_sessao_id)) return prev
@@ -883,27 +922,39 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     setPlanilhaTabelaPage(1)
   }, [checklistListMode, checklistFilterCodigo, checklistFilterDescricao, offlineSession?.status])
 
-  /** Lista quem está com sessão de contagem diária aberta no mesmo dia civil (heartbeat no Supabase). */
+  /** Lista quem está com sessão aberta no mesmo dia civil (heartbeat no Supabase). */
   useEffect(() => {
-    if (inventario) {
-      setPresencaContagemHoje([])
-      setContagemDiariaBloqueadaEdicao(false)
-      setPermitirEdicaoAposBloqueio(false)
-      return
-    }
     const ymd =
       offlineSession?.status === 'aberta' && offlineSession.data_contagem_ymd
         ? offlineSession.data_contagem_ymd
         : contagemDiaYmd
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
+    const rodadaInventario =
+      inventario && offlineSession?.status === 'aberta'
+        ? clampInventarioNumeroContagem(offlineSession.inventario_numero_contagem ?? 1)
+        : 1
 
     let cancelled = false
     const load = async () => {
       const [raw, finalMap] = await Promise.all([
         fetchContagemDiariaPresencaDia(ymd),
-        fetchResumoFinalizadosContagemDiariaDia(ymd),
+        inventario
+          ? fetchResumoFinalizadosInventarioRodada(ymd, rodadaInventario)
+          : fetchResumoFinalizadosContagemDiariaDia(ymd),
       ])
-      if (!cancelled) setContagemDiariaBloqueadaEdicao(finalMap.size >= 2)
+      if (!cancelled) {
+        if (inventario) {
+          setContagemDiariaBloqueadaEdicao(false)
+          if (
+            inventarioRodadaCompleta(finalMap) &&
+            !inventarioRodadaSucessoJaVisto(ymd, rodadaInventario)
+          ) {
+            setInventarioRodadaSucessoModal({ ymd, rodada: rodadaInventario })
+          }
+        } else {
+          setContagemDiariaBloqueadaEdicao(finalMap.size >= 2)
+        }
+      }
       const ativos = raw.filter((r) => isPresencaAtiva(r.atualizado_em))
       const presMap = new Map(ativos.map((p) => [p.conferente_id, p]))
       const allIds = new Set<string>()
@@ -953,15 +1004,20 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       cancelled = true
       window.clearInterval(id)
     }
-  }, [inventario, contagemDiaYmd, offlineSession?.status, offlineSession?.data_contagem_ymd])
+  }, [
+    inventario,
+    contagemDiaYmd,
+    offlineSession?.status,
+    offlineSession?.data_contagem_ymd,
+    offlineSession?.inventario_numero_contagem,
+  ])
 
   useEffect(() => {
     setPermitirEdicaoAposBloqueio(false)
   }, [contagemDiaYmd])
 
-  /** Contagem diária: atualiza quantidades/nomes a partir do banco (todos os conferentes), em tempo real + fallback lento. */
+  /** Contagem diária / inventário: atualiza quantidades a partir do banco (todos os conferentes), em tempo real. */
   useEffect(() => {
-    if (inventario) return
     if (!offlineSession || offlineSession.status !== 'aberta') return
     const ymd = offlineSession.data_contagem_ymd
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
@@ -976,18 +1032,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         if (it.quantidade_local_dirty) skip.add(it.key)
       }
       try {
-        const { items: merged } = await mergeContagensDiariasDoDiaParaItems(ymd, s.items, {
-          skipKeys: skip,
-        })
+        const rodadaInv = clampInventarioNumeroContagem(s.inventario_numero_contagem ?? 1)
+        const { items: merged } = inventario
+          ? await mergeInventarioDoDiaParaItems(ymd, s.items, {
+              skipKeys: skip,
+              numeroContagemRodada: rodadaInv,
+            })
+          : await mergeContagensDiariasDoDiaParaItems(ymd, s.items, {
+              skipKeys: skip,
+            })
         if (cancelled) return
         setOfflineSession((prev) => {
           if (!prev || prev.status !== 'aberta') return prev
           if (prev.sessionId !== s.sessionId) return prev
-          /**
-           * O `await` do merge pode demorar; o usuário pode digitar nesse meio-tempo.
-           * `merged` foi calculado com snapshot antigo — não substituir linhas que já estão
-           * “dirty” no estado atual (evita quantidade sumir / voltar sozinha).
-           */
           const mergedByKey = new Map(merged.map((it) => [it.key, it]))
           const nextItems = prev.items.map((it) => {
             if (
@@ -1005,29 +1062,40 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
     }
     void tick()
-    const unsubRealtime = subscribeContagensEstoqueDia(ymd, () => void tick())
+    const unsubRealtime = inventario
+      ? subscribeContagensInventarioDia(ymd, () => void tick())
+      : subscribeContagensEstoqueDia(ymd, () => void tick())
     const id = window.setInterval(() => void tick(), CONTAGEM_BANCO_MERGE_FALLBACK_MS)
     return () => {
       cancelled = true
       unsubRealtime()
       window.clearInterval(id)
     }
-  }, [inventario, offlineSession?.status, offlineSession?.sessionId, offlineSession?.data_contagem_ymd])
+  }, [
+    inventario,
+    offlineSession?.status,
+    offlineSession?.sessionId,
+    offlineSession?.data_contagem_ymd,
+    offlineSession?.inventario_numero_contagem,
+  ])
 
   /** Prévia do banco: carrega ao abrir/mudar o dia e atualiza via Realtime. */
   useEffect(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(previewConsultaDiaYmd)) return
     const ymd = previewConsultaDiaYmd
     void loadPreviewRef.current(ymd, { silent: true })
-    const unsub = subscribeContagensEstoqueDia(ymd, () => {
-      void loadPreviewRef.current(ymd, { silent: true })
-    })
+    const unsub = inventario
+      ? subscribeContagensInventarioDia(ymd, () => {
+          void loadPreviewRef.current(ymd, { silent: true })
+        })
+      : subscribeContagensEstoqueDia(ymd, () => {
+          void loadPreviewRef.current(ymd, { silent: true })
+        })
     return () => unsub()
   }, [previewConsultaDiaYmd, inventario])
 
   /** Enquanto a checklist estiver aberta, renova presença para o dia da sessão. */
   useEffect(() => {
-    if (inventario) return
     if (!offlineSession || offlineSession.status !== 'aberta') return
     const ymd = offlineSession.data_contagem_ymd
     const cid = String(offlineSession.conferente_id ?? '').trim()
@@ -1071,7 +1139,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (!isYmd(s.data_contagem_ymd)) return
       const todayYmd = toISODateLocal(new Date())
       if (s.data_contagem_ymd === todayYmd) return
-      if (!inventario) void apagarRascunhoSupabaseParaSessao(s)
+      void apagarRascunhoSupabaseParaSessao(s)
       clearOfflineSession(sessionMode)
       setOfflineSession(null)
       setChecklistListMode('todos')
@@ -1221,23 +1289,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     return map
   }, [productOptions])
 
-  const productByEan = useMemo(() => {
-    const map = new Map<string, ProductOption>()
-    for (const p of productOptions) {
-      if (!p.ean) continue
-      if (!map.has(p.ean)) map.set(p.ean, p)
-    }
-    return map
-  }, [productOptions])
+  const productByEan = useMemo(() => buildProductByBarcodeMap(productOptions, 'ean'), [productOptions])
 
-  const productByDun = useMemo(() => {
-    const map = new Map<string, ProductOption>()
-    for (const p of productOptions) {
-      if (!p.dun) continue
-      if (!map.has(p.dun)) map.set(p.dun, p)
-    }
-    return map
-  }, [productOptions])
+  const productByDun = useMemo(() => buildProductByBarcodeMap(productOptions, 'dun'), [productOptions])
 
   const SUGGEST_LIMIT = 400
   const codigoSuggestions = useMemo(() => {
@@ -1277,6 +1331,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (inventario && offlineSession?.listMode === 'planilha') {
       applyProductToInventarioPlanilhaLinha(p.codigo)
     }
+    setCodigoInterno(p.codigo)
     setProduto({
       id: p.id,
       codigo_interno: p.codigo,
@@ -1310,48 +1365,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const code = barcode.trim()
     if (!code) return false
 
-    const pDun = productByDun.get(code)
-    if (pDun) {
-      setBarcodeTipoLeitura('DUN')
-      setCodigoInterno(pDun.codigo)
-      if (inventario && offlineSession?.listMode === 'planilha') {
-        applyProductToInventarioPlanilhaLinha(pDun.codigo)
-      }
-      applyProductByCode(pDun.codigo, { updateBarcodeLeitura: false })
-      setBarcodeLeitura(code)
-      setProdutoError('')
-      return true
+    const found = lookupProductByBarcode(
+      code,
+      productOptions,
+      productByDun,
+      productByEan,
+      productByCode,
+      productByCodeNoDots,
+    )
+    if (!found) {
+      setProdutoError('Código de barras não encontrado (DUN/EAN). Confira o cadastro em Todos os Produtos.')
+      return false
     }
 
-    const pEan = productByEan.get(code)
-    if (pEan) {
-      setBarcodeTipoLeitura('EAN')
-      setCodigoInterno(pEan.codigo)
-      if (inventario && offlineSession?.listMode === 'planilha') {
-        applyProductToInventarioPlanilhaLinha(pEan.codigo)
-      }
-      applyProductByCode(pEan.codigo, { updateBarcodeLeitura: false })
-      setBarcodeLeitura(code)
-      setProdutoError('')
-      return true
-    }
-
-    // Fallback: se o bipador estiver enviando o próprio código interno.
-    const pCode = lookupProductOptionByCodigo(code, productByCode, productByCodeNoDots)
-    if (pCode) {
-      setBarcodeTipoLeitura(null)
-      setCodigoInterno(pCode.codigo)
-      if (inventario && offlineSession?.listMode === 'planilha') {
-        applyProductToInventarioPlanilhaLinha(pCode.codigo)
-      }
-      applyProductByCode(pCode.codigo, { updateBarcodeLeitura: false })
-      setBarcodeLeitura(code)
-      setProdutoError('')
-      return true
-    }
-
-    setProdutoError('Código de barras não encontrado (DUN/EAN).')
-    return false
+    const { product: p, tipo } = found
+    setBarcodeTipoLeitura(tipo)
+    setBarcodeLeitura(code)
+    applyProductByCode(p.codigo, { updateBarcodeLeitura: false })
+    setProdutoError('')
+    return true
   }
 
   useEffect(() => {
@@ -2539,7 +2571,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   }
 
   async function apagarRascunhoSupabaseParaSessao(s: OfflineSession) {
-    if (inventario) return
     const dr = s.contagem_diaria_rascunho_sessao_id
     const cid = String(s.conferente_id ?? '').trim()
     const ymd = s.data_contagem_ymd
@@ -2567,7 +2598,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   }
 
   function scheduleContagemDiariaRascunhoPersist(itemKey: string) {
-    if (inventario || finalizing) return
+    if (finalizing) return
     const s = offlineSessionRef.current
     if (!s || s.status !== 'aberta') return
     if (!s.contagem_diaria_rascunho_sessao_id || !isUuid(s.contagem_diaria_rascunho_sessao_id)) return
@@ -2580,7 +2611,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   }
 
   async function flushPersistContagemDiariaRascunho(itemKey: string) {
-    if (inventario || finalizing) return
+    if (finalizing) return
     const s = offlineSessionRef.current
     if (!s || s.status !== 'aberta') return
     const draftId = s.contagem_diaria_rascunho_sessao_id
@@ -2596,8 +2627,27 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const catalog = lookupProductOptionByCodigo(codRaw, productByCodeRef.current, productByCodeNoDotsRef.current)
     const codigoDb = String(catalog?.codigo ?? it.codigo_interno).trim()
     const qStr = String(it.quantidade_contada ?? '').trim()
+    const rodadaInv = clampInventarioNumeroContagem(s.inventario_numero_contagem ?? 1)
+    const usaChavePlanilha =
+      inventario && it.armazem_grupo != null && it.planilha_ordem_na_aba != null
 
     const delLinha = async () => {
+      if (usaChavePlanilha) {
+        const { error } = await supabase
+          .from(tContagens)
+          .delete()
+          .eq('data_contagem', ymd)
+          .eq('conferente_id', cid)
+          .eq('finalizacao_sessao_id', draftId)
+          .eq('planilha_grupo_armazem', it.armazem_grupo!)
+          .eq('planilha_ordem_na_aba', it.planilha_ordem_na_aba!)
+        if (!error) return
+        if (isMissingDbColumnError(error, 'planilha_grupo_armazem') || isMissingDbColumnError(error, 'planilha_ordem_na_aba')) {
+          /* fallback por código abaixo */
+        } else if (import.meta.env.DEV) {
+          console.warn('[contagem rascunho] delete planilha qty vazia', error)
+        }
+      }
       const { error } = await supabase
         .from(tContagens)
         .delete()
@@ -2668,8 +2718,32 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       finalizacao_sessao_id: draftId,
       contagem_rascunho: true,
     }
+    if (inventario) {
+      rowPayload.inventario_numero_contagem = rodadaInv
+      if (it.armazem_grupo != null) rowPayload.planilha_grupo_armazem = it.armazem_grupo
+      if (it.planilha_ordem_na_aba != null) rowPayload.planilha_ordem_na_aba = it.planilha_ordem_na_aba
+    }
 
     {
+      if (usaChavePlanilha) {
+        const { error: delPlErr } = await supabase
+          .from(tContagens)
+          .delete()
+          .eq('data_contagem', ymd)
+          .eq('conferente_id', cid)
+          .eq('finalizacao_sessao_id', draftId)
+          .eq('planilha_grupo_armazem', it.armazem_grupo!)
+          .eq('planilha_ordem_na_aba', it.planilha_ordem_na_aba!)
+        if (!delPlErr) {
+          /* ok */
+        } else if (
+          !isMissingDbColumnError(delPlErr, 'planilha_grupo_armazem') &&
+          !isMissingDbColumnError(delPlErr, 'planilha_ordem_na_aba') &&
+          import.meta.env.DEV
+        ) {
+          console.warn('[contagem rascunho] delete planilha antes insert', delPlErr)
+        }
+      }
       const { error: delErr } = await supabase
         .from(tContagens)
         .delete()
@@ -2701,6 +2775,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       rowPayload = stripContagensEstoqueFinalizacaoSessaoColumn(rowPayload)
       ins = await supabase.from(tContagens).insert(rowPayload).select('id').limit(1)
     }
+    if (ins.error && isMissingDbColumnError(ins.error, 'planilha_grupo_armazem')) {
+      rowPayload = stripContagensInventarioPlanilhaMergeColumns(rowPayload)
+      ins = await supabase.from(tContagens).insert(rowPayload).select('id').limit(1)
+    }
     if (ins.error) {
       if (import.meta.env.DEV) console.warn('[contagem rascunho] insert', ins.error)
       return
@@ -2715,11 +2793,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       bloqueioPendingActionRef.current = () => updateOfflineItemQty(key, quantidade, { skipBloqueioGuard: true })
       return
     }
-    if (!inventario) {
-      const trimmed = String(quantidade ?? '').trim()
-      if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(key)
-      else checklistContagemBancoDirtyKeysRef.current.add(key)
-    }
+    const trimmed = String(quantidade ?? '').trim()
+    if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(key)
+    else checklistContagemBancoDirtyKeysRef.current.add(key)
     setOfflineSession((prev) => {
       if (!prev || prev.status !== 'aberta') return prev
       const trimmed = String(quantidade ?? '').trim()
@@ -2740,7 +2816,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     })
     schedulePendentesGrace(key, quantidade)
     flashChecklistRowSaved(key)
-    if (!inventario) scheduleContagemDiariaRascunhoPersist(key)
+    scheduleContagemDiariaRascunhoPersist(key)
   }
 
   function handleLimparQuantidadeOffline(key: string) {
@@ -2773,7 +2849,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       bloqueioPendingActionRef.current = () => updateOfflineItemFields(key, patch, { skipBloqueioGuard: true })
       return
     }
-    if (!inventario && 'quantidade_contada' in patch) {
+    if ('quantidade_contada' in patch) {
       const trimmed = String(patch.quantidade_contada ?? '').trim()
       if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(key)
       else checklistContagemBancoDirtyKeysRef.current.add(key)
@@ -2799,19 +2875,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       schedulePendentesGrace(key, String(patch.quantidade_contada ?? ''))
     }
     flashChecklistRowSaved(key)
-    if (!inventario) {
-      const syncKeys: (keyof OfflineChecklistItem)[] = [
-        'quantidade_contada',
-        'up_quantidade',
-        'lote',
-        'observacao',
-        'data_fabricacao',
-        'data_validade',
-        'ean',
-        'dun',
-      ]
-      if (syncKeys.some((k) => k in patch)) scheduleContagemDiariaRascunhoPersist(key)
-    }
+    const syncKeys: (keyof OfflineChecklistItem)[] = [
+      'quantidade_contada',
+      'up_quantidade',
+      'lote',
+      'observacao',
+      'data_fabricacao',
+      'data_validade',
+      'ean',
+      'dun',
+    ]
+    if (syncKeys.some((k) => k in patch)) scheduleContagemDiariaRascunhoPersist(key)
   }
 
   function handleToggleChecklistCollapse() {
@@ -3094,12 +3168,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         return
       }
 
-      if (!inventario) {
-        await apagarRascunhoSupabaseParaSessao(session)
-      }
+      await apagarRascunhoSupabaseParaSessao(session)
 
       const dataHoraIso = sessionEndedAtIso
-      const finalizacaoSessaoId = !inventario ? newSessionId() : null
+      const finalizacaoSessaoId = newSessionId()
       const rows: Record<string, unknown>[] = []
       /** Metadados paralelos a `rows` para gravar `inventario_planilha_linhas` após obter os ids de `contagens_estoque`. */
       const finalizeMeta: Array<{
@@ -3184,6 +3256,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           rowPayload.inventario_numero_contagem = clampInventarioNumeroContagem(
             session.inventario_numero_contagem ?? 1,
           )
+          rowPayload.contagem_rascunho = false
+          rowPayload.finalizacao_sessao_id = finalizacaoSessaoId
+          if (it.armazem_grupo != null) rowPayload.planilha_grupo_armazem = it.armazem_grupo
+          if (it.planilha_ordem_na_aba != null) rowPayload.planilha_ordem_na_aba = it.planilha_ordem_na_aba
         } else {
           if (finalizacaoSessaoId) rowPayload.finalizacao_sessao_id = finalizacaoSessaoId
           /** Linha definitiva — separa da prévia colaborativa (`contagem_rascunho = true`). */
@@ -3240,6 +3316,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
         if (insErr && isMissingDbColumnError(insErr, 'contagem_rascunho')) {
           attemptPayload = attemptPayload.map((r) => stripContagensEstoqueContagemRascunhoColumn(r))
+          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
+          insertedChunk = res.data
+          insErr = res.error
+        }
+        if (insErr && isMissingDbColumnError(insErr, 'planilha_grupo_armazem')) {
+          attemptPayload = attemptPayload.map((r) => stripContagensInventarioPlanilhaMergeColumns(r))
           const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
           insertedChunk = res.data
           insErr = res.error
@@ -4752,7 +4834,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     >
       <h2>{inventario ? 'Inventário físico' : 'Contagem de Estoque'}</h2>
 
-      {!inventario && presencaContagemHoje.length > 0 ? (
+      {presencaContagemHoje.length > 0 ? (
         <div
           style={{
             marginTop: 12,
@@ -4764,9 +4846,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             lineHeight: 1.45,
           }}
         >
-          <strong style={{ color: '#ffd95c' }}>Contagem neste dia</strong>
+          <strong style={{ color: '#ffd95c' }}>
+            {inventario ? 'Inventário neste dia' : 'Contagem neste dia'}
+          </strong>
           <span style={{ color: 'var(--text-muted, #aaa)', marginLeft: 8 }}>
-            (checklist aberta · linhas já gravadas no banco · cada um finaliza separado)
+            {inventario
+              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes por rodada · cada um finaliza separado)`
+              : '(checklist aberta · linhas já gravadas no banco · cada um finaliza separado)'}
           </span>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
             {presencaContagemHoje.map((p) => (
@@ -4790,11 +4876,22 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     </span>
                   </>
                 ) : null}
-                {!p.checklistAtiva &&
-                p.linhasGravadas > 0 &&
-                p.ultimaGravacao &&
-                metaLinhasContagemDiaria > 0 &&
-                p.linhasGravadas >= metaLinhasContagemDiaria ? (
+                {inventario && !p.checklistAtiva && p.linhasGravadas > 0 ? (
+                  <>
+                    {' · '}
+                    <span style={{ opacity: 0.95 }}>
+                      {p.ultimaGravacao
+                        ? `${formatHorarioUltimaGravacao(p.ultimaGravacao)} · `
+                        : ''}
+                      contagem finalizada no banco
+                    </span>
+                  </>
+                ) : !inventario &&
+                  !p.checklistAtiva &&
+                  p.linhasGravadas > 0 &&
+                  p.ultimaGravacao &&
+                  metaLinhasContagemDiaria > 0 &&
+                  p.linhasGravadas >= metaLinhasContagemDiaria ? (
                   <>
                     {' · '}
                     <span style={{ opacity: 0.95 }}>
@@ -5380,8 +5477,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                           ) : (
                             <>
                               <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 2 }}>
-                                {!inventario &&
-                                String(it.contagem_banco_ultimo_conferente_nome ?? '').trim() !== '' ? (
+                                {String(it.contagem_banco_ultimo_conferente_nome ?? '').trim() !== '' ? (
                                   <>
                                     <div>
                                       Última gravação (hoje):{' '}
@@ -6196,6 +6292,70 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           </div>
         )}
 
+        {inventarioRodadaSucessoModal ? createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inventario-rodada-sucesso-modal-title"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,.55)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 16,
+              zIndex: 10002,
+            }}
+          >
+            <div
+              style={{
+                width: 'min(480px, 100%)',
+                background: 'linear-gradient(180deg, #1b3d1b 0%, #0f2610 100%)',
+                color: '#e8ffe8',
+                border: '1px solid #4caf50',
+                borderRadius: 12,
+                padding: 20,
+                boxShadow: '0 12px 36px rgba(0,0,0,.45)',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 8 }} aria-hidden>
+                ✅
+              </div>
+              <h3 id="inventario-rodada-sucesso-modal-title" style={{ margin: '0 0 10px', fontSize: 18, color: '#a5f5a5' }}>
+                {formatContagemLabel(inventarioRodadaSucessoModal.rodada)} de inventário finalizada com sucesso
+              </h3>
+              <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: '#d4f5d4' }}>
+                Os {INVENTARIO_CONFERENTES_META_RODADA} conferentes finalizaram a{' '}
+                {formatContagemLabel(inventarioRodadaSucessoModal.rodada).toLowerCase()} do dia{' '}
+                <strong>{formatDateBRFromYmd(inventarioRodadaSucessoModal.ymd)}</strong>.
+              </p>
+              <button
+                type="button"
+                style={{
+                  ...buttonStyle,
+                  background: 'linear-gradient(180deg, #43a047 0%, #2e7d32 100%)',
+                  border: '1px solid #81c784',
+                  color: '#fff',
+                  fontWeight: 600,
+                  width: '100%',
+                }}
+                onClick={() => {
+                  marcarInventarioRodadaSucessoVisto(
+                    inventarioRodadaSucessoModal.ymd,
+                    inventarioRodadaSucessoModal.rodada,
+                  )
+                  setInventarioRodadaSucessoModal(null)
+                }}
+              >
+                Entendi
+              </button>
+            </div>
+          </div>,
+          document.body,
+        ) : null}
+
         {bloqueioContagemDiariaModalOpen ? createPortal(
           <div
             role="dialog"
@@ -6543,60 +6703,66 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         {inventario && offlineSession?.status === 'aberta' && offlineSession.listMode === 'planilha' ? (
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(140px, 1fr))',
-              gap: 12,
               padding: 12,
               borderRadius: 10,
               border: '1px solid var(--border, #ccc)',
               background: 'rgba(255, 255, 255, 0.03)',
             }}
           >
-            <label style={labelStyle}>
-              Rua
-              <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text, #888)', marginBottom: 4 }}>
-                Câmara {inventarioPlanilhaCamaraAtual ?? '—'} (aba selecionada)
-              </span>
-              <select
-                value={inventarioPlanilhaRua}
-                onChange={(e) => handleInventarioPlanilhaRuaChange(e.target.value)}
-                style={inputStyle}
-              >
-                {inventarioRuasDisponiveis.map((r) => (
-                  <option key={r} value={r}>
-                    RUA {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              Posição
-              <select
-                value={inventarioPlanilhaPos}
-                onChange={(e) => setInventarioPlanilhaPos(Number(e.target.value))}
-                style={inputStyle}
-              >
-                {Array.from({ length: INVENTARIO_PLANILHA_NUM_POSICOES }, (_, i) => i + 1).map((p) => (
-                  <option key={p} value={p}>
-                    POS {p}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              Nível
-              <select
-                value={inventarioPlanilhaNivel}
-                onChange={(e) => setInventarioPlanilhaNivel(Number(e.target.value))}
-                style={inputStyle}
-              >
-                {Array.from({ length: INVENTARIO_PLANILHA_NIVEIS }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    Nível {n}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <p style={{ margin: '0 0 10px', fontSize: 11, color: 'var(--text, #888)' }}>
+              Câmara <strong>{inventarioPlanilhaCamaraAtual ?? '—'}</strong> (aba selecionada)
+            </p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(140px, 1fr))',
+                gap: 12,
+                alignItems: 'end',
+              }}
+            >
+              <label style={labelStyle}>
+                Rua
+                <select
+                  value={inventarioPlanilhaRua}
+                  onChange={(e) => handleInventarioPlanilhaRuaChange(e.target.value)}
+                  style={inputStyle}
+                >
+                  {inventarioRuasDisponiveis.map((r) => (
+                    <option key={r} value={r}>
+                      RUA {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Posição
+                <select
+                  value={inventarioPlanilhaPos}
+                  onChange={(e) => setInventarioPlanilhaPos(Number(e.target.value))}
+                  style={inputStyle}
+                >
+                  {Array.from({ length: INVENTARIO_PLANILHA_NUM_POSICOES }, (_, i) => i + 1).map((p) => (
+                    <option key={p} value={p}>
+                      POS {p}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Nível
+                <select
+                  value={inventarioPlanilhaNivel}
+                  onChange={(e) => setInventarioPlanilhaNivel(Number(e.target.value))}
+                  style={inputStyle}
+                >
+                  {Array.from({ length: INVENTARIO_PLANILHA_NIVEIS }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      Nível {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         ) : null}
         {/* Não usar <label> envolvendo input+botões: em mobile o toque pode ir para o input em vez do botão. */}
@@ -6609,6 +6775,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               id="barcode-leitura-input"
               value={barcodeLeitura}
               onChange={(e) => setBarcodeLeitura(e.target.value)}
+              onBlur={(e) => {
+                const scanned = e.currentTarget.value.trim()
+                if (scanned) applyProductByBarcode(scanned)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()

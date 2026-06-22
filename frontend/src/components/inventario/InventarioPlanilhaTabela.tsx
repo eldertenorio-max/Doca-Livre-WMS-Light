@@ -115,24 +115,25 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
   }
   const tdPlanilhaQtd: CSSProperties = {
     ...tdPlanilha,
-    whiteSpace: 'normal',
-    verticalAlign: 'top',
-    minWidth: 200,
+    whiteSpace: 'nowrap',
+    verticalAlign: 'middle',
+    minWidth: 148,
     overflow: 'visible',
   }
   const planilhaQtdCellWrap: CSSProperties = {
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
+    gap: 6,
+    flexWrap: 'nowrap',
+    position: 'relative',
   }
   const inputPlanilhaQtdCell: CSSProperties = {
     ...inputPlanilha,
-    flex: '1 1 auto',
-    width: 'min(100%, 160px)',
-    maxWidth: 200,
-    minWidth: 72,
+    flex: '1 1 0',
+    width: 0,
+    minWidth: 52,
+    maxWidth: 96,
   }
 
   return (
@@ -500,7 +501,19 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                             />
                           ) : null}
                           {checklistSavedFlashKey === it.key ? (
-                            <span style={{ fontSize: 11, color: '#0a0', fontWeight: 700 }}>Salvo</span>
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: -14,
+                                right: 0,
+                                fontSize: 10,
+                                color: '#0a0',
+                                fontWeight: 700,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Salvo
+                            </span>
                           ) : null}
                         </div>
                       </td>
