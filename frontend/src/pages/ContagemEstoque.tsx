@@ -554,6 +554,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
   const [barcodeCameraError, setBarcodeCameraError] = useState('')
   const [barcodeFotoHint, setBarcodeFotoHint] = useState('')
+  const [barcodeNaoCadastradoModalOpen, setBarcodeNaoCadastradoModalOpen] = useState(false)
   const barcodeVideoRef = useRef<HTMLVideoElement | null>(null)
   /** Inventário planilha: posição física selecionada antes da leitura de código. */
   const [inventarioPlanilhaRua, setInventarioPlanilhaRua] = useState('A')
@@ -1374,7 +1375,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       productByCodeNoDots,
     )
     if (!found) {
-      setProdutoError('Código de barras não encontrado (DUN/EAN). Confira o cadastro em Todos os Produtos.')
+      setProdutoError('')
+      setBarcodeNaoCadastradoModalOpen(true)
       return false
     }
 
@@ -7392,6 +7394,65 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           </div>
         )}
       </div>
+
+      {barcodeNaoCadastradoModalOpen ? createPortal(
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="barcode-nao-cadastrado-modal-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,.6)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 16,
+            zIndex: 100003,
+          }}
+          onClick={() => setBarcodeNaoCadastradoModalOpen(false)}
+        >
+          <div
+            style={{
+              width: 'min(420px, 100%)',
+              background: '#2a1515',
+              color: '#ffe8e8',
+              border: '2px solid #e53935',
+              borderRadius: 12,
+              padding: '24px 20px',
+              boxShadow: '0 16px 48px rgba(0,0,0,.5)',
+              textAlign: 'center',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 44, marginBottom: 12 }} aria-hidden>
+              ⚠️
+            </div>
+            <h3
+              id="barcode-nao-cadastrado-modal-title"
+              style={{ margin: '0 0 20px', fontSize: 18, lineHeight: 1.45, color: '#ffcdd2', fontWeight: 700 }}
+            >
+              Código não cadastrado. Chame o responsável.
+            </h3>
+            <button
+              type="button"
+              style={{
+                ...buttonStyle,
+                background: 'linear-gradient(180deg, #e53935 0%, #c62828 100%)',
+                border: '1px solid #ef9a9a',
+                color: '#fff',
+                fontWeight: 600,
+                width: '100%',
+                minHeight: 44,
+              }}
+              onClick={() => setBarcodeNaoCadastradoModalOpen(false)}
+            >
+              Entendi
+            </button>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
 
       {barcodeCameraOpen ? createPortal(
         <div
