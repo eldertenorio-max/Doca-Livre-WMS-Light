@@ -2397,7 +2397,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         ? listaPlanilhaAviso ||
           (listModeEfetivo === 'planilha'
             ? ', formato planilha (CAMARA/RUA, abas por grupo)'
-            : `, ordem armazém (${getArmazemListaOficialTotal()} produtos${inventario ? ' × 3 contagens' : ''}, grupos 1ª–4ª)`)
+            : `, ordem armazém (${getArmazemListaOficialTotal()} produtos${inventario ? ' × 3 contagens' : ''}, ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas CAMARA/RUA)`)
         : ''
 
       setSaveSuccess(
@@ -4842,7 +4842,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             >
               <option value="todos">Todos os Produtos (cadastro)</option>
               <option value="armazem" title={inventario ? 'No inventário, cada produto aparece 3 vezes (3 contagens).' : undefined}>
-                Armazém (dividida em grupos 1ª–4ª contagem)
+                Armazém (dividida em {INVENTARIO_ARMAZEM_NUM_GRUPOS} abas CAMARA/RUA)
               </option>
               {inventario ? (
                 <option value="planilha">Inventário — formato planilha (CAMARA/RUA, abas)</option>
