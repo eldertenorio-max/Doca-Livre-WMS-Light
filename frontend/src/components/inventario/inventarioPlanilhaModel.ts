@@ -54,6 +54,38 @@ export function getInventarioRuaArmazem(contagem: number | null | undefined): st
   return INVENTARIO_ARMAZEM_RUA[contagem] ?? '—'
 }
 
+export const INVENTARIO_CAMARAS = [11, 12, 13, 21] as const
+
+export function getCamaraFromGrupo(grupo: number | null | undefined): number | null {
+  if (grupo == null || !Number.isFinite(grupo)) return null
+  const t = INVENTARIO_ARMAZEM_ABA_TITULOS[grupo]
+  if (!t) return null
+  const m = t.match(/CAMARA\s+(\d+)/i)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+/** Ruas disponíveis na câmara (ex.: 11 → A, B). */
+export function getRuasPorCamara(camara: number): string[] {
+  const ruas: string[] = []
+  for (let g = 1; g <= INVENTARIO_ARMAZEM_NUM_GRUPOS; g++) {
+    if (getCamaraFromGrupo(g) === camara) {
+      const r = INVENTARIO_ARMAZEM_RUA[g]
+      if (r) ruas.push(r)
+    }
+  }
+  return ruas
+}
+
+export function getGrupoArmazemFromCamaraRua(camara: number, rua: string): number | null {
+  const r = String(rua ?? '').trim().toUpperCase()
+  for (let g = 1; g <= INVENTARIO_ARMAZEM_NUM_GRUPOS; g++) {
+    if (getCamaraFromGrupo(g) === camara && INVENTARIO_ARMAZEM_RUA[g] === r) return g
+  }
+  return null
+}
+
 /** Níveis por posição na planilha (1–5). */
 export const INVENTARIO_PLANILHA_NIVEIS = 5
 
@@ -70,6 +102,61 @@ export const INVENTARIO_PLANILHA_NUM_POSICOES = 15
 /** Uma aba Excel = 15 POS × 15 linhas/POS (cobrindo todos os níveis em cada posição). */
 export const INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA =
   INVENTARIO_PLANILHA_NUM_POSICOES * INVENTARIO_PLANILHA_LINHAS_POR_POSICAO
+
+/** Índice 0-based da linha na aba a partir de POS, NÍVEL e repetição (1–3). */
+export function planilhaOrdemFromPosNivel(pos: number, nivel: number, repeticao = 1): number {
+  const p = Math.min(INVENTARIO_PLANILHA_NUM_POSICOES, Math.max(1, Math.round(pos)))
+  const n = Math.min(INVENTARIO_PLANILHA_NIVEIS, Math.max(1, Math.round(nivel)))
+  const r = Math.min(INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL, Math.max(1, Math.round(repeticao))) - 1
+  return (p - 1) * INVENTARIO_PLANILHA_LINHAS_POR_POSICAO + (n - 1) * INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL + r
+}
+
+/** Localiza linha da planilha em branco por grupo + POS + NÍVEL (prefere slot sem código). */
+export function findPlanilhaItemInGrupo(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+): OfflineChecklistItem | undefined {
+  const inGrupo = items
+    .filter((it) => it.armazem_grupo === grupo)
+    .sort((a, b) => (a.planilha_ordem_na_aba ?? 0) - (b.planilha_ordem_na_aba ?? 0))
+  const base = planilhaOrdemFromPosNivel(pos, nivel, 1)
+  for (let rep = 0; rep < INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL; rep++) {
+    const ordem = base + rep
+    const it = inGrupo.find((x) => x.planilha_ordem_na_aba === ordem)
+    if (it && !String(it.codigo_interno ?? '').trim()) return it
+  }
+  return inGrupo.find((x) => x.planilha_ordem_na_aba === base)
+}
+
+/** Lista em branco: 8 abas × 225 linhas (POS/NÍVEL fixos; código e descrição vazios). */
+export function buildBlankPlanilhaInventarioItems(): OfflineChecklistItem[] {
+  const items: OfflineChecklistItem[] = []
+  for (let grupo = 1; grupo <= INVENTARIO_ARMAZEM_NUM_GRUPOS; grupo++) {
+    for (let ordem = 0; ordem < INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA; ordem++) {
+      items.push({
+        key: `planilha-g${grupo}-o${ordem}`,
+        codigo_interno: '',
+        descricao: '',
+        armazem_grupo: grupo,
+        planilha_ordem_na_aba: ordem,
+        quantidade_contada: '',
+        quantidade_local_dirty: false,
+        foto_base64: '',
+        up_quantidade: '',
+        lote: '',
+        observacao: '',
+        data_fabricacao: '',
+        data_validade: '',
+        unidade_medida: null,
+        ean: null,
+        dun: null,
+      })
+    }
+  }
+  return items
+}
 
 /**
  * POS e NIVEL a partir da ordem da linha (0-based), igual ao Excel:
@@ -88,6 +175,9 @@ export function inventarioArmazemPosNivel(
   itemsSorted: OfflineChecklistItem[],
   it: OfflineChecklistItem,
 ): { pos: number; nivel: number } {
+  if (it.planilha_ordem_na_aba != null) {
+    return inventarioPlanilhaPosNivelFromIndex(it.planilha_ordem_na_aba)
+  }
   const idx = itemsSorted.findIndex((x) => x.key === it.key)
   if (idx < 0) return { pos: 1, nivel: 1 }
   return inventarioPlanilhaPosNivelFromIndex(idx)
@@ -160,7 +250,8 @@ export function buildPlanilhaLayoutPorItens(
   for (const [grupo, arr] of byGrupo) {
     const rua = getInventarioRuaArmazem(grupo)
     arr.forEach((it, idx) => {
-      const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(idx)
+      const ordemIdx = it.planilha_ordem_na_aba ?? idx
+      const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(ordemIdx)
       out.set(it.key, {
         grupo_armazem: grupo,
         numero_contagem: rodada,

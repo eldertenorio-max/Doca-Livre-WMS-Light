@@ -21,12 +21,20 @@ import {
   InventarioPlanilhaTabela,
 } from '../components/inventario/inventarioPlanilhaArmazem'
 import {
+  buildBlankPlanilhaInventarioItems,
   buildPlanilhaLayoutPorItens,
+  findPlanilhaItemInGrupo,
+  getCamaraFromGrupo,
+  getGrupoArmazemFromCamaraRua,
   getInventarioRuaArmazem,
+  getRuasPorCamara,
   inventarioArmazemPosNivel,
   inventarioCamaraLabelFromGrupo,
   INVENTARIO_ARMAZEM_GRUPO_IDS,
   INVENTARIO_ARMAZEM_NUM_GRUPOS,
+  INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA,
+  INVENTARIO_PLANILHA_NIVEIS,
+  INVENTARIO_PLANILHA_NUM_POSICOES,
 } from '../components/inventario/inventarioPlanilhaModel'
 import {
   compareInventarioPlanilhaItens,
@@ -512,6 +520,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [barcodeCameraError, setBarcodeCameraError] = useState('')
   const [barcodeFotoHint, setBarcodeFotoHint] = useState('')
   const barcodeVideoRef = useRef<HTMLVideoElement | null>(null)
+  /** Inventário planilha: posição física selecionada antes da leitura de código. */
+  const [inventarioPlanilhaRua, setInventarioPlanilhaRua] = useState('A')
+  const [inventarioPlanilhaPos, setInventarioPlanilhaPos] = useState(1)
+  const [inventarioPlanilhaNivel, setInventarioPlanilhaNivel] = useState(1)
 
   // Foto do produto (captura de câmera).
   const [photoCameraOpen, setPhotoCameraOpen] = useState(false)
@@ -836,11 +848,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
   }, [sessionMode])
 
-  /** Inventário físico: lista padrão = armazém (1ª–4ª contagem), salvo sessão já aberta. */
+  /** Inventário físico: lista padrão = planilha CAMARA/RUA, salvo sessão já aberta. */
   useEffect(() => {
     if (!inventario) return
     if (offlineSession?.status === 'aberta') return
-    setChecklistListMode((prev) => (prev === 'todos' ? 'armazem' : prev))
+    setChecklistListMode((prev) => (prev === 'todos' ? 'planilha' : prev))
   }, [inventario, offlineSession?.status])
 
   /** Pré-carrega aba Base Principal (Google Sheets) para modo armazém / inventário. */
@@ -1262,6 +1274,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   function applyProductByCode(codigo: string, opts?: { updateBarcodeLeitura?: boolean }) {
     const p = lookupProductOptionByCodigo(codigo, productByCode, productByCodeNoDots)
     if (!p) return false
+    if (inventario && offlineSession?.listMode === 'planilha') {
+      applyProductToInventarioPlanilhaLinha(p.codigo)
+    }
     setProduto({
       id: p.id,
       codigo_interno: p.codigo,
@@ -1299,6 +1314,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (pDun) {
       setBarcodeTipoLeitura('DUN')
       setCodigoInterno(pDun.codigo)
+      if (inventario && offlineSession?.listMode === 'planilha') {
+        applyProductToInventarioPlanilhaLinha(pDun.codigo)
+      }
       applyProductByCode(pDun.codigo, { updateBarcodeLeitura: false })
       setBarcodeLeitura(code)
       setProdutoError('')
@@ -1309,6 +1327,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (pEan) {
       setBarcodeTipoLeitura('EAN')
       setCodigoInterno(pEan.codigo)
+      if (inventario && offlineSession?.listMode === 'planilha') {
+        applyProductToInventarioPlanilhaLinha(pEan.codigo)
+      }
       applyProductByCode(pEan.codigo, { updateBarcodeLeitura: false })
       setBarcodeLeitura(code)
       setProdutoError('')
@@ -1320,6 +1341,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (pCode) {
       setBarcodeTipoLeitura(null)
       setCodigoInterno(pCode.codigo)
+      if (inventario && offlineSession?.listMode === 'planilha') {
+        applyProductToInventarioPlanilhaLinha(pCode.codigo)
+      }
       applyProductByCode(pCode.codigo, { updateBarcodeLeitura: false })
       setBarcodeLeitura(code)
       setProdutoError('')
@@ -1796,9 +1820,34 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     try {
       const code = codeFinal
       const descNorm = descricaoFinal.trim().toLowerCase()
-      const idx = offlineSession.items.findIndex(
-        (it) => codigoInternoIguais(it.codigo_interno, code) && it.descricao.trim().toLowerCase() === descNorm,
-      )
+      let idx: number
+      if (inventario && offlineSession.listMode === 'planilha') {
+        const grupo = getInventarioPlanilhaGrupoSelecionado()
+        if (!grupo) {
+          setSaveError('Selecione RUA, POS e NÍVEL válidos para a câmara da aba atual.')
+          setSaving(false)
+          return
+        }
+        const target = findPlanilhaItemInGrupo(
+          offlineSession.items,
+          grupo,
+          inventarioPlanilhaPos,
+          inventarioPlanilhaNivel,
+        )
+        if (!target) {
+          setSaveError('Não há linha nesta RUA/POS/NÍVEL.')
+          setSaving(false)
+          return
+        }
+        if (codeFinal) {
+          aplicarCatalogoPorCodigoPlanilha(target.key, codeFinal)
+        }
+        idx = offlineSession.items.findIndex((it) => it.key === target.key)
+      } else {
+        idx = offlineSession.items.findIndex(
+          (it) => codigoInternoIguais(it.codigo_interno, code) && it.descricao.trim().toLowerCase() === descNorm,
+        )
+      }
       if (idx < 0) {
         setSaveError(
           'Produto não está na lista do dia. Use código e descrição iguais aos cadastrados em Todos os Produtos.',
@@ -2270,6 +2319,42 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     setChecklistLoading(true)
     try {
       const listModeEfetivo: ChecklistListMode = checklistListMode
+      if (inventario && listModeEfetivo === 'planilha') {
+        await loadProductOptions()
+        const items = buildBlankPlanilhaInventarioItems()
+        setArmazemMissingCodes([])
+        const sessionStartedAtIso = new Date().toISOString()
+        const sessionStartedAtMs = new Date(sessionStartedAtIso).getTime()
+        const sess: OfflineSession = {
+          sessionId: newSessionId(),
+          data_contagem_ymd: contagemDiaYmd,
+          conferente_id: conferenteId,
+          status: 'aberta',
+          started_at_iso: sessionStartedAtIso,
+          listMode: listModeEfetivo,
+          context: sessionMode,
+          items,
+          inventario_numero_contagem: 1 as const,
+          updatedAt: new Date().toISOString(),
+        }
+        if (Number.isFinite(sessionStartedAtMs)) {
+          setClockBaseMs(sessionStartedAtMs)
+          setClockRealStartMs(Date.now())
+        }
+        setOfflineSession(sess)
+        saveOfflineSession(sess, sessionMode)
+        setInventarioPlanilhaRua('A')
+        setInventarioPlanilhaPos(1)
+        setInventarioPlanilhaNivel(1)
+        setChecklistPage(1)
+        setSaveSuccess(
+          `Lista em branco: ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas (código e descrição vazios). Selecione RUA, POS e NÍVEL e bip o produto.`,
+        )
+        setSaveError('')
+        setStartFreshNotice('')
+        setChecklistLoading(false)
+        return
+      }
       if (!inventario) {
         const finalizadosHoje = await fetchResumoFinalizadosContagemDiariaDia(contagemDiaYmd)
         if (finalizadosHoje.size >= 2 && !forceZero) {
@@ -2866,6 +2951,35 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         )
       }
     }
+  }
+
+  function getInventarioPlanilhaGrupoSelecionado(): number | null {
+    if (!inventario || offlineSession?.status !== 'aberta' || offlineSession.listMode !== 'planilha') {
+      return null
+    }
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)] ?? 1
+    const cam = getCamaraFromGrupo(tabGrupo)
+    if (!cam) return null
+    return getGrupoArmazemFromCamaraRua(cam, inventarioPlanilhaRua)
+  }
+
+  function applyProductToInventarioPlanilhaLinha(codigo: string): boolean {
+    if (!offlineSession || offlineSession.status !== 'aberta') return false
+    const grupo = getInventarioPlanilhaGrupoSelecionado()
+    if (!grupo) return false
+    const target = findPlanilhaItemInGrupo(
+      offlineSession.items,
+      grupo,
+      inventarioPlanilhaPos,
+      inventarioPlanilhaNivel,
+    )
+    if (!target) {
+      setProdutoError('Não há linha disponível nesta RUA/POS/NÍVEL.')
+      return false
+    }
+    aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
+    setProdutoError('')
+    return true
   }
 
   async function handleAtualizarCadastroProdutos() {
@@ -4398,6 +4512,35 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const inventarioNumeroContagemRodada = clampInventarioNumeroContagem(
     offlineSession?.inventario_numero_contagem ?? 1,
   )
+
+  const inventarioPlanilhaCamaraAtual = useMemo(() => {
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)]
+    return tabGrupo != null ? getCamaraFromGrupo(tabGrupo) : null
+  }, [checklistPageSafe])
+
+  const inventarioRuasDisponiveis = useMemo(
+    () => (inventarioPlanilhaCamaraAtual != null ? getRuasPorCamara(inventarioPlanilhaCamaraAtual) : ['A']),
+    [inventarioPlanilhaCamaraAtual],
+  )
+
+  useEffect(() => {
+    if (!inventario || offlineSession?.listMode !== 'planilha' || offlineSession.status !== 'aberta') return
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)]
+    if (!tabGrupo) return
+    const rua = getInventarioRuaArmazem(tabGrupo)
+    if (rua !== '—') setInventarioPlanilhaRua((prev) => (prev === rua ? prev : rua))
+  }, [inventario, offlineSession?.listMode, offlineSession?.status, checklistPageSafe])
+
+  function handleInventarioPlanilhaRuaChange(rua: string) {
+    setInventarioPlanilhaRua(rua)
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)] ?? 1
+    const cam = getCamaraFromGrupo(tabGrupo)
+    if (!cam) return
+    const grupo = getGrupoArmazemFromCamaraRua(cam, rua)
+    if (grupo == null) return
+    const pageIdx = INVENTARIO_ARMAZEM_GRUPO_IDS.indexOf(grupo)
+    if (pageIdx >= 0 && pageIdx + 1 !== checklistPageSafe) setChecklistPage(pageIdx + 1)
+  }
 
   const planilhaQtdContagemHeader =
     inventario && isArmazemPaginado
@@ -6397,6 +6540,65 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         <p style={{ margin: 0, fontSize: 13, color: 'var(--text, #666)' }}>
           Conferente da contagem: use o seletor na seção <strong>Contagem diária</strong> acima.
         </p>
+        {inventario && offlineSession?.status === 'aberta' && offlineSession.listMode === 'planilha' ? (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(140px, 1fr))',
+              gap: 12,
+              padding: 12,
+              borderRadius: 10,
+              border: '1px solid var(--border, #ccc)',
+              background: 'rgba(255, 255, 255, 0.03)',
+            }}
+          >
+            <label style={labelStyle}>
+              Rua
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text, #888)', marginBottom: 4 }}>
+                Câmara {inventarioPlanilhaCamaraAtual ?? '—'} (aba selecionada)
+              </span>
+              <select
+                value={inventarioPlanilhaRua}
+                onChange={(e) => handleInventarioPlanilhaRuaChange(e.target.value)}
+                style={inputStyle}
+              >
+                {inventarioRuasDisponiveis.map((r) => (
+                  <option key={r} value={r}>
+                    RUA {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={labelStyle}>
+              Posição
+              <select
+                value={inventarioPlanilhaPos}
+                onChange={(e) => setInventarioPlanilhaPos(Number(e.target.value))}
+                style={inputStyle}
+              >
+                {Array.from({ length: INVENTARIO_PLANILHA_NUM_POSICOES }, (_, i) => i + 1).map((p) => (
+                  <option key={p} value={p}>
+                    POS {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={labelStyle}>
+              Nível
+              <select
+                value={inventarioPlanilhaNivel}
+                onChange={(e) => setInventarioPlanilhaNivel(Number(e.target.value))}
+                style={inputStyle}
+              >
+                {Array.from({ length: INVENTARIO_PLANILHA_NIVEIS }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    Nível {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
         {/* Não usar <label> envolvendo input+botões: em mobile o toque pode ir para o input em vez do botão. */}
         <div style={labelStyle}>
           <label htmlFor="barcode-leitura-input" style={{ display: 'block' }}>

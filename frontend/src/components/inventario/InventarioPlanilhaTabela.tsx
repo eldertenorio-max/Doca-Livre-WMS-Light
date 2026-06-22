@@ -445,7 +445,19 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                         </>
                       )}
                     </td>
-                    <td style={{ ...tdPlanilha, whiteSpace: 'normal', maxWidth: 420 }}>{it.descricao}</td>
+                    <td style={{ ...tdPlanilha, whiteSpace: 'normal', maxWidth: 420 }}>
+                      {onPlanilhaCodigoBlur ? (
+                        <input
+                          value={it.descricao}
+                          onChange={(e) => updateOfflineItemFields(it.key, { descricao: e.target.value })}
+                          style={{ ...inputPlanilha, width: '100%', minWidth: 120 }}
+                          placeholder="Digite a descrição"
+                          aria-label="Descrição do produto"
+                        />
+                      ) : (
+                        it.descricao
+                      )}
+                    </td>
                     {showChecklistColumn('unidade') ? (
                       <td style={tdPlanilha}>
                         <input
