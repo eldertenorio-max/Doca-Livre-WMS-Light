@@ -64,7 +64,7 @@ import {
   lookupProductOptionByCodigoGeneric as lookupProductOptionByCodigo,
   normalizeCodigoInternoCompareKey,
 } from '../lib/codigoInternoCompare'
-import { buildProductByBarcodeMap, lookupProductByBarcode } from '../lib/barcodeProductLookup'
+import { barcodeDigitsOnly, buildProductByBarcodeMap, lookupProductByBarcode } from '../lib/barcodeProductLookup'
 import {
   CHECKLIST_QTY_NAV_ATTR,
   handleChecklistFieldNavKeyDown,
@@ -556,6 +556,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [barcodeFotoHint, setBarcodeFotoHint] = useState('')
   const [barcodeNaoCadastradoModalOpen, setBarcodeNaoCadastradoModalOpen] = useState(false)
   const barcodeVideoRef = useRef<HTMLVideoElement | null>(null)
+  const barcodeLeituraRef = useRef('')
+  const barcodeAutoApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastBarcodeAppliedRef = useRef('')
   /** Inventário planilha: posição física selecionada antes da leitura de código. */
   const [inventarioPlanilhaRua, setInventarioPlanilhaRua] = useState('A')
   const [inventarioPlanilhaPos, setInventarioPlanilhaPos] = useState(1)
@@ -1362,7 +1365,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     return true
   }
 
-  function applyProductByBarcode(barcode: string) {
+  function applyProductByBarcode(barcode: string, opts?: { showNotFoundModal?: boolean }) {
     const code = barcode.trim()
     if (!code) return false
 
@@ -1376,17 +1379,57 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     )
     if (!found) {
       setProdutoError('')
-      setBarcodeNaoCadastradoModalOpen(true)
+      if (opts?.showNotFoundModal !== false) {
+        setBarcodeNaoCadastradoModalOpen(true)
+      }
       return false
     }
 
     const { product: p, tipo } = found
     setBarcodeTipoLeitura(tipo)
     setBarcodeLeitura(code)
+    barcodeLeituraRef.current = code
+    lastBarcodeAppliedRef.current = code
     applyProductByCode(p.codigo, { updateBarcodeLeitura: false })
     setProdutoError('')
     return true
   }
+
+  function scheduleAutoApplyBarcode(raw: string) {
+    const scanned = String(raw ?? '').trim()
+    barcodeLeituraRef.current = String(raw ?? '')
+    if (barcodeAutoApplyTimerRef.current) {
+      clearTimeout(barcodeAutoApplyTimerRef.current)
+      barcodeAutoApplyTimerRef.current = null
+    }
+    if (!scanned || productOptionsLoading) return
+
+    const digits = barcodeDigitsOnly(scanned)
+    if (digits.length < 8) return
+
+    const delay = digits.length >= 12 ? 90 : 200
+    barcodeAutoApplyTimerRef.current = setTimeout(() => {
+      barcodeAutoApplyTimerRef.current = null
+      const latest = barcodeLeituraRef.current.trim()
+      if (!latest || latest !== scanned) return
+      if (lastBarcodeAppliedRef.current === latest) return
+      const latestDigits = barcodeDigitsOnly(latest)
+      applyProductByBarcode(latest, { showNotFoundModal: latestDigits.length >= 12 })
+    }, delay)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (barcodeAutoApplyTimerRef.current) clearTimeout(barcodeAutoApplyTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (productOptionsLoading) return
+    const pending = barcodeLeituraRef.current.trim() || barcodeLeitura.trim()
+    if (!pending || lastBarcodeAppliedRef.current === pending) return
+    scheduleAutoApplyBarcode(pending)
+  }, [productOptionsLoading, productOptions.length])
 
   useEffect(() => {
     if (!barcodeCameraOpen) return
@@ -6776,19 +6819,26 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             <input
               id="barcode-leitura-input"
               value={barcodeLeitura}
-              onChange={(e) => setBarcodeLeitura(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value
+                setBarcodeLeitura(v)
+                scheduleAutoApplyBarcode(v)
+              }}
               onBlur={(e) => {
                 const scanned = e.currentTarget.value.trim()
-                if (scanned) applyProductByBarcode(scanned)
+                if (scanned) applyProductByBarcode(scanned, { showNotFoundModal: true })
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  // Usa o valor atual do input no momento do Enter (bipador),
-                  // evitando pegar estado atrasado e perder o último dígito.
+                  if (barcodeAutoApplyTimerRef.current) {
+                    clearTimeout(barcodeAutoApplyTimerRef.current)
+                    barcodeAutoApplyTimerRef.current = null
+                  }
                   const scanned = e.currentTarget.value
                   setBarcodeLeitura(scanned)
-                  applyProductByBarcode(scanned)
+                  barcodeLeituraRef.current = scanned
+                  applyProductByBarcode(scanned, { showNotFoundModal: true })
                 }
               }}
               style={{ ...inputStyle, flex: 1 }}
@@ -6801,6 +6851,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               style={{ ...buttonStyle, background: '#555', fontSize: 13, whiteSpace: 'nowrap', touchAction: 'manipulation' }}
               onClick={() => {
                 setBarcodeLeitura('')
+                barcodeLeituraRef.current = ''
+                lastBarcodeAppliedRef.current = ''
                 setBarcodeTipoLeitura(null)
                 setProdutoError('')
               }}
