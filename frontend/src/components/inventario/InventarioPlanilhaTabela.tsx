@@ -42,6 +42,8 @@ export type InventarioPlanilhaTabelaProps = {
   removePhotoFromChecklistItem: (it: OfflineChecklistItem) => void
   /** Modo planilha em branco: ao sair do campo código, preenche descrição a partir do cadastro. */
   onPlanilhaCodigoBlur?: (key: string, codigo: string) => void
+  /** Bip na coluna EAN/DUN da linha: preenche só a próxima repetição vazia do POS/NÍVEL. */
+  onPlanilhaRowBarcodeChange?: (key: string, raw: string) => void
   /** Nome do conferente da sessão (mesmo em todas as linhas). */
   conferenteLabel: string
   /** Rodada selecionada (1–4): preenche a coluna de quantidade quando o campo está vazio. */
@@ -78,6 +80,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
     openPhotoModalForCodigo,
     removePhotoFromChecklistItem,
     onPlanilhaCodigoBlur,
+    onPlanilhaRowBarcodeChange,
     conferenteLabel,
     inventarioNumeroContagemRodada,
     openQtyCalculator,
@@ -358,11 +361,13 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.ean ?? ''}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const v = e.target.value
                             updateOfflineItemFields(it.key, {
-                              ean: e.target.value.trim() === '' ? null : e.target.value,
+                              ean: v.trim() === '' ? null : v,
                             })
-                          }
+                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          }}
                           style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`EAN ${it.codigo_interno}`}
@@ -375,11 +380,13 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.dun ?? ''}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const v = e.target.value
                             updateOfflineItemFields(it.key, {
-                              dun: e.target.value.trim() === '' ? null : e.target.value,
+                              dun: v.trim() === '' ? null : v,
                             })
-                          }
+                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          }}
                           style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`DUN ${it.codigo_interno}`}
@@ -594,11 +601,13 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.ean ?? ''}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const v = e.target.value
                             updateOfflineItemFields(it.key, {
-                              ean: e.target.value.trim() === '' ? null : e.target.value,
+                              ean: v.trim() === '' ? null : v,
                             })
-                          }
+                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          }}
                           style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`EAN ${it.codigo_interno}`}
@@ -611,11 +620,13 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.dun ?? ''}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const v = e.target.value
                             updateOfflineItemFields(it.key, {
-                              dun: e.target.value.trim() === '' ? null : e.target.value,
+                              dun: v.trim() === '' ? null : v,
                             })
-                          }
+                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          }}
                           style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`DUN ${it.codigo_interno}`}

@@ -1,5 +1,6 @@
 import type { OfflineChecklistItem } from '../../lib/offlineContagemSession'
 import { compareInventarioPlanilhaItens } from '../../lib/armazemInventarioMap'
+import { codigoInternoIguais } from '../../lib/codigoInternoCompare'
 
 export { compareInventarioPlanilhaItens }
 
@@ -111,28 +112,157 @@ export function planilhaOrdemFromPosNivel(pos: number, nivel: number, repeticao 
   return (p - 1) * INVENTARIO_PLANILHA_LINHAS_POR_POSICAO + (n - 1) * INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL + r
 }
 
-/** Localiza linha da planilha em branco por grupo + POS + NÍVEL (1ª repetição vazia, depois 2ª, 3ª). */
+function planilhaLinhaSemCodigo(it: OfflineChecklistItem): boolean {
+  return !String(it.codigo_interno ?? '').trim()
+}
+
+function planilhaLinhaSemQuantidade(it: OfflineChecklistItem): boolean {
+  return String(it.quantidade_contada ?? '').trim() === ''
+}
+
+/** Linha já usada nesta repetição (código ou quantidade informados). */
+export function planilhaLinhaPreenchida(it: OfflineChecklistItem): boolean {
+  return !planilhaLinhaSemCodigo(it) || !planilhaLinhaSemQuantidade(it)
+}
+
+/** Código e quantidade já informados — bloqueia nova seleção nesta repetição. */
+export function planilhaLinhaTotalmentePreenchida(it: OfflineChecklistItem): boolean {
+  return !planilhaLinhaSemCodigo(it) && !planilhaLinhaSemQuantidade(it)
+}
+
+export type PlanilhaRepeticao = 1 | 2 | 3
+
+/** Retorna as 3 repetições do POS/NÍVEL na ordem (1ª, 2ª, 3ª). */
+export function planilhaSlotsAtPosNivel(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+): OfflineChecklistItem[] {
+  const inGrupo = items
+    .filter((it) => it.armazem_grupo === grupo)
+    .sort((a, b) => (a.planilha_ordem_na_aba ?? 0) - (b.planilha_ordem_na_aba ?? 0))
+  const base = planilhaOrdemFromPosNivel(pos, nivel, 1)
+  const slots: OfflineChecklistItem[] = []
+  for (let rep = 0; rep < INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL; rep++) {
+    const ordem = base + rep
+    const it = inGrupo.find((x) => x.planilha_ordem_na_aba === ordem)
+    if (it) slots.push(it)
+  }
+  return slots
+}
+
+export function getPlanilhaSlotPorRepeticao(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+  repeticao: PlanilhaRepeticao,
+): OfflineChecklistItem | undefined {
+  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
+  const idx = Math.min(INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL, Math.max(1, Math.round(repeticao))) - 1
+  return slots[idx]
+}
+
+export function planilhaRepeticoesPreenchidas(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+): Record<PlanilhaRepeticao, boolean> {
+  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
+  return {
+    1: slots[0] ? planilhaLinhaTotalmentePreenchida(slots[0]) : false,
+    2: slots[1] ? planilhaLinhaTotalmentePreenchida(slots[1]) : false,
+    3: slots[2] ? planilhaLinhaTotalmentePreenchida(slots[2]) : false,
+  }
+}
+
+export function primeiraPlanilhaRepeticaoLivre(
+  bloqueadas: Record<PlanilhaRepeticao, boolean>,
+): PlanilhaRepeticao | null {
+  for (const r of [1, 2, 3] as const) {
+    if (!bloqueadas[r]) return r
+  }
+  return null
+}
+
+export function primeiraPlanilhaRepeticaoSemCodigo(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+): PlanilhaRepeticao | null {
+  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i] && planilhaLinhaSemCodigo(slots[i])) return (i + 1) as PlanilhaRepeticao
+  }
+  return null
+}
+
+/** Bip: preenche só a 1ª repetição ainda sem código nesta RUA/POS/NÍVEL. */
+export function findPlanilhaSlotParaBip(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+): OfflineChecklistItem | undefined {
+  return planilhaSlotsAtPosNivel(items, grupo, pos, nivel).find(planilhaLinhaSemCodigo)
+}
+
+/** Gravar quantidade/dados: linha da repetição selecionada ou fallback por código. */
+export function findPlanilhaSlotParaGravacao(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+  codigo: string,
+  preferKey?: string | null,
+  repeticao?: PlanilhaRepeticao | null,
+): OfflineChecklistItem | undefined {
+  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
+  const cod = String(codigo ?? '').trim()
+
+  if (repeticao != null) {
+    const sel = getPlanilhaSlotPorRepeticao(items, grupo, pos, nivel, repeticao)
+    if (sel) {
+      if (!cod) return sel
+      if (preferKey && sel.key === preferKey && codigoInternoIguais(sel.codigo_interno, cod)) return sel
+      if (codigoInternoIguais(sel.codigo_interno, cod) && planilhaLinhaSemQuantidade(sel)) return sel
+      if (planilhaLinhaSemCodigo(sel)) return sel
+      if (codigoInternoIguais(sel.codigo_interno, cod)) return sel
+    }
+  }
+
+  if (!cod) return findPlanilhaSlotParaBip(items, grupo, pos, nivel)
+
+  if (preferKey) {
+    const pref = slots.find((s) => s.key === preferKey)
+    if (pref && codigoInternoIguais(pref.codigo_interno, cod)) return pref
+  }
+
+  const mesmoCodSemQtd = slots.find(
+    (s) => codigoInternoIguais(s.codigo_interno, cod) && planilhaLinhaSemQuantidade(s),
+  )
+  if (mesmoCodSemQtd) return mesmoCodSemQtd
+
+  const vazio = slots.find(planilhaLinhaSemCodigo)
+  if (vazio) return vazio
+
+  const mesmoCod = slots.find((s) => codigoInternoIguais(s.codigo_interno, cod))
+  if (mesmoCod) return mesmoCod
+
+  return undefined
+}
+
+/** @deprecated Use findPlanilhaSlotParaBip ou findPlanilhaSlotParaGravacao. */
 export function findPlanilhaItemInGrupo(
   items: OfflineChecklistItem[],
   grupo: number,
   pos: number,
   nivel: number,
 ): OfflineChecklistItem | undefined {
-  const inGrupo = items
-    .filter((it) => it.armazem_grupo === grupo)
-    .sort((a, b) => (a.planilha_ordem_na_aba ?? 0) - (b.planilha_ordem_na_aba ?? 0))
-  const base = planilhaOrdemFromPosNivel(pos, nivel, 1)
-  for (let rep = 0; rep < INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL; rep++) {
-    const ordem = base + rep
-    const it = inGrupo.find((x) => x.planilha_ordem_na_aba === ordem)
-    if (it && !String(it.codigo_interno ?? '').trim()) return it
-  }
-  for (let rep = 0; rep < INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL; rep++) {
-    const ordem = base + rep
-    const it = inGrupo.find((x) => x.planilha_ordem_na_aba === ordem)
-    if (it && String(it.quantidade_contada ?? '').trim() === '') return it
-  }
-  return undefined
+  return findPlanilhaSlotParaBip(items, grupo, pos, nivel)
 }
 
 /** Lista em branco: 8 abas × 225 linhas (POS/NÍVEL fixos; código e descrição vazios). */

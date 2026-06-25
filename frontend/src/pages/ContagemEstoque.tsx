@@ -11,7 +11,10 @@ import {
   type OfflineSession,
   type OfflineSessionMode,
   type ChecklistListMode,
+  inventarioRodadaFromListMode,
   isListModeArmazem,
+  isPlanilhaListMode,
+  normalizeChecklistListMode,
   saveOfflineSession,
   stableItemKey,
 } from '../lib/offlineContagemSession'
@@ -24,6 +27,14 @@ import {
   buildBlankPlanilhaInventarioItems,
   buildPlanilhaLayoutPorItens,
   findPlanilhaItemInGrupo,
+  findPlanilhaSlotParaGravacao,
+  getPlanilhaSlotPorRepeticao,
+  inventarioPlanilhaPosNivelFromIndex,
+  planilhaLinhaTotalmentePreenchida,
+  planilhaRepeticoesPreenchidas,
+  planilhaSlotsAtPosNivel,
+  primeiraPlanilhaRepeticaoSemCodigo,
+  type PlanilhaRepeticao,
   getCamaraFromGrupo,
   getGrupoArmazemFromCamaraRua,
   getInventarioRuaArmazem,
@@ -279,7 +290,7 @@ function quantidadePlanilhaInventarioEfetiva(
 
 function countPendingForSession(session: OfflineSession | null): number {
   if (!session || session.status !== 'aberta') return 0
-  if (session.listMode === 'planilha') {
+  if (isPlanilhaListMode(session.listMode)) {
     const comCodigo = session.items.filter((i) => String(i.codigo_interno ?? '').trim() !== '')
     return comCodigo.filter((i) => String(i.quantidade_contada ?? '').trim() === '').length
   }
@@ -289,7 +300,7 @@ function countPendingForSession(session: OfflineSession | null): number {
 /** Resumo para o painel de presença: outros veem X/Y sem ver códigos (finalização continua separada por sessão). */
 function progressoPresencaContagemDiaria(session: OfflineSession): { linhasComQtd: number; linhasTotal: number } {
   if (session.status !== 'aberta') return { linhasComQtd: 0, linhasTotal: 0 }
-  if (session.listMode === 'planilha') {
+  if (isPlanilhaListMode(session.listMode)) {
     const items = session.items.filter((i) => String(i.codigo_interno ?? '').trim() !== '')
     const com = items.filter((i) => String(i.quantidade_contada ?? '').trim() !== '').length
     return { linhasComQtd: com, linhasTotal: items.length }
@@ -559,10 +570,15 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const barcodeLeituraRef = useRef('')
   const barcodeAutoApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastBarcodeAppliedRef = useRef('')
+  const lastPlanilhaBipKeyRef = useRef<string | null>(null)
+  /** Evita que timer + onBlur + Enter do mesmo bip preencham 2ª/3ª repetição de uma vez. */
+  const planilhaBipBurstRef = useRef<{ barcode: string; windowStart: number; filled: boolean } | null>(null)
+  const planilhaRowBarcodeTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   /** Inventário planilha: posição física selecionada antes da leitura de código. */
   const [inventarioPlanilhaRua, setInventarioPlanilhaRua] = useState('A')
   const [inventarioPlanilhaPos, setInventarioPlanilhaPos] = useState(1)
   const [inventarioPlanilhaNivel, setInventarioPlanilhaNivel] = useState(1)
+  const [inventarioPlanilhaRepeticao, setInventarioPlanilhaRepeticao] = useState<PlanilhaRepeticao>(1)
 
   // Foto do produto (captura de câmera).
   const [photoCameraOpen, setPhotoCameraOpen] = useState(false)
@@ -887,7 +903,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (s.data_contagem_ymd && /^\d{4}-\d{2}-\d{2}$/.test(s.data_contagem_ymd)) {
         setContagemDiaYmd(s.data_contagem_ymd)
       }
-      if (s.listMode) setChecklistListMode(s.listMode)
+      if (s.listMode) setChecklistListMode(normalizeChecklistListMode(s.listMode))
       setStartFreshNotice('')
     }
   }, [sessionMode])
@@ -896,7 +912,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   useEffect(() => {
     if (!inventario) return
     if (offlineSession?.status === 'aberta') return
-    setChecklistListMode((prev) => (prev === 'todos' ? 'planilha' : prev))
+    setChecklistListMode((prev) => (prev === 'todos' ? 'planilha-1' : prev))
   }, [inventario, offlineSession?.status])
 
   /** Pré-carrega aba Base Principal (Google Sheets) para modo armazém / inventário. */
@@ -1332,7 +1348,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   function applyProductByCode(codigo: string, opts?: { updateBarcodeLeitura?: boolean }) {
     const p = lookupProductOptionByCodigo(codigo, productByCode, productByCodeNoDots)
     if (!p) return false
-    if (inventario && offlineSession?.listMode === 'planilha') {
+    if (inventario && isPlanilhaListMode(offlineSession?.listMode)) {
       applyProductToInventarioPlanilhaLinha(p.codigo)
     }
     setCodigoInterno(p.codigo)
@@ -1363,6 +1379,26 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       setBarcodeTipoLeitura(tipo)
     }
     return true
+  }
+
+  function shouldSkipPlanilhaBipBurst(codigoProduto: string): boolean {
+    const cod = String(codigoProduto ?? '').trim()
+    if (!cod) return true
+    const now = Date.now()
+    const prev = planilhaBipBurstRef.current
+    if (prev && prev.barcode === cod && now - prev.windowStart < 900 && prev.filled) {
+      return true
+    }
+    if (!prev || prev.barcode !== cod || now - prev.windowStart >= 900) {
+      planilhaBipBurstRef.current = { barcode: cod, windowStart: now, filled: false }
+    }
+    return false
+  }
+
+  function markPlanilhaBipBurstFilled(codigoProduto: string) {
+    const cod = String(codigoProduto ?? '').trim()
+    const prev = planilhaBipBurstRef.current
+    if (prev && prev.barcode === cod) prev.filled = true
   }
 
   function applyProductByBarcode(barcode: string, opts?: { showNotFoundModal?: boolean }) {
@@ -1421,6 +1457,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   useEffect(() => {
     return () => {
       if (barcodeAutoApplyTimerRef.current) clearTimeout(barcodeAutoApplyTimerRef.current)
+      for (const t of Object.values(planilhaRowBarcodeTimersRef.current)) clearTimeout(t)
+      planilhaRowBarcodeTimersRef.current = {}
     }
   }, [])
 
@@ -1898,18 +1936,21 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const code = codeFinal
       const descNorm = descricaoFinal.trim().toLowerCase()
       let idx: number
-      if (inventario && offlineSession.listMode === 'planilha') {
+      if (inventario && isPlanilhaListMode(offlineSession.listMode)) {
         const grupo = getInventarioPlanilhaGrupoSelecionado()
         if (!grupo) {
           setSaveError('Selecione RUA, POS e NÍVEL válidos para a câmara da aba atual.')
           setSaving(false)
           return
         }
-        const target = findPlanilhaItemInGrupo(
+        const target = findPlanilhaSlotParaGravacao(
           offlineSession.items,
           grupo,
           inventarioPlanilhaPos,
           inventarioPlanilhaNivel,
+          codeFinal,
+          lastPlanilhaBipKeyRef.current,
+          inventarioPlanilhaRepeticao,
         )
         if (!target) {
           setSaveError(
@@ -1972,6 +2013,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         dun: catalog?.dun ?? produto?.dun ?? null,
       }
 
+      let savedItemsAfterPlanilha: OfflineChecklistItem[] | null = null
       setOfflineSession((prev) => {
         if (!prev || prev.status !== 'aberta') return prev
         const nextItems = prev.items.map((it, i) => (i === idx ? { ...it, ...itemPatch } : it))
@@ -1979,8 +2021,22 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         saveOfflineSession(next, sessionMode)
         const row = nextItems[idx]
         if (row) flashChecklistRowSaved(row.key)
+        if (inventario && isPlanilhaListMode(prev.listMode)) savedItemsAfterPlanilha = nextItems
         return next
       })
+
+      if (savedItemsAfterPlanilha) {
+        const grupoSalvo = getInventarioPlanilhaGrupoSelecionado()
+        if (grupoSalvo != null) {
+          const proximaLinha = primeiraPlanilhaRepeticaoSemCodigo(
+            savedItemsAfterPlanilha,
+            grupoSalvo,
+            inventarioPlanilhaPos,
+            inventarioPlanilhaNivel,
+          )
+          if (proximaLinha != null) setInventarioPlanilhaRepeticao(proximaLinha)
+        }
+      }
 
       setSaveSuccess(
         `Quantidade ${qtd} gravada na lista local (offline). Clique em "Finalizar contagem diária" para salvar no banco.`,
@@ -1996,6 +2052,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       setCodigoInterno('')
       setDescricaoInput('')
       setProduto(null)
+      lastPlanilhaBipKeyRef.current = null
     } catch (e: any) {
       setSaveError(`Erro ao salvar contagem: ${e?.message ? String(e.message) : 'verifique'}`)
       setSaveSuccess('')
@@ -2408,8 +2465,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     setChecklistLoading(true)
     try {
       const listModeEfetivo: ChecklistListMode = checklistListMode
-      if (inventario && listModeEfetivo === 'planilha') {
+      if (inventario && isPlanilhaListMode(listModeEfetivo)) {
         await loadProductOptions()
+        const rodadaPlanilha = inventarioRodadaFromListMode(listModeEfetivo)
         const items = buildBlankPlanilhaInventarioItems()
         setArmazemMissingCodes([])
         const sessionStartedAtIso = new Date().toISOString()
@@ -2420,10 +2478,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           conferente_id: conferenteId,
           status: 'aberta',
           started_at_iso: sessionStartedAtIso,
-          listMode: listModeEfetivo,
+          listMode: normalizeChecklistListMode(listModeEfetivo),
           context: sessionMode,
           items,
-          inventario_numero_contagem: 1 as const,
+          inventario_numero_contagem: rodadaPlanilha,
           updatedAt: new Date().toISOString(),
         }
         if (Number.isFinite(sessionStartedAtMs)) {
@@ -2435,9 +2493,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         setInventarioPlanilhaRua('A')
         setInventarioPlanilhaPos(1)
         setInventarioPlanilhaNivel(1)
+        setInventarioPlanilhaRepeticao(1)
         setChecklistPage(1)
         setSaveSuccess(
-          `Lista em branco: ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas (código e descrição vazios). Selecione RUA, POS e NÍVEL e bip o produto.`,
+          `Lista em branco (${formatContagemLabel(rodadaPlanilha)}): ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas (código e descrição vazios). Selecione RUA, POS, NÍVEL e linha (1ª–3ª) e bip o produto.`,
         )
         setSaveError('')
         setStartFreshNotice('')
@@ -2569,8 +2628,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       saveOfflineSession(sess, sessionMode)
       const sufixoArmazem = isListModeArmazem(listModeEfetivo)
         ? listaPlanilhaAviso ||
-          (listModeEfetivo === 'planilha'
-            ? ', formato planilha (CAMARA/RUA, abas por grupo)'
+          (isPlanilhaListMode(listModeEfetivo)
+            ? `, formato planilha ${formatContagemLabel(inventarioRodadaFromListMode(listModeEfetivo)).toLowerCase()} (CAMARA/RUA, abas por grupo)`
             : `, ordem armazém (${getArmazemListaOficialTotal()} produtos${inventario ? ' × 3 contagens' : ''}, ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas CAMARA/RUA)`)
         : ''
 
@@ -2982,7 +3041,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     setChecklistEditingKey(it.key)
     const rodada = clampInventarioNumeroContagem(offlineSession?.inventario_numero_contagem ?? 1)
     const qtdDraft =
-      inventario && offlineSession?.listMode === 'planilha'
+      inventario && isPlanilhaListMode(offlineSession?.listMode)
         ? quantidadePlanilhaInventarioEfetiva(it, rodada)
         : it.quantidade_contada
     setChecklistEditDraft({
@@ -3085,8 +3144,55 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
   }
 
+  function handlePlanilhaCodigoBlur(key: string, codigo: string) {
+    const c = String(codigo ?? '').trim()
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) {
+      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      return
+    }
+    const row = s.items.find((i) => i.key === key)
+    if (!row || row.armazem_grupo == null || row.planilha_ordem_na_aba == null) {
+      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      return
+    }
+    if (!c) {
+      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      return
+    }
+    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(row.planilha_ordem_na_aba)
+    const slots = planilhaSlotsAtPosNivel(s.items, row.armazem_grupo, pos, nivel)
+    const repIdx = slots.findIndex((sl) => sl.key === key)
+    const repeticao = (repIdx >= 0 ? repIdx + 1 : inventarioPlanilhaRepeticao) as PlanilhaRepeticao
+    const target = getPlanilhaSlotPorRepeticao(s.items, row.armazem_grupo, pos, nivel, repeticao)
+    if (!target) {
+      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      return
+    }
+    if (
+      planilhaLinhaTotalmentePreenchida(target) &&
+      !codigoInternoIguais(target.codigo_interno, c)
+    ) {
+      setProdutoError('Esta linha já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).')
+      return
+    }
+    if (shouldSkipPlanilhaBipBurst(c)) return
+    if (target.key !== key) {
+      updateOfflineItemFields(key, {
+        codigo_interno: '',
+        descricao: '',
+        unidade_medida: null,
+        ean: null,
+        dun: null,
+      })
+    }
+    aplicarCatalogoPorCodigoPlanilha(target.key, c)
+    lastPlanilhaBipKeyRef.current = target.key
+    markPlanilhaBipBurstFilled(c)
+  }
+
   function getInventarioPlanilhaGrupoSelecionado(): number | null {
-    if (!inventario || offlineSession?.status !== 'aberta' || offlineSession.listMode !== 'planilha') {
+    if (!inventario || offlineSession?.status !== 'aberta' || !isPlanilhaListMode(offlineSession.listMode)) {
       return null
     }
     const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)] ?? 1
@@ -3096,24 +3202,112 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   }
 
   function applyProductToInventarioPlanilhaLinha(codigo: string): boolean {
-    if (!offlineSession || offlineSession.status !== 'aberta') return false
+    const c = String(codigo ?? '').trim()
+    if (!c) return false
+    if (shouldSkipPlanilhaBipBurst(c)) return true
+
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta') return false
     const grupo = getInventarioPlanilhaGrupoSelecionado()
     if (!grupo) return false
-    const target = findPlanilhaItemInGrupo(
-      offlineSession.items,
+    const target = getPlanilhaSlotPorRepeticao(
+      s.items,
       grupo,
       inventarioPlanilhaPos,
       inventarioPlanilhaNivel,
+      inventarioPlanilhaRepeticao,
     )
     if (!target) {
+      setProdutoError('Linha inválida para esta RUA/POS/NÍVEL.')
+      return false
+    }
+    if (
+      planilhaLinhaTotalmentePreenchida(target) &&
+      !codigoInternoIguais(target.codigo_interno, c)
+    ) {
       setProdutoError(
-        'As 3 repetições desta RUA/POS/NÍVEL já estão preenchidas. Avance POS, NÍVEL ou RUA para continuar.',
+        'A linha selecionada já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª) no seletor ao lado.',
       )
       return false
     }
-    aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
+    aplicarCatalogoPorCodigoPlanilha(target.key, c)
+    lastPlanilhaBipKeyRef.current = target.key
+    markPlanilhaBipBurstFilled(c)
     setProdutoError('')
     return true
+  }
+
+  function applyProductToPlanilhaTableRow(rowKey: string, barcode: string) {
+    const scanned = String(barcode ?? '').trim()
+    if (!scanned) return
+
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) return
+
+    const row = s.items.find((it) => it.key === rowKey)
+    if (!row || row.armazem_grupo == null || row.planilha_ordem_na_aba == null) return
+
+    const found = lookupProductByBarcode(
+      scanned,
+      productOptions,
+      productByDun,
+      productByEan,
+      productByCode,
+      productByCodeNoDots,
+    )
+    if (!found) {
+      setBarcodeNaoCadastradoModalOpen(true)
+      return
+    }
+
+    const codigo = found.product.codigo
+    if (shouldSkipPlanilhaBipBurst(codigo)) return
+
+    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(row.planilha_ordem_na_aba)
+    const slots = planilhaSlotsAtPosNivel(s.items, row.armazem_grupo, pos, nivel)
+    const repIdx = slots.findIndex((sl) => sl.key === rowKey)
+    const repeticao = (repIdx >= 0 ? repIdx + 1 : inventarioPlanilhaRepeticao) as PlanilhaRepeticao
+    const target = getPlanilhaSlotPorRepeticao(s.items, row.armazem_grupo, pos, nivel, repeticao)
+    if (!target) {
+      setProdutoError('Linha inválida para esta RUA/POS/NÍVEL.')
+      return
+    }
+    if (
+      planilhaLinhaTotalmentePreenchida(target) &&
+      !codigoInternoIguais(target.codigo_interno, codigo)
+    ) {
+      setProdutoError('Esta linha já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).')
+      return
+    }
+
+    if (target.key !== rowKey) {
+      updateOfflineItemFields(rowKey, {
+        codigo_interno: '',
+        descricao: '',
+        unidade_medida: null,
+        ean: null,
+        dun: null,
+      })
+    }
+
+    aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
+    lastPlanilhaBipKeyRef.current = target.key
+    markPlanilhaBipBurstFilled(codigo)
+    setProdutoError('')
+  }
+
+  function schedulePlanilhaRowBarcodeApply(rowKey: string, raw: string) {
+    const prev = planilhaRowBarcodeTimersRef.current[rowKey]
+    if (prev) clearTimeout(prev)
+    const scanned = String(raw ?? '').trim()
+    if (!scanned || productOptionsLoading) return
+    const digits = barcodeDigitsOnly(scanned)
+    if (digits.length < 8) return
+    const delay = digits.length >= 12 ? 90 : 200
+    planilhaRowBarcodeTimersRef.current[rowKey] = setTimeout(() => {
+      delete planilhaRowBarcodeTimersRef.current[rowKey]
+      applyProductToPlanilhaTableRow(rowKey, scanned)
+    }, delay)
   }
 
   async function handleAtualizarCadastroProdutos() {
@@ -3127,7 +3321,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const nd = normalizeCodigoInternoCompareKey(k)
       if (nd && !mapPorCodigoTrim.has(nd)) mapPorCodigoTrim.set(nd, p)
     }
-    if (offlineSession?.status === 'aberta' && offlineSession.listMode === 'planilha') {
+    if (offlineSession?.status === 'aberta' && isPlanilhaListMode(offlineSession.listMode)) {
       for (const it of offlineSession.items) {
         const c = String(it.codigo_interno ?? '').trim()
         if (c) aplicarCatalogoPorCodigoPlanilha(it.key, c, mapPorCodigoTrim)
@@ -3160,7 +3354,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
     const missing = offlineSession.items.filter((it) => {
       if (String(it.codigo_interno ?? '').trim() === '') return false
-      if (offlineSession.listMode === 'planilha') {
+      if (isPlanilhaListMode(offlineSession.listMode)) {
         const rodada = clampInventarioNumeroContagem(offlineSession.inventario_numero_contagem ?? 1)
         return quantidadePlanilhaInventarioEfetiva(it, rodada) === ''
       }
@@ -3216,7 +3410,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       /** Só grava linhas com quantidade digitada; vazio não vira 0 e não é enviado. */
       const rodadaFin = clampInventarioNumeroContagem(session.inventario_numero_contagem ?? 1)
       itemsSnapshot = itemsSnapshot.filter((it) => {
-        if (session.listMode === 'planilha') {
+        if (isPlanilhaListMode(session.listMode)) {
           return quantidadePlanilhaInventarioEfetiva(it, rodadaFin) !== ''
         }
         return String(it.quantidade_contada ?? '').trim() !== ''
@@ -3244,7 +3438,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }> = []
       for (const it of itemsSnapshot) {
         const qStr =
-          session.listMode === 'planilha'
+          isPlanilhaListMode(session.listMode)
             ? quantidadePlanilhaInventarioEfetiva(it, rodadaFin)
             : String(it.quantidade_contada ?? '').trim()
         const q = Number(String(qStr).replace(',', '.'))
@@ -4452,7 +4646,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   const checklistProgressTotal = useMemo(() => {
     if (offlineSession?.status !== 'aberta') return 0
-    if (offlineSession.listMode === 'planilha') {
+    if (isPlanilhaListMode(offlineSession.listMode)) {
       return offlineSession.items.filter((i) => String(i.codigo_interno ?? '').trim() !== '').length
     }
     return offlineSession.items.length
@@ -4460,7 +4654,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   const checklistCounted = useMemo(() => {
     if (offlineSession?.status !== 'aberta') return 0
-    if (offlineSession.listMode === 'planilha') {
+    if (isPlanilhaListMode(offlineSession.listMode)) {
       return offlineSession.items.filter((i) => {
         const c = String(i.codigo_interno ?? '').trim()
         if (!c) return false
@@ -4484,7 +4678,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               !checklistFilterDescricao.trim() ||
               it.descricao.toLowerCase().includes(checklistFilterDescricao.trim().toLowerCase())
             const pend =
-              offlineSession.listMode === 'planilha'
+              isPlanilhaListMode(offlineSession.listMode)
                 ? String(it.codigo_interno ?? '').trim() !== '' &&
                   String(it.quantidade_contada ?? '').trim() === ''
                 : String(it.quantidade_contada ?? '').trim() === ''
@@ -4634,11 +4828,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   /** Só o tipo de lista «formato planilha» usa a tabela CAMARA/RUA; «Armazém» no inventário segue a mesma tabela da contagem (com 3 linhas por produto). */
   const inventarioPlanilhaArmazem =
-    inventario && offlineSession?.listMode === 'planilha' && isArmazemPaginado && !checklistShowAll
+    inventario && isPlanilhaListMode(offlineSession?.listMode) && isArmazemPaginado && !checklistShowAll
 
   /** Modo planilha: troca de RUA/CAMARA só pelas abas — não usar Anterior/Próxima como “página da tabela”. */
   const isPlanilhaInventarioNav =
-    Boolean(inventario && offlineSession?.status === 'aberta' && offlineSession.listMode === 'planilha')
+    Boolean(inventario && offlineSession?.status === 'aberta' && isPlanilhaListMode(offlineSession.listMode))
 
   const armazemGrupoAtual = isArmazemPaginado ? armazemGrupos[checklistPageSafe - 1] : null
 
@@ -4665,8 +4859,60 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     [inventarioPlanilhaCamaraAtual],
   )
 
+  const inventarioPlanilhaGrupoAtual = useMemo(() => {
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)] ?? 1
+    const cam = getCamaraFromGrupo(tabGrupo)
+    if (!cam) return null
+    return getGrupoArmazemFromCamaraRua(cam, inventarioPlanilhaRua)
+  }, [checklistPageSafe, inventarioPlanilhaRua])
+
+  const planilhaRepeticoesPreenchidasAtual = useMemo(() => {
+    if (
+      !offlineSession ||
+      offlineSession.status !== 'aberta' ||
+      !isPlanilhaListMode(offlineSession.listMode) ||
+      inventarioPlanilhaGrupoAtual == null
+    ) {
+      return { 1: false, 2: false, 3: false } as Record<PlanilhaRepeticao, boolean>
+    }
+    return planilhaRepeticoesPreenchidas(
+      offlineSession.items,
+      inventarioPlanilhaGrupoAtual,
+      inventarioPlanilhaPos,
+      inventarioPlanilhaNivel,
+    )
+  }, [
+    offlineSession,
+    inventarioPlanilhaGrupoAtual,
+    inventarioPlanilhaPos,
+    inventarioPlanilhaNivel,
+  ])
+
   useEffect(() => {
-    if (!inventario || offlineSession?.listMode !== 'planilha' || offlineSession.status !== 'aberta') return
+    if (!inventario || !isPlanilhaListMode(offlineSession?.listMode) || offlineSession?.status !== 'aberta') {
+      return
+    }
+    if (inventarioPlanilhaGrupoAtual == null || !offlineSession) return
+    const livre = primeiraPlanilhaRepeticaoSemCodigo(
+      offlineSession.items,
+      inventarioPlanilhaGrupoAtual,
+      inventarioPlanilhaPos,
+      inventarioPlanilhaNivel,
+    )
+    if (livre != null) setInventarioPlanilhaRepeticao(livre)
+  }, [
+    inventario,
+    offlineSession?.listMode,
+    offlineSession?.status,
+    inventarioPlanilhaRua,
+    inventarioPlanilhaPos,
+    inventarioPlanilhaNivel,
+    checklistPageSafe,
+    inventarioPlanilhaGrupoAtual,
+  ])
+
+  useEffect(() => {
+    if (!inventario || !isPlanilhaListMode(offlineSession?.listMode) || offlineSession.status !== 'aberta') return
     const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)]
     if (!tabGrupo) return
     const rua = getInventarioRuaArmazem(tabGrupo)
@@ -4682,6 +4928,75 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (grupo == null) return
     const pageIdx = INVENTARIO_ARMAZEM_GRUPO_IDS.indexOf(grupo)
     if (pageIdx >= 0 && pageIdx + 1 !== checklistPageSafe) setChecklistPage(pageIdx + 1)
+  }
+
+  async function handleInventarioNumeroContagemChange(novaRodada: 1 | 2 | 3 | 4) {
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !inventario || !isPlanilhaListMode(s.listMode)) return
+    const atual = clampInventarioNumeroContagem(s.inventario_numero_contagem ?? 1)
+    if (novaRodada === atual) return
+
+    const temConteudo = s.items.some(
+      (it) =>
+        String(it.codigo_interno ?? '').trim() !== '' ||
+        String(it.quantidade_contada ?? '').trim() !== '' ||
+        it.quantidade_local_dirty,
+    )
+    if (
+      temConteudo &&
+      !confirm(
+        `Trocar para ${formatContagemLabel(novaRodada)} recarrega toda a lista desta rodada. O que não foi finalizado no banco na ${formatContagemLabel(atual)} pode ser perdido neste aparelho. Continuar?`,
+      )
+    ) {
+      return
+    }
+
+    const ymd = s.data_contagem_ymd
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
+
+    setChecklistLoading(true)
+    setChecklistError('')
+    try {
+      const blank = buildBlankPlanilhaInventarioItems()
+      const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(ymd, blank, {
+        numeroContagemRodada: novaRodada,
+      })
+      checklistContagemBancoDirtyKeysRef.current.clear()
+      lastPlanilhaBipKeyRef.current = null
+      planilhaBipBurstRef.current = null
+
+      const next: OfflineSession = {
+        ...s,
+        inventario_numero_contagem: novaRodada,
+        items: merged,
+        updatedAt: new Date().toISOString(),
+      }
+      setOfflineSession(next)
+      saveOfflineSession(next, sessionMode)
+      setInventarioPlanilhaRepeticao(1)
+      setInventarioPlanilhaPos(1)
+      setInventarioPlanilhaNivel(1)
+      setCodigoInterno('')
+      setDescricaoInput('')
+      setQuantidadeContada('')
+      setQuantidadeUp('')
+      setBarcodeLeitura('')
+      barcodeLeituraRef.current = ''
+      lastBarcodeAppliedRef.current = ''
+      setProduto(null)
+      setSaveSuccess(
+        preenchidos > 0
+          ? `${formatContagemLabel(novaRodada)}: lista atualizada com ${preenchidos} linha(s) já gravadas no banco para este dia.`
+          : `${formatContagemLabel(novaRodada)}: lista em branco (nenhuma gravação nesta rodada para ${ymd}).`,
+      )
+      setSaveError('')
+    } catch (e: unknown) {
+      setChecklistError(
+        `Erro ao trocar rodada: ${e instanceof Error ? e.message : 'verifique a conexão'}`,
+      )
+    } finally {
+      setChecklistLoading(false)
+    }
   }
 
   const planilhaQtdContagemHeader =
@@ -5136,7 +5451,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             Tipo de lista
             <select
               value={checklistListMode}
-              onChange={(e) => setChecklistListMode(e.target.value as ChecklistListMode)}
+              onChange={(e) =>
+                setChecklistListMode(normalizeChecklistListMode(e.target.value as ChecklistListMode))
+              }
               style={inputStyle}
               disabled={!!offlineSession && offlineSession.status === 'aberta'}
             >
@@ -5145,7 +5462,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                 Armazém (dividida em {INVENTARIO_ARMAZEM_NUM_GRUPOS} abas CAMARA/RUA)
               </option>
               {inventario ? (
-                <option value="planilha">Inventário — formato planilha (CAMARA/RUA, abas)</option>
+                <>
+                  <option value="planilha-1">Inventário — planilha 1ª contagem (CAMARA/RUA, abas)</option>
+                  <option value="planilha-2">Inventário — planilha 2ª contagem (CAMARA/RUA, abas)</option>
+                </>
               ) : null}
             </select>
           </label>
@@ -5390,7 +5710,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                   ) : null}
                 </div>
                 {inventario &&
-                offlineSession.listMode === 'planilha' &&
+                isPlanilhaListMode(offlineSession.listMode) &&
                 isArmazemPaginado &&
                 !checklistShowAll &&
                 armazemGrupos.length > 0 ? (
@@ -5398,6 +5718,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     armazemGrupos={armazemGrupos}
                     checklistPageSafe={checklistPageSafe}
                     setChecklistPage={setChecklistPage}
+                    numeroContagem={inventarioNumeroContagemRodada}
+                    onNumeroContagemChange={handleInventarioNumeroContagemChange}
+                    numeroContagemDisabled={checklistLoading || finalizing}
                   />
                 ) : null}
                 {isMobile ? (
@@ -5431,7 +5754,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       const it = item as OfflineChecklistItem
                       const hasPhoto = Boolean(String(it.foto_base64 ?? '').trim())
                       const pend =
-                        inventario && offlineSession?.listMode === 'planilha'
+                        inventario && isPlanilhaListMode(offlineSession?.listMode)
                           ? String(quantidadePlanilhaInventarioEfetiva(it, inventarioNumeroContagemRodada)).trim() ===
                             ''
                           : String(it.quantidade_contada ?? '').trim() === ''
@@ -5439,11 +5762,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       const datasOrdemInvalida = isDatasProdutoContagemInvalidas(it.data_fabricacao, it.data_validade)
                       const itemArmazemContagem = inventario ? getArmazemContagemForItem(it) : null
                       const itemRua =
-                        inventario && offlineSession?.listMode === 'planilha'
+                        inventario && isPlanilhaListMode(offlineSession?.listMode)
                           ? getInventarioRuaArmazem(itemArmazemContagem)
                           : null
                       const itemPn =
-                        inventario && offlineSession?.listMode === 'planilha'
+                        inventario && isPlanilhaListMode(offlineSession?.listMode)
                           ? inventarioArmazemPosNivel(armazemItemsSorted, it)
                           : null
 
@@ -5561,7 +5884,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                               <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 1 }}>
                                 Status: <strong style={{ color: pend ? '#a60' : '#0a0' }}>{pend ? 'Pendente' : 'Contado'}</strong>
                               </div>
-                              {inventario && offlineSession?.listMode === 'planilha' ? (
+                              {inventario && isPlanilhaListMode(offlineSession?.listMode) ? (
                                 <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 1 }}>
                                   RUA: <strong style={{ fontWeight: 700 }}>{itemRua ?? '—'}</strong> · POS:{' '}
                                   <strong style={{ fontWeight: 700 }}>{itemPn?.pos ?? '—'}</strong> · NÍVEL:{' '}
@@ -5624,7 +5947,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       type="text"
                                       inputMode="decimal"
                                       value={
-                                        inventario && offlineSession?.listMode === 'planilha'
+                                        inventario && isPlanilhaListMode(offlineSession?.listMode)
                                           ? quantidadePlanilhaInventarioEfetiva(it, inventarioNumeroContagemRodada)
                                           : it.quantidade_contada
                                       }
@@ -5838,7 +6161,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       openPhotoModalForCodigo={openPhotoModalForCodigo}
                       removePhotoFromChecklistItem={removePhotoFromChecklistItem}
                       onPlanilhaCodigoBlur={
-                        offlineSession?.listMode === 'planilha' ? aplicarCatalogoPorCodigoPlanilha : undefined
+                        isPlanilhaListMode(offlineSession?.listMode) ? handlePlanilhaCodigoBlur : undefined
+                      }
+                      onPlanilhaRowBarcodeChange={
+                        isPlanilhaListMode(offlineSession?.listMode) ? schedulePlanilhaRowBarcodeApply : undefined
                       }
                       openQtyCalculator={openChecklistQtyCalculator}
                     />
@@ -6760,7 +7086,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         <p style={{ margin: 0, fontSize: 13, color: 'var(--text, #666)' }}>
           Conferente da contagem: use o seletor na seção <strong>Contagem diária</strong> acima.
         </p>
-        {inventario && offlineSession?.status === 'aberta' && offlineSession.listMode === 'planilha' ? (
+        {inventario && offlineSession?.status === 'aberta' && isPlanilhaListMode(offlineSession.listMode) ? (
           <div
             style={{
               padding: 12,
@@ -6775,7 +7101,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(140px, 1fr))',
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(120px, 1fr))',
                 gap: 12,
                 alignItems: 'end',
               }}
@@ -6822,6 +7148,27 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                   ))}
                 </select>
               </label>
+              <label style={labelStyle}>
+                Linha
+                <select
+                  value={inventarioPlanilhaRepeticao}
+                  onChange={(e) =>
+                    setInventarioPlanilhaRepeticao(Number(e.target.value) as PlanilhaRepeticao)
+                  }
+                  style={inputStyle}
+                >
+                  {([1, 2, 3] as const).map((rep) => (
+                    <option
+                      key={rep}
+                      value={rep}
+                      disabled={planilhaRepeticoesPreenchidasAtual[rep]}
+                    >
+                      {rep}ª linha
+                      {planilhaRepeticoesPreenchidasAtual[rep] ? ' (preenchida)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         ) : null}
@@ -6841,7 +7188,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               }}
               onBlur={(e) => {
                 const scanned = e.currentTarget.value.trim()
-                if (scanned) applyProductByBarcode(scanned, { showNotFoundModal: true })
+                if (!scanned || lastBarcodeAppliedRef.current === scanned) return
+                if (barcodeAutoApplyTimerRef.current) {
+                  clearTimeout(barcodeAutoApplyTimerRef.current)
+                  barcodeAutoApplyTimerRef.current = null
+                }
+                applyProductByBarcode(scanned, { showNotFoundModal: true })
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -6850,7 +7202,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     clearTimeout(barcodeAutoApplyTimerRef.current)
                     barcodeAutoApplyTimerRef.current = null
                   }
-                  const scanned = e.currentTarget.value
+                  const scanned = e.currentTarget.value.trim()
+                  if (!scanned || lastBarcodeAppliedRef.current === scanned) return
                   setBarcodeLeitura(scanned)
                   barcodeLeituraRef.current = scanned
                   applyProductByBarcode(scanned, { showNotFoundModal: true })
@@ -6868,6 +7221,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                 setBarcodeLeitura('')
                 barcodeLeituraRef.current = ''
                 lastBarcodeAppliedRef.current = ''
+                planilhaBipBurstRef.current = null
                 setBarcodeTipoLeitura(null)
                 setProdutoError('')
               }}

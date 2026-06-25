@@ -68,6 +68,9 @@ function inventarioItemMergeKey(
   if (it.armazem_grupo != null && it.planilha_ordem_na_aba != null) {
     return inventarioPlanilhaMergeKey(ymd, it.armazem_grupo, it.planilha_ordem_na_aba, rodada)
   }
+  if (it.armazem_grupo != null) {
+    return null
+  }
   if (it.inventario_repeticao != null) {
     const codRaw = String(it.codigo_interno ?? '').trim()
     if (!normalizeCodigoInternoCompareKey(codRaw)) return null
@@ -215,46 +218,32 @@ export async function mergeInventarioDoDiaParaItems(
   const ids = [...new Set([...porChave.values()].map((s) => s.conferente_id).filter(Boolean))]
   const nomesPorId = await fetchConferentesNomesPorIds(ids)
 
-  const porCodigoNorm = new Map<string, RowSnapshot>()
-  for (const [key, snap] of porChave) {
-    if (key.includes('|rod')) continue
-    const codeNorm = String(key.split('|')[1] ?? '').trim().toLowerCase()
-    if (!codeNorm) continue
-    const prev = porCodigoNorm.get(codeNorm)
-    if (
-      !prev ||
-      contagemLinhaAVenceB(
-        { data_hora_contagem: snap.data_hora_contagem, id: snap.contagensRowId },
-        { data_hora_contagem: prev.data_hora_contagem, id: prev.contagensRowId },
-      )
-    ) {
-      porCodigoNorm.set(codeNorm, snap)
-    }
-  }
-
   let preenchidos = 0
   const ymd = String(dataContagemYmd ?? '').trim()
   const next = items.map((it) => {
     const itemKey = inventarioItemMergeKey(ymd, it, rodada)
-    const codigoFallbackKey = normalizeCodigoInternoCompareKey(String(it.codigo_interno ?? '')).toLowerCase()
-    /** Não espalhar a mesma linha do banco para as 3 repetições do produto (inventário armazém). */
-    const canUseCodigoFallback =
-      it.planilha_ordem_na_aba == null && it.inventario_repeticao == null && codigoFallbackKey !== ''
-
-    const snapForItem = () =>
-      (itemKey ? porChave.get(itemKey) : undefined) ??
-      (canUseCodigoFallback ? porCodigoNorm.get(codigoFallbackKey) : undefined)
+    const snap = itemKey ? porChave.get(itemKey) : undefined
 
     if (skipKeys?.has(it.key)) {
-      const snapSkip = snapForItem()
-      if (!snapSkip) return { ...it }
-      const nomeUltimo = nomesPorId.get(snapSkip.conferente_id)?.trim() || snapSkip.conferente_id
+      if (!snap) return { ...it }
+      const nomeUltimo = nomesPorId.get(snap.conferente_id)?.trim() || snap.conferente_id
       return { ...it, contagem_banco_ultimo_conferente_nome: nomeUltimo }
     }
 
-    const snap = snapForItem()
     if (!snap) {
       return { ...it, contagem_banco_ultimo_conferente_nome: undefined }
+    }
+
+    /** Planilha: nunca espalhar linha do banco para outra repetição (POS/NÍVEL). */
+    if (it.planilha_ordem_na_aba != null && it.armazem_grupo != null) {
+      if (
+        snap.planilha_ordem_na_aba == null ||
+        snap.planilha_grupo_armazem == null ||
+        snap.planilha_ordem_na_aba !== it.planilha_ordem_na_aba ||
+        snap.planilha_grupo_armazem !== it.armazem_grupo
+      ) {
+        return { ...it, contagem_banco_ultimo_conferente_nome: undefined }
+      }
     }
 
     preenchidos += 1

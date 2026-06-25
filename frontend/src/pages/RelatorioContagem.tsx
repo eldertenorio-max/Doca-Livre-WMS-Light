@@ -597,6 +597,51 @@ export default function RelatorioContagem({
     if (!useInventarioCols) setNumeroContagemFilter('todas')
   }, [useInventarioCols])
 
+  const historicoItemsFiltrados = useMemo(() => {
+    if (!useInventarioCols || numeroContagemFilter === 'todas') return historicoItems
+    const n = Number(numeroContagemFilter)
+    return historicoItems.filter((it) => Number(it.inventarioNumeroContagem ?? NaN) === n)
+  }, [historicoItems, useInventarioCols, numeroContagemFilter])
+
+  const numeroContagemFilterInicialRef = useRef(true)
+  const skipRodadaAutoLoadRef = useRef(false)
+  useEffect(() => {
+    if (!useInventarioCols) return
+    if (numeroContagemFilterInicialRef.current) {
+      numeroContagemFilterInicialRef.current = false
+      return
+    }
+    if (skipRodadaAutoLoadRef.current) {
+      skipRodadaAutoLoadRef.current = false
+      return
+    }
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recarrega lista ao trocar rodada
+  }, [numeroContagemFilter, useInventarioCols])
+
+  function renderRodadaContagemSelect(opts?: { disabled?: boolean; title?: string }) {
+    return (
+      <select
+        value={numeroContagemFilter}
+        onChange={(e) => setNumeroContagemFilter(e.target.value as typeof numeroContagemFilter)}
+        disabled={opts?.disabled}
+        style={relToolbarInputStyle}
+        title={
+          opts?.title ??
+          (isDiaMode
+            ? 'Filtra o histórico e a lista abaixo pela rodada do inventário (1ª a 4ª).'
+            : 'Filtra a lista na tela. No Excel: «Todas» gera uma aba por rodada (1ª a 4ª).')
+        }
+      >
+        <option value="todas">Todas (1ª a 4ª)</option>
+        <option value="1">1ª contagem</option>
+        <option value="2">2ª contagem</option>
+        <option value="3">3ª contagem</option>
+        <option value="4">4ª contagem</option>
+      </select>
+    )
+  }
+
   async function fetchRelatorioContagemRows(opts?: {
     /** Força busca só neste dia civil (ex.: “Ver contagem” no histórico). */
     singleDayYmd?: string
@@ -1270,6 +1315,11 @@ export default function RelatorioContagem({
     }
     out.sort((a, b) => {
       if (a.dataYmd !== b.dataYmd) return b.dataYmd.localeCompare(a.dataYmd)
+      if (modo === 'inventario') {
+        const na = Number(a.inventarioNumeroContagem ?? 0)
+        const nb = Number(b.inventarioNumeroContagem ?? 0)
+        if (na !== nb) return na - nb
+      }
       const c = a.conferenteNome.localeCompare(b.conferenteNome, 'pt-BR')
       if (c !== 0) return c
       const sa = a.finalizacaoSessaoId ?? ''
@@ -1351,6 +1401,11 @@ export default function RelatorioContagem({
     setUseSingleDay(true)
     setSingleDay(item.dataYmd)
     if (!lockListColumnMode) setUseInventarioCols(false)
+    if (useInventarioCols && item.inventarioNumeroContagem != null) {
+      const nc = Math.min(4, Math.max(1, Math.round(item.inventarioNumeroContagem))) as 1 | 2 | 3 | 4
+      skipRodadaAutoLoadRef.current = true
+      setNumeroContagemFilter(String(nc) as typeof numeroContagemFilter)
+    }
     setConferenteFiltroHistorico(item.conferenteId == null ? '__sem__' : item.conferenteId)
     setLoading(true)
     setError('')
@@ -1678,6 +1733,69 @@ export default function RelatorioContagem({
   }
 
   /** Uma aba por dia civil (YYYY-MM-DD); sem dia válido vai para `Sem_data`. */
+  function excelAbaNomeRodadaInventario(rodada: number): string {
+    const raw = formatContagemLabel(rodada)
+      .replace(/°/g, 'a')
+      .replace(/[/\\?*[\]:']/g, '-')
+      .replace(/\s+/g, '_')
+      .trim()
+    return (raw || `Rodada_${rodada}`).slice(0, 31)
+  }
+
+  /** Inventário: uma aba por rodada (1ª–4ª contagem). */
+  function agruparInventarioExportPorRodada(
+    rows: ContagemRow[],
+  ): Array<{ abaNome: string; rows: ContagemRow[] }> {
+    const map = new Map<number, ContagemRow[]>()
+    const semRodada: ContagemRow[] = []
+    for (const r of rows) {
+      const nc = r.inventario_numero_contagem
+      const n = nc != null && Number.isFinite(Number(nc)) ? Math.round(Number(nc)) : NaN
+      if (n >= 1 && n <= 4) {
+        const arr = map.get(n)
+        if (arr) arr.push(r)
+        else map.set(n, [r])
+      } else {
+        semRodada.push(r)
+      }
+    }
+    const out: Array<{ abaNome: string; rows: ContagemRow[] }> = []
+    for (let rod = 1; rod <= 4; rod++) {
+      const group = map.get(rod)
+      if (group && group.length > 0) {
+        out.push({ abaNome: excelAbaNomeRodadaInventario(rod), rows: group })
+      }
+    }
+    if (semRodada.length > 0) {
+      out.push({ abaNome: 'Sem_rodada', rows: semRodada })
+    }
+    return out
+  }
+
+  function workbookInventarioComAbasPorRodada(rows: ContagemRow[]) {
+    const wb = XLSX.utils.book_new()
+    const grupos = agruparInventarioExportPorRodada(rows)
+    const used = new Set<string>()
+    for (const g of grupos) {
+      let final = g.abaNome
+      let suf = 2
+      while (used.has(final)) {
+        const suffix = `_${suf}`
+        final = (g.abaNome.slice(0, Math.max(1, 31 - suffix.length)) + suffix).slice(0, 31)
+        suf++
+      }
+      used.add(final)
+      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(g.rows))
+      XLSX.utils.book_append_sheet(wb, ws, final)
+    }
+    if (grupos.length === 0) {
+      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa([]))
+      XLSX.utils.book_append_sheet(wb, ws, 'Vazio')
+    }
+    return wb
+  }
+
+  /** Uma aba por dia civil (YYYY-MM-DD); sem dia válido vai para `Sem_data`. */
   function agruparContagemDiariaExportPorData(rows: ContagemRow[]): Array<{ abaNome: string; rows: ContagemRow[] }> {
     const map = new Map<string, ContagemRow[]>()
     for (const r of rows) {
@@ -1774,11 +1892,20 @@ export default function RelatorioContagem({
         return
       }
       if (useInventarioCols) {
-        const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(exportRows))
-        const wb = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(wb, ws, relatorioExcelSheetName)
         const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
-        XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
+        if (numeroContagemFilter === 'todas') {
+          const wb = workbookInventarioComAbasPorRodada(exportRows)
+          XLSX.writeFile(wb, `relatorio-inventario_${safeFile}.xlsx`)
+        } else {
+          const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(exportRows))
+          const wb = XLSX.utils.book_new()
+          XLSX.utils.book_append_sheet(
+            wb,
+            ws,
+            excelAbaNomeRodadaInventario(Number(numeroContagemFilter)),
+          )
+          XLSX.writeFile(wb, `relatorio-inventario_${safeFile}.xlsx`)
+        }
         return
       }
       const wb = workbookContagemDiariaComAbasPorData(exportRows)
@@ -2043,18 +2170,26 @@ export default function RelatorioContagem({
             }}
           >
             <h3 style={{ margin: 0, fontSize: 18 }}>Histórico de contagens</h3>
-            <button
-              type="button"
-              onClick={() => void loadHistoricoContagens()}
-              disabled={historicoLoading}
-              style={{
-                ...relBtnDark,
-                cursor: historicoLoading ? 'wait' : 'pointer',
-                opacity: historicoLoading ? 0.85 : 1,
-              }}
-            >
-              {historicoLoading ? 'Atualizando…' : 'Atualizar histórico'}
-            </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+              {useInventarioCols ? (
+                <label style={{ ...relToolbarLabelStyle, marginBottom: 0 }}>
+                  Rodada da contagem
+                  {renderRodadaContagemSelect({ disabled: historicoLoading || loading })}
+                </label>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void loadHistoricoContagens()}
+                disabled={historicoLoading}
+                style={{
+                  ...relBtnDark,
+                  cursor: historicoLoading ? 'wait' : 'pointer',
+                  opacity: historicoLoading ? 0.85 : 1,
+                }}
+              >
+                {historicoLoading ? 'Atualizando…' : 'Atualizar histórico'}
+              </button>
+            </div>
           </div>
           {historicoError ? <div style={{ color: '#b00020', marginBottom: 8 }}>{historicoError}</div> : null}
           {historicoLoading && historicoItems.length === 0 ? (
@@ -2063,12 +2198,18 @@ export default function RelatorioContagem({
           {!historicoLoading && !historicoError && historicoItems.length === 0 ? (
             <div style={{ fontSize: 13, color: '#666' }}>Nenhuma contagem diária encontrada.</div>
           ) : null}
-          {historicoItems.length > 0 ? (
+          {!historicoLoading && !historicoError && historicoItems.length > 0 && historicoItemsFiltrados.length === 0 ? (
+            <div style={{ fontSize: 13, color: '#666' }}>
+              Nenhuma contagem nesta rodada. Selecione &quot;Todas (1ª a 4ª)&quot; ou outra rodada.
+            </div>
+          ) : null}
+          {historicoItemsFiltrados.length > 0 ? (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 620 }}>
                 <thead>
                   <tr>
                     <th style={thStyle}>Conferente</th>
+                    {useInventarioCols ? <th style={thStyle}>Rodada</th> : null}
                     <th style={thStyle}>Data da contagem</th>
                     <th style={thStyle}>Hora do registro</th>
                     <th style={thStyle}>Itens contados</th>
@@ -2076,11 +2217,22 @@ export default function RelatorioContagem({
                   </tr>
                 </thead>
                 <tbody>
-                  {historicoItems.map((item) => (
+                  {historicoItemsFiltrados.map((item) => (
                     <tr
-                      key={`${item.dataYmd}|${item.conferenteId ?? '__sem__'}|${item.finalizacaoSessaoId ?? '__legacy__'}`}
+                      key={`${item.dataYmd}|${item.conferenteId ?? '__sem__'}|${item.finalizacaoSessaoId ?? '__legacy__'}|${item.inventarioNumeroContagem ?? ''}`}
                     >
-                      <td style={tdStyle}>{item.conferenteNome}</td>
+                      <td style={tdStyle}>
+                        {useInventarioCols && item.inventarioNumeroContagem != null
+                          ? item.conferenteNome.replace(/\s*\(\d+ª contagem inventário\)\s*$/, '').trim()
+                          : item.conferenteNome}
+                      </td>
+                      {useInventarioCols ? (
+                        <td style={tdStyle}>
+                          {item.inventarioNumeroContagem != null
+                            ? formatContagemLabel(item.inventarioNumeroContagem)
+                            : '—'}
+                        </td>
+                      ) : null}
                       <td style={tdStyle}>{formatDateBR(item.dataYmd)}</td>
                       <td style={tdStyle}>{item.horaInputLabel}</td>
                       <td style={tdStyle}>{item.totalItens}</td>
@@ -2191,19 +2343,8 @@ export default function RelatorioContagem({
 
             {useInventarioCols ? (
               <label style={{ ...relToolbarLabelStyle, gridColumn: isMobile ? 'auto' : 'span 4' }}>
-                Nº contagem (inventário)
-                <select
-                  value={numeroContagemFilter}
-                  onChange={(e) => setNumeroContagemFilter(e.target.value as typeof numeroContagemFilter)}
-                  style={relToolbarInputStyle}
-                  title="Filtra pela rodada do inventário (1ª a 4ª)."
-                >
-                  <option value="todas">Todas</option>
-                  <option value="1">1ª contagem</option>
-                  <option value="2">2ª contagem</option>
-                  <option value="3">3ª contagem</option>
-                  <option value="4">4ª contagem</option>
-                </select>
+                Rodada da contagem
+                {renderRodadaContagemSelect({ disabled: loading || exportExcelLoading })}
               </label>
             ) : null}
           </div>
@@ -2346,9 +2487,13 @@ export default function RelatorioContagem({
                     opacity: loading || exportExcelLoading ? 0.5 : 1,
                   }}
                   title={
-                    !useInventarioCols && isExportUmDiaCivil
-                      ? 'Exporta o dia com uma aba por conferente (contagem diária). Períodos com vários dias ou modo Inventário: uma aba «Contagens».'
-                      : 'Busca de novo no banco todos os registros do filtro (data, nº contagem, etc.) e gera o .xlsx completo — não só a página visível na tela.'
+                    useInventarioCols
+                      ? numeroContagemFilter === 'todas'
+                        ? 'Exporta o período com uma aba no Excel para cada rodada (1ª, 2ª, 3ª e 4ª contagem com dados).'
+                        : `Exporta somente a ${formatContagemLabel(Number(numeroContagemFilter))} em uma aba do Excel.`
+                      : !useInventarioCols && isExportUmDiaCivil
+                        ? 'Exporta o dia com uma aba por conferente (contagem diária). Períodos com vários dias ou modo Inventário: uma aba «Contagens».'
+                        : 'Busca de novo no banco todos os registros do filtro (data, nº contagem, etc.) e gera o .xlsx completo — não só a página visível na tela.'
                   }
                 >
                   <span className="app-nav-icon app-nav-icon--pulse" aria-hidden>

@@ -64,6 +64,19 @@ async function invokeAuthUsernameEdge(
     if (data && data.ok === false && data.error) {
       return { ok: false, message: mapAuthError(data.error) }
     }
+    if (
+      res.status === 404 ||
+      (text && /requested function was not found|not_found/i.test(text))
+    ) {
+      return {
+        ok: false,
+        message:
+          `A função «${fn}» não está publicada no Supabase (projeto ${ref || 'zvazpqdvnlecqadxacgv'}). ` +
+          'Publique com: npx supabase functions deploy register-username login-username --project-ref zvazpqdvnlecqadxacgv ' +
+          '(após supabase login). Ou no painel: Edge Functions → criar/deploy a partir de supabase/functions/. ' +
+          'Com verify_jwt desligado (já está em supabase/config.toml).',
+      }
+    }
     if (res.status === 401 || res.status === 403) {
       return {
         ok: false,

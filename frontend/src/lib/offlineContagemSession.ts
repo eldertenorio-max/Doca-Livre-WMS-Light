@@ -46,11 +46,30 @@ export type OfflineChecklistItem = {
   planilha_ordem_na_aba?: number
 }
 
-/** `planilha` = mesmo carregamento que `armazém` (grupos por câmara/RUA), rótulo para inventário no formato da planilha. */
-export type ChecklistListMode = 'todos' | 'armazem' | 'planilha'
+/**
+ * `planilha` = legado (equivale a planilha-1).
+ * `planilha-1` / `planilha-2` = inventário em branco na ordem CAMARA/RUA, cada um com rodada própria no banco.
+ */
+export type ChecklistListMode = 'todos' | 'armazem' | 'planilha' | 'planilha-1' | 'planilha-2'
+
+export function normalizeChecklistListMode(m: ChecklistListMode | undefined | null): ChecklistListMode {
+  if (m === 'planilha') return 'planilha-1'
+  return m ?? 'todos'
+}
+
+export function isPlanilhaListMode(m: ChecklistListMode | undefined | null): boolean {
+  const n = normalizeChecklistListMode(m)
+  return n === 'planilha-1' || n === 'planilha-2'
+}
+
+/** Rodada gravada em `inventario_numero_contagem` conforme o tipo de lista planilha escolhido. */
+export function inventarioRodadaFromListMode(m: ChecklistListMode | undefined | null): 1 | 2 | 3 | 4 {
+  if (normalizeChecklistListMode(m) === 'planilha-2') return 2
+  return 1
+}
 
 export function isListModeArmazem(m: ChecklistListMode | undefined | null): boolean {
-  return m === 'armazem' || m === 'planilha'
+  return m === 'armazem' || isPlanilhaListMode(m)
 }
 
 export type OfflineSession = {
