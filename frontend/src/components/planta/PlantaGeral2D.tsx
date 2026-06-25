@@ -9,6 +9,7 @@ import {
   plantaMaxNivel,
   plantaNivelLabel,
   plantaSlotKey,
+  plantaSlotsCamara,
   posMapFromSlots,
   slotsPorRua,
   type PlantaAreasEspeciaisJson,
@@ -66,15 +67,36 @@ function RackSide(props: {
                 const slot = niveisMap.get(nivel)
                 const key = plantaSlotKey(camara, rua, pos, nivel)
                 const ocupacao = ocupacaoMap.get(key) ?? 'livre'
-                const { fill, stroke } = plantaCellColors(nivel, ocupacao)
+                const { fill, stroke } = plantaCellColors(
+                  nivel,
+                  ocupacao,
+                  slot?.destino_acao,
+                  Boolean(slot),
+                )
+                const tit = slot
+                  ? `Rua ${rua} · pos ${pos} · nív ${nivel}${slot.destino_label ? ` · ${slot.destino_label}` : ''}`
+                  : `Rua ${rua} · pos ${pos} · nív ${nivel} (vazio)`
+                if (!slot) {
+                  return (
+                    <div
+                      key={nivel}
+                      className="planta-cell planta-cell--vazio"
+                      style={{ background: fill, borderColor: stroke }}
+                      title={tit}
+                    />
+                  )
+                }
                 return (
                   <button
                     key={nivel}
                     type="button"
                     className={`planta-cell planta-cell--clickable${ocupacao !== 'livre' ? ' planta-cell--ocupada' : ''}`}
                     style={{ background: fill, borderColor: stroke }}
-                    title={`Rua ${rua} · pos ${pos} · nív ${nivel}`}
-                    onClick={() => onSlotClick?.({ camara, rua, posicao: pos, nivel })}
+                    title={tit}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSlotClick?.({ camara, rua, posicao: pos, nivel })
+                    }}
                   />
                 )
               })}
@@ -99,10 +121,8 @@ function CamaraBlock(props: {
   const ruas = cam.ruas ?? []
   const ruaEsq = ruas[0] ?? 'A'
   const ruaDir = ruas[1] ?? ruas[0] ?? 'B'
-  const slots = slotsPorRua(cam.enderecos ?? [], ruaEsq, maxNiv).concat(
-    ruas.length > 1 ? slotsPorRua(cam.enderecos ?? [], ruaDir, maxNiv) : [],
-  )
-  const total = cam.total_posicoes ?? slots.length
+  const slots = plantaSlotsCamara(cam)
+  const total = slots.length
   const ocup = slots.filter((s) => {
     const k = plantaSlotKey(cod, s.rua, s.posicao, s.nivel)
     return ocupacaoMap.get(k) === 'ocupado' || ocupacaoMap.get(k) === 'contado'
@@ -142,7 +162,7 @@ function CamaraBlock(props: {
           <div className="planta-corredor-meta">
             CÂMARA FRIA
             <br />
-            Piso: 0,00
+            ruas {ruas.join('/') || '—'}
           </div>
           <div className="planta-corredor-mid">
             <div className="planta-corredor-num">{cod}</div>
@@ -199,6 +219,9 @@ function Legenda2D() {
   const items: Array<{ label: string; fill: string; stroke: string }> = [
     { label: 'Nível 1 livre', fill: '#90caf9', stroke: '#ff9800' },
     { label: 'Níveis 2–5 livre', fill: '#0d47a1', stroke: '#ff9800' },
+    { label: 'Reentregas / avaria', fill: '#7e57c2', stroke: '#ff9800' },
+    { label: 'Envio MG', fill: '#42a5f5', stroke: '#ff9800' },
+    { label: 'Retrabalho', fill: '#ffca28', stroke: '#ff9800' },
     { label: 'Com código (inventário)', fill: '#ab47bc', stroke: '#6a1b9a' },
     { label: 'Quantidade contada', fill: '#66bb6a', stroke: '#2e7d32' },
   ]

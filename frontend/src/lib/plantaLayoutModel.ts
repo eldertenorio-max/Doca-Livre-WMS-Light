@@ -4,6 +4,8 @@ export type PlantaEndereco = {
   rua: string
   posicao: number
   nivel: number
+  destino_acao?: string | null
+  destino_label?: string | null
 }
 
 export type PlantaCamaraJson = {
@@ -54,12 +56,36 @@ export function plantaCamaraMeta(camara: number): { tipo: string } {
   return { tipo: 'Congelado' }
 }
 
-export function plantaCellColors(nivel: number, ocupacao: PlantaSlotOcupacao): { fill: string; stroke: string } {
+export function plantaCellColors(
+  nivel: number,
+  ocupacao: PlantaSlotOcupacao,
+  destinoAcao?: string | null,
+  slotExists = true,
+): { fill: string; stroke: string } {
   const stroke = '#ff9800'
+  if (!slotExists) return { fill: '#eceff1', stroke }
   if (ocupacao === 'contado') return { fill: '#66bb6a', stroke: '#2e7d32' }
   if (ocupacao === 'ocupado') return { fill: '#ab47bc', stroke: '#6a1b9a' }
+  const dest = String(destinoAcao ?? '').trim().toLowerCase()
+  if (dest === 'envio_mg') return { fill: '#42a5f5', stroke }
+  if (dest === 'retrabalho') return { fill: '#ffca28', stroke }
+  if (dest === 'descarte_perdas') return { fill: '#8d6e63', stroke }
+  if (dest === 'palete_bloqueado') return { fill: '#78909c', stroke }
+  if (dest === 'avaria') return { fill: '#ab47bc', stroke }
+  if (dest === 'reentregas') return { fill: '#7e57c2', stroke }
   if (nivel === 1) return { fill: '#90caf9', stroke }
   return { fill: '#0d47a1', stroke }
+}
+
+export function plantaSlotsCamara(cam: PlantaCamaraJson): PlantaEndereco[] {
+  const maxNiv = plantaMaxNivel(cam.codigo)
+  const ruas = cam.ruas ?? []
+  const ruaEsq = ruas[0] ?? 'A'
+  const ruaDir = ruas[1] ?? ruas[0] ?? 'B'
+  const enderecos = cam.enderecos ?? []
+  const esq = slotsPorRua(enderecos, ruaEsq, maxNiv)
+  const dir = ruas.length > 1 ? slotsPorRua(enderecos, ruaDir, maxNiv) : []
+  return esq.concat(dir)
 }
 
 export function slotsPorRua(enderecos: PlantaEndereco[], rua: string, maxNivel: number): PlantaEndereco[] {
@@ -125,8 +151,8 @@ export async function fetchPlantaLayoutData(): Promise<{
   areasEspeciais: PlantaAreasEspeciaisJson
 }> {
   const [layoutRes, areasRes] = await Promise.all([
-    fetch(`${import.meta.env.BASE_URL}data/wms_layout_camaras.json`),
-    fetch(`${import.meta.env.BASE_URL}data/wms_areas_especiais.json`),
+    fetch(`${import.meta.env.BASE_URL}data/wms_layout_camaras.json?v=2`),
+    fetch(`${import.meta.env.BASE_URL}data/wms_areas_especiais.json?v=2`),
   ])
   if (!layoutRes.ok) throw new Error('Não foi possível carregar o layout das câmaras.')
   if (!areasRes.ok) throw new Error('Não foi possível carregar áreas especiais.')

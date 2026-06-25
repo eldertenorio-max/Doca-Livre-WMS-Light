@@ -212,6 +212,11 @@
   z-index: 1;
 }
 
+.planta-cell--vazio {
+  cursor: default;
+  pointer-events: none;
+}
+
 .planta-corredor {
   flex: 0 0 72px;
   display: flex;

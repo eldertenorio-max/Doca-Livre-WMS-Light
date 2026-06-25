@@ -5772,15 +5772,18 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     </>
                   ) : null}
                 </div>
-                {inventario &&
-                isPlanilhaListMode(offlineSession.listMode) &&
+                {(inventario
+                  ? isPlanilhaListMode(offlineSession.listMode)
+                  : isListModeArmazem(offlineSession.listMode)) &&
                 isArmazemPaginado &&
                 !checklistShowAll &&
                 armazemGrupos.length > 0 ? (
                   <>
                     <PlantaGeral2D
                       inventarioItems={
-                        offlineSession?.status === 'aberta' ? offlineSession.items : undefined
+                        inventario && offlineSession?.status === 'aberta'
+                          ? offlineSession.items
+                          : undefined
                       }
                       selectedCamara={plantaCamaraSelecionada}
                       onCamaraSelect={setPlantaCamaraSelecionada}
