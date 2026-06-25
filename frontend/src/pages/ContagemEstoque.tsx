@@ -31,7 +31,7 @@ import {
   getPlanilhaSlotPorRepeticao,
   inventarioPlanilhaPosNivelFromIndex,
   planilhaLinhaTotalmentePreenchida,
-  planilhaRepeticoesPreenchidas,
+  planilhaRepeticoesOcupadas,
   planilhaSlotsAtPosNivel,
   primeiraPlanilhaRepeticaoSemCodigo,
   type PlanilhaRepeticao,
@@ -2903,6 +2903,28 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     /** Não remover a chave “dirty”: o merge usa a última linha global por código; limpar aqui fazia a UI voltar para quantidade antiga. */
   }
 
+  function syncPlanilhaSeletorAposEdicaoItem(key: string, itemsSnapshot: OfflineChecklistItem[]) {
+    if (!inventario) return
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) return
+    const row = itemsSnapshot.find((i) => i.key === key)
+    if (!row || row.armazem_grupo == null || row.planilha_ordem_na_aba == null) return
+
+    const pageGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)]
+    if (pageGrupo != null && row.armazem_grupo !== pageGrupo) return
+
+    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(row.planilha_ordem_na_aba)
+    setInventarioPlanilhaPos(pos)
+    setInventarioPlanilhaNivel(nivel)
+
+    const codigo = String(row.codigo_interno ?? '').trim()
+    const qtd = String(row.quantidade_contada ?? '').trim()
+    if (!codigo && !qtd) return
+
+    const livre = primeiraPlanilhaRepeticaoSemCodigo(itemsSnapshot, row.armazem_grupo, pos, nivel)
+    if (livre != null) setInventarioPlanilhaRepeticao(livre)
+  }
+
   function updateOfflineItemQty(key: string, quantidade: string, opts?: { skipBloqueioGuard?: boolean }) {
     if (!opts?.skipBloqueioGuard && checklistEdicaoBloqueada) {
       setBloqueioContagemDiariaModalOpen(true)
@@ -2929,6 +2951,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         ),
       }
       saveOfflineSession(next, sessionMode)
+      if (
+        inventario &&
+        isPlanilhaListMode(prev.listMode) &&
+        String(quantidade ?? '').trim() !== ''
+      ) {
+        queueMicrotask(() => syncPlanilhaSeletorAposEdicaoItem(key, next.items))
+      }
       return next
     })
     schedulePendentesGrace(key, quantidade)
@@ -2986,6 +3015,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         ),
       }
       saveOfflineSession(next, sessionMode)
+      if (
+        inventario &&
+        isPlanilhaListMode(prev.listMode) &&
+        ('codigo_interno' in patch || 'quantidade_contada' in patch)
+      ) {
+        queueMicrotask(() => syncPlanilhaSeletorAposEdicaoItem(key, next.items))
+      }
       return next
     })
     if ('quantidade_contada' in patch) {
@@ -4875,7 +4911,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     ) {
       return { 1: false, 2: false, 3: false } as Record<PlanilhaRepeticao, boolean>
     }
-    return planilhaRepeticoesPreenchidas(
+    return planilhaRepeticoesOcupadas(
       offlineSession.items,
       inventarioPlanilhaGrupoAtual,
       inventarioPlanilhaPos,
@@ -4909,6 +4945,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     inventarioPlanilhaNivel,
     checklistPageSafe,
     inventarioPlanilhaGrupoAtual,
+    offlineSession?.items,
   ])
 
   useEffect(() => {
@@ -7164,7 +7201,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       disabled={planilhaRepeticoesPreenchidasAtual[rep]}
                     >
                       {rep}ª linha
-                      {planilhaRepeticoesPreenchidasAtual[rep] ? ' (preenchida)' : ''}
+                      {planilhaRepeticoesPreenchidasAtual[rep] ? ' (ocupada)' : ''}
                     </option>
                   ))}
                 </select>

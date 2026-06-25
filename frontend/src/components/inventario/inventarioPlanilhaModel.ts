@@ -164,6 +164,25 @@ export function getPlanilhaSlotPorRepeticao(
   return slots[idx]
 }
 
+/** Código já informado nesta repetição — bloqueia no seletor de linha. */
+export function planilhaLinhaOcupada(it: OfflineChecklistItem): boolean {
+  return !planilhaLinhaSemCodigo(it)
+}
+
+export function planilhaRepeticoesOcupadas(
+  items: OfflineChecklistItem[],
+  grupo: number,
+  pos: number,
+  nivel: number,
+): Record<PlanilhaRepeticao, boolean> {
+  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
+  return {
+    1: slots[0] ? planilhaLinhaOcupada(slots[0]) : false,
+    2: slots[1] ? planilhaLinhaOcupada(slots[1]) : false,
+    3: slots[2] ? planilhaLinhaOcupada(slots[2]) : false,
+  }
+}
+
 export function planilhaRepeticoesPreenchidas(
   items: OfflineChecklistItem[],
   grupo: number,
