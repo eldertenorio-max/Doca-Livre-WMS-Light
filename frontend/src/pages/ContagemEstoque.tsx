@@ -19,10 +19,6 @@ import {
   stableItemKey,
 } from '../lib/offlineContagemSession'
 import {
-  PlantaGeral2D,
-  type PlantaSlotClickPayload,
-} from '../components/planta/PlantaGeral2D'
-import {
   inventarioAbaTitulo,
   InventarioPlanilhaAbas,
   InventarioPlanilhaTabela,
@@ -583,7 +579,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [inventarioPlanilhaPos, setInventarioPlanilhaPos] = useState(1)
   const [inventarioPlanilhaNivel, setInventarioPlanilhaNivel] = useState(1)
   const [inventarioPlanilhaRepeticao, setInventarioPlanilhaRepeticao] = useState<PlanilhaRepeticao>(1)
-  const [plantaCamaraSelecionada, setPlantaCamaraSelecionada] = useState<number | null>(null)
 
   // Foto do produto (captura de câmera).
   const [photoCameraOpen, setPhotoCameraOpen] = useState(false)
@@ -4972,27 +4967,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (pageIdx >= 0 && pageIdx + 1 !== checklistPageSafe) setChecklistPage(pageIdx + 1)
   }
 
-  function handlePlantaSlotClick(payload: PlantaSlotClickPayload) {
-    const grupo = getGrupoArmazemFromCamaraRua(payload.camara, payload.rua)
-    if (grupo == null) return
-    const pageIdx = INVENTARIO_ARMAZEM_GRUPO_IDS.indexOf(grupo)
-    if (pageIdx >= 0) setChecklistPage(pageIdx + 1)
-    setInventarioPlanilhaRua(payload.rua)
-    setInventarioPlanilhaPos(payload.posicao)
-    setInventarioPlanilhaNivel(payload.nivel)
-    setPlantaCamaraSelecionada(payload.camara)
-    const s = offlineSessionRef.current
-    if (s?.status === 'aberta') {
-      const livre = primeiraPlanilhaRepeticaoSemCodigo(
-        s.items,
-        grupo,
-        payload.posicao,
-        payload.nivel,
-      )
-      if (livre != null) setInventarioPlanilhaRepeticao(livre)
-    }
-  }
-
   async function handleInventarioNumeroContagemChange(novaRodada: 1 | 2 | 3 | 4) {
     const s = offlineSessionRef.current
     if (!s || s.status !== 'aberta' || !inventario || !isPlanilhaListMode(s.listMode)) return
@@ -5772,33 +5746,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     </>
                   ) : null}
                 </div>
-                {(inventario
-                  ? isPlanilhaListMode(offlineSession.listMode)
-                  : isListModeArmazem(offlineSession.listMode)) &&
+                {inventario &&
+                isPlanilhaListMode(offlineSession.listMode) &&
                 isArmazemPaginado &&
                 !checklistShowAll &&
                 armazemGrupos.length > 0 ? (
-                  <>
-                    <PlantaGeral2D
-                      inventarioItems={
-                        inventario && offlineSession?.status === 'aberta'
-                          ? offlineSession.items
-                          : undefined
-                      }
-                      selectedCamara={plantaCamaraSelecionada}
-                      onCamaraSelect={setPlantaCamaraSelecionada}
-                      onSlotClick={handlePlantaSlotClick}
-                      defaultOpen
-                    />
-                    <InventarioPlanilhaAbas
-                      armazemGrupos={armazemGrupos}
-                      checklistPageSafe={checklistPageSafe}
-                      setChecklistPage={setChecklistPage}
-                      numeroContagem={inventarioNumeroContagemRodada}
-                      onNumeroContagemChange={handleInventarioNumeroContagemChange}
-                      numeroContagemDisabled={checklistLoading || finalizing}
-                    />
-                  </>
+                  <InventarioPlanilhaAbas
+                    armazemGrupos={armazemGrupos}
+                    checklistPageSafe={checklistPageSafe}
+                    setChecklistPage={setChecklistPage}
+                    numeroContagem={inventarioNumeroContagemRodada}
+                    onNumeroContagemChange={handleInventarioNumeroContagemChange}
+                    numeroContagemDisabled={checklistLoading || finalizing}
+                  />
                 ) : null}
                 {isMobile ? (
                   <>
