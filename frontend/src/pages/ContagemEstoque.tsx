@@ -5489,14 +5489,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           >
             Tipo de lista
             <select
-              value={inventario ? 'planilha-1' : checklistListMode}
+              value={checklistListMode}
               onChange={(e) =>
                 setChecklistListMode(normalizeChecklistListMode(e.target.value as ChecklistListMode))
               }
               style={inputStyle}
-              disabled={
-                inventario || (!!offlineSession && offlineSession.status === 'aberta')
-              }
+              disabled={!!offlineSession && offlineSession.status === 'aberta'}
             >
               {inventario ? (
                 <option value="planilha-1">Inventário (planilha CAMARA/RUA, abas)</option>
