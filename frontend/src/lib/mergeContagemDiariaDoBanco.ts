@@ -1,4 +1,5 @@
-import { supabase } from './supabaseClient'
+import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
+import { fetchContagensPaged } from './contagensSelectCompat'
 import { contagemLinhaAVenceB } from './contagemOrdemLinha'
 import { contagemDiariaChaveProdutoDia } from './contagemListagemCompat'
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
@@ -8,6 +9,25 @@ import type { OfflineChecklistItem } from './offlineContagemSession'
 
 /** Até 1000 por requisição — alinhado ao max_rows padrão da API Supabase. */
 const FETCH_CHUNK = 1000
+
+const MERGE_DIARIA_COLUMNS = [
+  'id',
+  'conferente_id',
+  'codigo_interno',
+  'descricao',
+  'quantidade_up',
+  'up_adicional',
+  'lote',
+  'observacao',
+  'data_fabricacao',
+  'data_validade',
+  'ean',
+  'dun',
+  'data_hora_contagem',
+  'origem',
+  'inventario_repeticao',
+  'inventario_numero_contagem',
+] as const
 
 function toDateInputValue(v?: string | null) {
   if (!v) return ''
@@ -46,27 +66,16 @@ async function fetchUltimasPorCodigo(dataContagemYmd: string): Promise<Map<strin
   const ymd = String(dataContagemYmd ?? '').trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return map
 
-  const sel =
-    'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,origem,inventario_repeticao,inventario_numero_contagem'
-
-  const acc: Record<string, unknown>[] = []
-  let from = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from('contagens_estoque')
-      .select(sel)
-      .eq('data_contagem', ymd)
-      .order('id', { ascending: true })
-      .range(from, from + FETCH_CHUNK - 1)
-    if (error) {
-      if (import.meta.env.DEV) console.warn('[mergeContagemDiariaDoBanco] select', error)
-      return map
-    }
-    const batch = (data ?? []) as Record<string, unknown>[]
-    acc.push(...batch)
-    if (batch.length < FETCH_CHUNK) break
-    from += FETCH_CHUNK
-    if (from > 120000) break
+  const { data: acc, error } = await fetchContagensPaged({
+    table: TABLE_CONTAGEM_DIARIA,
+    columns: MERGE_DIARIA_COLUMNS,
+    eq: { data_contagem: ymd },
+    order: { column: 'id', ascending: true },
+    pageSize: FETCH_CHUNK,
+  })
+  if (error) {
+    if (import.meta.env.DEV) console.warn('[mergeContagemDiariaDoBanco] select', error)
+    return map
   }
 
   for (const r of acc) {

@@ -1,10 +1,16 @@
-import { supabase } from './supabaseClient'
 import { TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
+import { contagensColumnAvailable, fetchContagensPaged } from './contagensSelectCompat'
 
 /** Conferentes necessários para concluir uma rodada de inventário (1ª–4ª contagem). */
 export const INVENTARIO_CONFERENTES_META_RODADA = 8
 
-const FETCH_CHUNK = 1000
+const PRESENCA_INVENTARIO_COLUMNS = [
+  'id',
+  'conferente_id',
+  'data_hora_contagem',
+  'inventario_numero_contagem',
+  'contagem_rascunho',
+] as const
 
 /**
  * Conferentes com ao menos uma linha finalizada (`contagem_rascunho = false`) na rodada do inventário.
@@ -18,36 +24,15 @@ export async function fetchResumoFinalizadosInventarioRodada(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return map
   const rodada = Math.min(4, Math.max(1, Math.round(numeroContagemRodada)))
 
-  const selComRascunho =
-    'id,conferente_id,data_hora_contagem,inventario_numero_contagem,contagem_rascunho'.replace(/\s/g, '')
-  const selSemRascunho = 'id,conferente_id,data_hora_contagem,inventario_numero_contagem'.replace(/\s/g, '')
+  const { data: rows, error } = await fetchContagensPaged({
+    table: TABLE_CONTAGEM_INVENTARIO,
+    columns: PRESENCA_INVENTARIO_COLUMNS,
+    eq: { data_contagem: ymd },
+    order: { column: 'id', ascending: true },
+  })
+  if (error || !rows) return map
 
-  async function pull(sel: string): Promise<Record<string, unknown>[] | null> {
-    const acc: Record<string, unknown>[] = []
-    let from = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from(TABLE_CONTAGEM_INVENTARIO)
-        .select(sel)
-        .eq('data_contagem', ymd)
-        .order('id', { ascending: true })
-        .range(from, from + FETCH_CHUNK - 1)
-      if (error) return null
-      const batch = (data ?? []) as Record<string, unknown>[]
-      acc.push(...batch)
-      if (batch.length < FETCH_CHUNK) break
-      from += FETCH_CHUNK
-      if (from > 120000) break
-    }
-    return acc
-  }
-
-  let rows = await pull(selComRascunho)
-  const hasRascunhoCol = rows != null
-  if (rows == null) {
-    rows = await pull(selSemRascunho)
-  }
-  if (!rows) return map
+  const hasRascunhoCol = contagensColumnAvailable(TABLE_CONTAGEM_INVENTARIO, 'contagem_rascunho')
 
   for (const r of rows) {
     if (hasRascunhoCol && r.contagem_rascunho === true) continue

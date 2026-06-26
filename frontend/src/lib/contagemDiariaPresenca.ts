@@ -1,4 +1,6 @@
 import { supabase } from './supabaseClient'
+import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
+import { fetchContagensPaged } from './contagensSelectCompat'
 
 /** Considera “ativo” quem deu sinal nos últimos 3 minutos. */
 export const PRESENCA_STALE_MS = 3 * 60 * 1000
@@ -287,45 +289,28 @@ export async function fetchResumoFinalizadosContagemDiariaDia(dataContagemYmd: s
   const fromItensView = await fetchResumoFinalizadosFromItensPainelView(ymd)
   if (fromItensView) return fromItensView
 
-  async function pull(sel: string): Promise<Record<string, unknown>[] | null> {
-    const acc: Record<string, unknown>[] = []
-    let from = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from('contagens_estoque')
-        .select(sel)
-        .eq('data_contagem', ymd)
-        .order('id', { ascending: true })
-        .range(from, from + CONTAGENS_FETCH_CHUNK - 1)
-      if (error) return null
-      const batch = (data ?? []) as Record<string, unknown>[]
-      acc.push(...batch)
-      if (batch.length < CONTAGENS_FETCH_CHUNK) break
-      from += CONTAGENS_FETCH_CHUNK
-      if (from > 120000) break
-    }
-    return acc
-  }
+  const PRESENCA_DIARIA_COLUMNS = [
+    'conferente_id',
+    'data_hora_contagem',
+    'origem',
+    'inventario_repeticao',
+    'inventario_numero_contagem',
+    'contagem_rascunho',
+  ] as const
 
-  const selFull =
-    'conferente_id,data_hora_contagem,origem,inventario_repeticao,inventario_numero_contagem'.replace(/\s/g, '')
-  const selWithRasc =
-    'conferente_id,data_hora_contagem,origem,inventario_repeticao,inventario_numero_contagem,contagem_rascunho'.replace(
-      /\s/g,
-      '',
-    )
-  let rows = await pull(selWithRasc)
-  if (rows == null) {
-    rows = await pull(selFull)
-  }
-  if (rows == null) {
-    rows = await pull('conferente_id,data_hora_contagem'.replace(/\s/g, ''))
-  }
-  if (!rows) return map
+  const { data: rows, error } = await fetchContagensPaged({
+    table: TABLE_CONTAGEM_DIARIA,
+    columns: PRESENCA_DIARIA_COLUMNS,
+    eq: { data_contagem: ymd },
+    order: { column: 'id', ascending: true },
+    pageSize: CONTAGENS_FETCH_CHUNK,
+  })
+  if (error || !rows) return map
 
   const hasOrigemMeta = rows.length > 0 && 'origem' in (rows[0] as object)
+  const hasRascunhoCol = rows.length > 0 && 'contagem_rascunho' in (rows[0] as object)
   for (const r of rows) {
-    if (r.contagem_rascunho === true) continue
+    if (hasRascunhoCol && r.contagem_rascunho === true) continue
     if (hasOrigemMeta && !isContagemDiariaRowResumo(r)) continue
     const id = r.conferente_id != null ? String(r.conferente_id).trim() : ''
     if (!id) continue

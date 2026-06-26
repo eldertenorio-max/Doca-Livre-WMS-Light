@@ -1,12 +1,30 @@
-import { supabase } from './supabaseClient'
 import { TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
+import { fetchContagensPaged } from './contagensSelectCompat'
 import { contagemLinhaAVenceB } from './contagemOrdemLinha'
 import { contagemDiariaChaveProdutoDia } from './contagemListagemCompat'
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
 import { fetchConferentesNomesPorIds } from './conferentesNomesBatch'
 import type { OfflineChecklistItem } from './offlineContagemSession'
 
-const FETCH_CHUNK = 1000
+const MERGE_INVENTARIO_COLUMNS = [
+  'id',
+  'conferente_id',
+  'codigo_interno',
+  'descricao',
+  'quantidade_up',
+  'up_adicional',
+  'lote',
+  'observacao',
+  'data_fabricacao',
+  'data_validade',
+  'ean',
+  'dun',
+  'data_hora_contagem',
+  'inventario_numero_contagem',
+  'inventario_repeticao',
+  'planilha_grupo_armazem',
+  'planilha_ordem_na_aba',
+] as const
 
 function toDateInputValue(v?: string | null) {
   if (!v) return ''
@@ -104,38 +122,15 @@ async function fetchUltimasInventarioPorChave(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return map
   const rodada = Math.min(4, Math.max(1, Math.round(numeroContagemRodada)))
 
-  const selComPlanilha =
-    'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,inventario_numero_contagem,inventario_repeticao,planilha_grupo_armazem,planilha_ordem_na_aba'
-  const selSemPlanilha =
-    'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,inventario_numero_contagem,inventario_repeticao'
-
-  async function pullAll(sel: string): Promise<Record<string, unknown>[] | null> {
-    const acc: Record<string, unknown>[] = []
-    let from = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from(TABLE_CONTAGEM_INVENTARIO)
-        .select(sel)
-        .eq('data_contagem', ymd)
-        .order('id', { ascending: true })
-        .range(from, from + FETCH_CHUNK - 1)
-      if (error) return null
-      const batch = (data ?? []) as Record<string, unknown>[]
-      acc.push(...batch)
-      if (batch.length < FETCH_CHUNK) break
-      from += FETCH_CHUNK
-      if (from > 120000) break
-    }
-    return acc
-  }
-
-  let acc = await pullAll(selComPlanilha)
-  if (acc == null) {
-    acc = await pullAll(selSemPlanilha)
-    if (acc == null) {
-      if (import.meta.env.DEV) console.warn('[mergeInventarioDoBanco] select falhou (planilha e legado)')
-      return map
-    }
+  const { data: acc, error } = await fetchContagensPaged({
+    table: TABLE_CONTAGEM_INVENTARIO,
+    columns: MERGE_INVENTARIO_COLUMNS,
+    eq: { data_contagem: ymd },
+    order: { column: 'id', ascending: true },
+  })
+  if (error) {
+    if (import.meta.env.DEV) console.warn('[mergeInventarioDoBanco] select', error)
+    return map
   }
 
   for (const r of acc) {
@@ -212,7 +207,7 @@ export type MergeInventarioOptions = {
 }
 
 /**
- * Preenche a checklist do inventário com a última gravação do dia (todos os conferentes), em tempo real.
+ * Preenche itens da checklist de inventário com a última gravação no banco (mesmo dia / rodada).
  */
 export async function mergeInventarioDoDiaParaItems(
   dataContagemYmd: string,
@@ -220,59 +215,43 @@ export async function mergeInventarioDoDiaParaItems(
   options?: MergeInventarioOptions,
 ): Promise<{ items: OfflineChecklistItem[]; preenchidos: number }> {
   const skipKeys = options?.skipKeys
-  const rodada = options?.numeroContagemRodada ?? 1
+  const rodada = Math.min(4, Math.max(1, Math.round(options?.numeroContagemRodada ?? 1)))
   const porChave = await fetchUltimasInventarioPorChave(dataContagemYmd, rodada)
   if (porChave.size === 0) {
     return { items: items.map((i) => ({ ...i })), preenchidos: 0 }
   }
 
-  const ids = [...new Set([...porChave.values()].map((s) => s.conferente_id).filter(Boolean))]
-  const nomesPorId = await fetchConferentesNomesPorIds(ids)
-
   let preenchidos = 0
   const ymd = String(dataContagemYmd ?? '').trim()
   const next = items.map((it) => {
-    const itemKey = inventarioItemMergeKey(ymd, it, rodada)
-    const snap = itemKey ? porChave.get(itemKey) : undefined
+    if (skipKeys?.has(it.key)) return { ...it }
+    const key = inventarioItemMergeKey(ymd, it, rodada)
+    if (!key) return { ...it }
+    const snap = porChave.get(key)
+    if (!snap) return { ...it }
 
-    if (skipKeys?.has(it.key)) {
-      if (!snap) return { ...it }
-      const nomeUltimo = nomesPorId.get(snap.conferente_id)?.trim() || snap.conferente_id
-      return { ...it, contagem_banco_ultimo_conferente_nome: nomeUltimo }
-    }
-
-    if (!snap) {
-      return { ...it, contagem_banco_ultimo_conferente_nome: undefined }
-    }
-
-    /** Planilha: nunca espalhar linha do banco para outra repetição (POS/NÍVEL). */
-    if (it.planilha_ordem_na_aba != null && it.armazem_grupo != null) {
+    if (it.armazem_grupo != null && it.planilha_ordem_na_aba != null) {
       if (
         snap.planilha_ordem_na_aba == null ||
         snap.planilha_grupo_armazem == null ||
         snap.planilha_ordem_na_aba !== it.planilha_ordem_na_aba ||
         snap.planilha_grupo_armazem !== it.armazem_grupo
       ) {
-        return { ...it, contagem_banco_ultimo_conferente_nome: undefined }
+        return { ...it }
       }
     }
 
     preenchidos += 1
-    const nomeConf = nomesPorId.get(snap.conferente_id)?.trim() || snap.conferente_id
     return {
       ...it,
-      codigo_interno: snap.codigo_interno || it.codigo_interno,
-      descricao: snap.descricao || it.descricao,
       quantidade_contada: formatQtyFromNumber(snap.quantidade_up),
       up_quantidade: snap.up_adicional != null ? formatQtyFromNumber(snap.up_adicional) : '',
       lote: snap.lote ?? '',
       observacao: snap.observacao ?? '',
-      data_fabricacao:
-        snap.data_fabricacao != null ? toDateInputValue(snap.data_fabricacao) : it.data_fabricacao ?? '',
+      data_fabricacao: snap.data_fabricacao != null ? toDateInputValue(snap.data_fabricacao) : it.data_fabricacao ?? '',
       data_validade: snap.data_validade != null ? toDateInputValue(snap.data_validade) : it.data_validade ?? '',
       ean: snap.ean != null ? snap.ean : it.ean ?? null,
       dun: snap.dun != null ? snap.dun : it.dun ?? null,
-      contagem_banco_ultimo_conferente_nome: nomeConf,
     }
   })
 

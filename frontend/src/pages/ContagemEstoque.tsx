@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabaseClient'
-import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
+import { formatUnknownError } from '../lib/supabaseError'
+import { fetchContagensPaged, readAbsentContagensColumns } from '../lib/contagensSelectCompat'
 import { toDatetimeLocalValue, toISOStringFromDatetimeLocal } from '../lib/datetime'
 import {
   clearOfflineSession,
@@ -436,83 +437,6 @@ function isMissingDbColumnError(e: unknown, columnSqlName: string): boolean {
     (msg.includes('could not find') && msg.includes(col)) ||
     (msg.includes('schema cache') && msg.includes(col))
   )
-}
-
-const PREVIEW_CORE_COLUMNS = [
-  'id',
-  'data_hora_contagem',
-  'data_contagem',
-  'conferente_id',
-  'codigo_interno',
-  'descricao',
-  'unidade_medida',
-  'quantidade_up',
-  'lote',
-  'observacao',
-  'data_fabricacao',
-  'data_validade',
-] as const
-
-/** Colunas opcionais (podem faltar em bancos sem migração completa). `foto_base64` nunca entra na prévia em lote. */
-const PREVIEW_OPTIONAL_COLUMNS = [
-  'up_adicional',
-  'ean',
-  'dun',
-  'origem',
-  'inventario_repeticao',
-  'inventario_numero_contagem',
-  'finalizacao_sessao_id',
-  'contagem_rascunho',
-] as const
-
-function previewAbsentColsStorageKey(inventario: boolean): string {
-  return inventario ? 'dis-preview-absent-cols:v2:inventario' : 'dis-preview-absent-cols:v2:estoque'
-}
-
-function readAbsentPreviewColumns(inventario: boolean): Set<string> {
-  const absent = new Set<string>(['foto_base64'])
-  if (inventario) absent.add('origem')
-  try {
-    const raw = localStorage.getItem(previewAbsentColsStorageKey(inventario))
-    if (raw) {
-      const parsed = JSON.parse(raw) as unknown
-      if (Array.isArray(parsed)) {
-        for (const c of parsed) {
-          if (typeof c === 'string' && c.trim()) absent.add(c.trim())
-        }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return absent
-}
-
-function persistAbsentPreviewColumns(inventario: boolean, absent: Set<string>) {
-  try {
-    const toSave = [...absent].filter((c) => c !== 'foto_base64' && !(inventario && c === 'origem'))
-    localStorage.setItem(previewAbsentColsStorageKey(inventario), JSON.stringify(toSave))
-  } catch {
-    /* ignore */
-  }
-}
-
-function parseMissingColumnFromError(e: unknown): string | null {
-  const msg = formatUnknownError(e)
-  const m1 = msg.match(/could not find the '([^']+)' column/i)
-  if (m1?.[1]) return m1[1]
-  const m2 = msg.match(/column "([^"]+)" (?:of relation .* )?does not exist/i)
-  if (m2?.[1]) return m2[1]
-  return null
-}
-
-function buildPreviewSelect(inventario: boolean, absent: Set<string>): string {
-  const cols: string[] = [...PREVIEW_CORE_COLUMNS]
-  for (const c of PREVIEW_OPTIONAL_COLUMNS) {
-    if (inventario && c === 'origem') continue
-    if (!absent.has(c)) cols.push(c)
-  }
-  return cols.join(',')
 }
 
 /** INSERT em bancos sem migração `alter_contagens_estoque_origem_inventario.sql` / número da contagem. */
@@ -2222,50 +2146,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               ? contagemDiaYmd
               : hojeYmd
 
-    let absentCols = readAbsentPreviewColumns(inventario)
-    let previewOrigemAusenteNoResultado = inventario || absentCols.has('origem')
+    let previewOrigemAusenteNoResultado =
+      inventario || readAbsentContagensColumns(tContagens).has('origem')
 
-    /** Páginas de no máx. 1000 linhas — acima disso a API do Supabase (max_rows) costuma responder 400. */
-    const PREVIEW_PAGE_SIZE = 1000
-    const queryPreview = async (selectStr: string) => {
-      const acc: Record<string, unknown>[] = []
-      let from = 0
-      while (true) {
-        const { data: batch, error: batchErr } = await supabase
-          .from(tContagens)
-          .select(selectStr)
-          .eq('data_contagem', dayKey)
-          .order('data_hora_contagem', { ascending: false })
-          .range(from, from + PREVIEW_PAGE_SIZE - 1)
-        if (batchErr) return { data: null, error: batchErr }
-        const rows = (batch ?? []) as Record<string, unknown>[]
-        acc.push(...rows)
-        if (rows.length < PREVIEW_PAGE_SIZE) break
-        from += PREVIEW_PAGE_SIZE
-        if (from > 80000) break
-      }
-      return { data: acc, error: null }
-    }
-
-    let selectStr = buildPreviewSelect(inventario, absentCols)
-    let { data, error } = await queryPreview(selectStr)
-
-    for (let attempt = 0; attempt < 12 && error && isColumnMissingError(error); attempt++) {
-      const col = parseMissingColumnFromError(error)
-      if (!col || absentCols.has(col)) break
-      absentCols.add(col)
-      if (col === 'origem') previewOrigemAusenteNoResultado = true
-      persistAbsentPreviewColumns(inventario, absentCols)
-      selectStr = buildPreviewSelect(inventario, absentCols)
-      const retry = await queryPreview(selectStr)
-      data = retry.data
-      error = retry.error
-    }
+    const { data: previewData, error } = await fetchContagensPaged({
+      table: tContagens,
+      eq: { data_contagem: dayKey },
+      order: { column: 'data_hora_contagem', ascending: false },
+      pageSize: 1000,
+      maxRows: 80000,
+    })
 
     if (error) {
       setSaveError(`Erro ao carregar prévia: ${formatUnknownError(error)}`)
       return
     }
+
+    previewOrigemAusenteNoResultado =
+      inventario || readAbsentContagensColumns(tContagens).has('origem')
+    const data = previewData
     setSaveError('')
 
     let planilhaContagemIds = new Set<string>()
