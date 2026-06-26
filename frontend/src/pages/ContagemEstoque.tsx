@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabaseClient'
+import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { toDatetimeLocalValue, toISOStringFromDatetimeLocal } from '../lib/datetime'
 import {
   clearOfflineSession,
@@ -437,36 +438,81 @@ function isMissingDbColumnError(e: unknown, columnSqlName: string): boolean {
   )
 }
 
-type PreviewColumnHints = {
-  finalizacaoSessaoId: boolean
-  contagemRascunho: boolean
+const PREVIEW_CORE_COLUMNS = [
+  'id',
+  'data_hora_contagem',
+  'data_contagem',
+  'conferente_id',
+  'codigo_interno',
+  'descricao',
+  'unidade_medida',
+  'quantidade_up',
+  'lote',
+  'observacao',
+  'data_fabricacao',
+  'data_validade',
+] as const
+
+/** Colunas opcionais (podem faltar em bancos sem migração completa). `foto_base64` nunca entra na prévia em lote. */
+const PREVIEW_OPTIONAL_COLUMNS = [
+  'up_adicional',
+  'ean',
+  'dun',
+  'origem',
+  'inventario_repeticao',
+  'inventario_numero_contagem',
+  'finalizacao_sessao_id',
+  'contagem_rascunho',
+] as const
+
+function previewAbsentColsStorageKey(inventario: boolean): string {
+  return inventario ? 'dis-preview-absent-cols:v2:inventario' : 'dis-preview-absent-cols:v2:estoque'
 }
 
-function previewSchemaStorageKey(inventario: boolean): string {
-  return inventario ? 'dis-preview-schema:v1:inventario' : 'dis-preview-schema:v1:estoque'
-}
-
-function readPreviewColumnHints(inventario: boolean): PreviewColumnHints {
+function readAbsentPreviewColumns(inventario: boolean): Set<string> {
+  const absent = new Set<string>(['foto_base64'])
+  if (inventario) absent.add('origem')
   try {
-    const raw = localStorage.getItem(previewSchemaStorageKey(inventario))
-    if (!raw) return { finalizacaoSessaoId: true, contagemRascunho: true }
-    const o = JSON.parse(raw) as Partial<PreviewColumnHints>
-    return {
-      finalizacaoSessaoId: o.finalizacaoSessaoId !== false,
-      contagemRascunho: o.contagemRascunho !== false,
+    const raw = localStorage.getItem(previewAbsentColsStorageKey(inventario))
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) {
+        for (const c of parsed) {
+          if (typeof c === 'string' && c.trim()) absent.add(c.trim())
+        }
+      }
     }
-  } catch {
-    return { finalizacaoSessaoId: true, contagemRascunho: true }
-  }
-}
-
-function markPreviewColumnAbsent(inventario: boolean, col: keyof PreviewColumnHints) {
-  try {
-    const prev = readPreviewColumnHints(inventario)
-    localStorage.setItem(previewSchemaStorageKey(inventario), JSON.stringify({ ...prev, [col]: false }))
   } catch {
     /* ignore */
   }
+  return absent
+}
+
+function persistAbsentPreviewColumns(inventario: boolean, absent: Set<string>) {
+  try {
+    const toSave = [...absent].filter((c) => c !== 'foto_base64' && !(inventario && c === 'origem'))
+    localStorage.setItem(previewAbsentColsStorageKey(inventario), JSON.stringify(toSave))
+  } catch {
+    /* ignore */
+  }
+}
+
+function parseMissingColumnFromError(e: unknown): string | null {
+  const msg = formatUnknownError(e)
+  const m1 = msg.match(/could not find the '([^']+)' column/i)
+  if (m1?.[1]) return m1[1]
+  const m2 = msg.match(/column "([^"]+)" (?:of relation .* )?does not exist/i)
+  if (m2?.[1]) return m2[1]
+  return null
+}
+
+function buildPreviewSelect(inventario: boolean, absent: Set<string>): string {
+  const cols: string[] = [...PREVIEW_CORE_COLUMNS]
+  for (const c of PREVIEW_OPTIONAL_COLUMNS) {
+    if (inventario && c === 'origem') continue
+    if (!absent.has(c)) cols.push(c)
+  }
+  return cols.join(',')
 }
 
 /** INSERT em bancos sem migração `alter_contagens_estoque_origem_inventario.sql` / número da contagem. */
@@ -653,10 +699,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   /** Evita resetar aba/página logo após restaurar sessão do localStorage. */
   const skipNextListUiResetRef = useRef(false)
   const loadPreviewRef = useRef<(dayOverride?: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {})
-  /** Evita repetir request 400 por coluna ausente (cache em localStorage por tabela). */
-  const previewColumnHintsRef = useRef(readPreviewColumnHints(inventario))
-  const contagensHasFinalizacaoSessaoIdRef = useRef(previewColumnHintsRef.current.finalizacaoSessaoId)
-  const contagensHasContagemRascunhoRef = useRef(previewColumnHintsRef.current.contagemRascunho)
   useEffect(() => {
     offlineSessionRef.current = offlineSession
   }, [offlineSession])
@@ -2180,41 +2222,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               ? contagemDiaYmd
               : hojeYmd
 
-    const previewSelectFullLegacy =
-      'id,data_hora_contagem,data_contagem,conferente_id,conferentes(nome),codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_repeticao,inventario_numero_contagem'
-    const previewSelectFullBase = `${previewSelectFullLegacy},finalizacao_sessao_id`
-    const previewSelectFull = `${previewSelectFullBase},contagem_rascunho`
-    const previewSelectSemNc =
-      'id,data_hora_contagem,data_contagem,conferente_id,conferentes(nome),codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_repeticao'
-    /** Sem `origem` no SELECT (coluna inexistente no banco) — mantém repetição e nº para agrupar a prévia. */
-    const previewSelectSemOrigem =
-      'id,data_hora_contagem,data_contagem,conferente_id,conferentes(nome),codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_repeticao,inventario_numero_contagem'
-    const previewSelectSemOrigemSemNc =
-      'id,data_hora_contagem,data_contagem,conferente_id,conferentes(nome),codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_repeticao'
-    /** Sem repetição (último fallback antes do legado mínimo). */
-    const previewSelectSemOrigemSemRepSemNc =
-      'id,data_hora_contagem,data_contagem,conferente_id,conferentes(nome),codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_numero_contagem'
-    const previewSelectSemRepSemNcComOrigem =
-      'id,data_hora_contagem,data_contagem,conferente_id,conferentes(nome),codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_numero_contagem'
-    /** Mesmas colunas do “completo”, sem join em `conferentes` (RLS/embed quebra o SELECT inteiro). */
-    const previewSelectFlatFullLegacy =
-      'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_repeticao,inventario_numero_contagem'
-    const previewSelectFlatFullBase = `${previewSelectFlatFullLegacy},finalizacao_sessao_id`
-    const previewSelectFlatFull = `${previewSelectFlatFullBase},contagem_rascunho`
-    const previewSelectFlatSemNc =
-      'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_repeticao'
-    const previewSelectFlatSemOrigemSemNc =
-      'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_repeticao'
-    /** `contagens_inventario` não tem coluna `origem` (só `contagens_estoque`). */
-    const previewSelectInventarioFullLegacy = previewSelectSemOrigem
-    const previewSelectInventarioFullBase = `${previewSelectSemOrigem},finalizacao_sessao_id`
-    const previewSelectInventarioFull = `${previewSelectInventarioFullBase},contagem_rascunho`
-    const previewSelectFlatInventarioFullLegacy =
-      'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_repeticao,inventario_numero_contagem'
-    const previewSelectFlatInventarioFullBase = `${previewSelectFlatInventarioFullLegacy},finalizacao_sessao_id`
-    const previewSelectFlatInventarioFull = `${previewSelectFlatInventarioFullBase},contagem_rascunho`
-
-    let previewOrigemAusenteNoResultado = inventario
+    let absentCols = readAbsentPreviewColumns(inventario)
+    let previewOrigemAusenteNoResultado = inventario || absentCols.has('origem')
 
     /** Páginas de no máx. 1000 linhas — acima disso a API do Supabase (max_rows) costuma responder 400. */
     const PREVIEW_PAGE_SIZE = 1000
@@ -2238,129 +2247,28 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       return { data: acc, error: null }
     }
 
-    /** Sem embed `conferentes(nome)` — nomes vêm de `fetchConferentesNomesPorIds` abaixo. */
-    const pickFlatPreviewSelect = (hasSess: boolean, hasRasc: boolean) => {
-      if (inventario) {
-        if (hasSess && hasRasc) return previewSelectFlatInventarioFull
-        if (hasSess) return previewSelectFlatInventarioFullBase
-        return previewSelectFlatInventarioFullLegacy
-      }
-      if (hasSess && hasRasc) return previewSelectFlatFull
-      if (hasSess) return previewSelectFlatFullBase
-      return previewSelectFlatFullLegacy
-    }
+    let selectStr = buildPreviewSelect(inventario, absentCols)
+    let { data, error } = await queryPreview(selectStr)
 
-    let previewSelectInitial = pickFlatPreviewSelect(
-      contagensHasFinalizacaoSessaoIdRef.current,
-      contagensHasContagemRascunhoRef.current,
-    )
-    let { data, error } = await queryPreview(previewSelectInitial)
-
-    if (error && isMissingDbColumnError(error, 'finalizacao_sessao_id')) {
-      contagensHasFinalizacaoSessaoIdRef.current = false
-      markPreviewColumnAbsent(inventario, 'finalizacaoSessaoId')
-      const rSess = await queryPreview(
-        pickFlatPreviewSelect(false, contagensHasContagemRascunhoRef.current),
-      )
-      data = rSess.data
-      error = rSess.error
-    }
-
-    if (error && isMissingDbColumnError(error, 'contagem_rascunho')) {
-      contagensHasContagemRascunhoRef.current = false
-      markPreviewColumnAbsent(inventario, 'contagemRascunho')
-      const rR = await queryPreview(
-        pickFlatPreviewSelect(contagensHasFinalizacaoSessaoIdRef.current, false),
-      )
-      data = rR.data
-      error = rR.error
-    }
-
-    if (error && isMissingDbColumnError(error, 'origem')) {
-      previewOrigemAusenteNoResultado = true
-      const r = await queryPreview(previewSelectFlatInventarioFullLegacy)
-      data = r.data
-      error = r.error
-    }
-
-    if (error && isMissingDbColumnError(error, 'inventario_numero_contagem')) {
-      const sel = previewOrigemAusenteNoResultado ? previewSelectFlatSemOrigemSemNc : previewSelectFlatSemNc
-      const rNc = await queryPreview(sel)
-      data = rNc.data
-      error = rNc.error
-    }
-
-    /** Ex.: SELECT completo falhou por `inventario_numero_contagem`; o retry com `semNc` ainda pedia `origem`. */
-    if (error && isMissingDbColumnError(error, 'origem') && !previewOrigemAusenteNoResultado) {
-      previewOrigemAusenteNoResultado = true
-      const rO = await queryPreview(previewSelectFlatSemOrigemSemNc)
-      data = rO.data
-      error = rO.error
-    }
-
-    if (error && isMissingDbColumnError(error, 'inventario_repeticao')) {
-      const sel = previewOrigemAusenteNoResultado
-        ? 'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_numero_contagem'
-        : 'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_numero_contagem'
-      const rRep = await queryPreview(sel)
-      data = rRep.data
-      error = rRep.error
-    }
-
-    /** Fallback genérico (colunas opcionais / embed legado). */
-    if (error) {
-      let rFlat = await queryPreview(
-        pickFlatPreviewSelect(
-          contagensHasFinalizacaoSessaoIdRef.current,
-          contagensHasContagemRascunhoRef.current,
-        ),
-      )
-      if (rFlat.error && isMissingDbColumnError(rFlat.error, 'finalizacao_sessao_id')) {
-        contagensHasFinalizacaoSessaoIdRef.current = false
-        markPreviewColumnAbsent(inventario, 'finalizacaoSessaoId')
-        rFlat = await queryPreview(
-          pickFlatPreviewSelect(false, contagensHasContagemRascunhoRef.current),
-        )
-      } else if (rFlat.error && isMissingDbColumnError(rFlat.error, 'contagem_rascunho')) {
-        contagensHasContagemRascunhoRef.current = false
-        markPreviewColumnAbsent(inventario, 'contagemRascunho')
-        rFlat = await queryPreview(
-          pickFlatPreviewSelect(contagensHasFinalizacaoSessaoIdRef.current, false),
-        )
-      }
-      if (!rFlat.error) {
-        data = rFlat.data
-        error = null
-        previewOrigemAusenteNoResultado = inventario
-      }
-    }
-    if (error) {
-      const sel = previewOrigemAusenteNoResultado ? previewSelectFlatSemOrigemSemNc : previewSelectFlatSemNc
-      const rFlat2 = await queryPreview(sel)
-      if (!rFlat2.error) {
-        data = rFlat2.data
-        error = null
-        previewOrigemAusenteNoResultado = sel === previewSelectFlatSemOrigemSemNc
-      }
+    for (let attempt = 0; attempt < 12 && error && isColumnMissingError(error); attempt++) {
+      const col = parseMissingColumnFromError(error)
+      if (!col || absentCols.has(col)) break
+      absentCols.add(col)
+      if (col === 'origem') previewOrigemAusenteNoResultado = true
+      persistAbsentPreviewColumns(inventario, absentCols)
+      selectStr = buildPreviewSelect(inventario, absentCols)
+      const retry = await queryPreview(selectStr)
+      data = retry.data
+      error = retry.error
     }
 
     if (error) {
-      const legacySelect =
-        'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64'
-      const leg = await queryPreview(legacySelect)
-      if (leg.error) {
-        setSaveError(`Erro ao carregar prévia: ${leg.error.message}`)
-        return
-      }
-      data = leg.data
-      error = null
-      previewOrigemAusenteNoResultado = true
+      setSaveError(`Erro ao carregar prévia: ${formatUnknownError(error)}`)
+      return
     }
+    setSaveError('')
 
-    if (!error) {
-      setSaveError('')
-
-      let planilhaContagemIds = new Set<string>()
+    let planilhaContagemIds = new Set<string>()
       if (inventario) {
         try {
           const { data: plData } = await supabase
@@ -2552,7 +2460,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
         }, 0)
       }
-    }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       if (!silent) setSaveError(`Erro ao carregar prévia: ${msg}`)
