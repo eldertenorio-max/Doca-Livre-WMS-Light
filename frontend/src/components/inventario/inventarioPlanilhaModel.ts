@@ -132,6 +132,33 @@ export function planilhaLinhaTotalmentePreenchida(it: OfflineChecklistItem): boo
 
 export type PlanilhaRepeticao = 1 | 2 | 3
 
+/** Repetição física (1ª–3ª) a partir do índice da linha na aba. */
+export function planilhaRepeticaoFromOrdemNaAba(
+  ordem: number,
+  pos: number,
+  nivel: number,
+): PlanilhaRepeticao | null {
+  const base = planilhaOrdemFromPosNivel(pos, nivel, 1)
+  const rep = ordem - base + 1
+  if (rep >= 1 && rep <= INVENTARIO_PLANILHA_REPETICOES_POR_NIVEL) return rep as PlanilhaRepeticao
+  return null
+}
+
+/** Linha da planilha que corresponde ao endereço + repetição escolhidos no seletor. */
+export function isPlanilhaItemLinhaSelecionada(
+  it: OfflineChecklistItem,
+  grupo: number,
+  pos: number,
+  nivel: number,
+  repeticao: PlanilhaRepeticao,
+): boolean {
+  if (it.armazem_grupo !== grupo || it.planilha_ordem_na_aba == null) return false
+  const pn = inventarioPlanilhaPosNivelFromIndex(it.planilha_ordem_na_aba)
+  if (pn.pos !== pos || pn.nivel !== nivel) return false
+  const rep = planilhaRepeticaoFromOrdemNaAba(it.planilha_ordem_na_aba, pn.pos, pn.nivel)
+  return rep === repeticao
+}
+
 /** Retorna as 3 repetições do POS/NÍVEL na ordem (1ª, 2ª, 3ª). */
 export function planilhaSlotsAtPosNivel(
   items: OfflineChecklistItem[],
@@ -335,9 +362,8 @@ export function inventarioPlanilhaRepeticaoFromItem(
   }
   if (it.planilha_ordem_na_aba != null && Number.isFinite(it.planilha_ordem_na_aba)) {
     const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(it.planilha_ordem_na_aba)
-    const base = planilhaOrdemFromPosNivel(pos, nivel, 1)
-    const rep = it.planilha_ordem_na_aba - base + 1
-    if (rep >= 1 && rep <= 3) return rep as 1 | 2 | 3
+    const rep = planilhaRepeticaoFromOrdemNaAba(it.planilha_ordem_na_aba, pos, nivel)
+    if (rep != null) return rep
   }
   return null
 }

@@ -2019,6 +2019,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         }
         if (codeFinal) {
           aplicarCatalogoPorCodigoPlanilha(target.key, codeFinal)
+          clearPlanilhaDuplicatasIrmas(target, codeFinal)
         }
         idx = offlineSession.items.findIndex((it) => it.key === target.key)
       } else if (inventario) {
@@ -2987,23 +2988,29 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       bloqueioPendingActionRef.current = () => updateOfflineItemQty(key, quantidade, { skipBloqueioGuard: true })
       return
     }
+    const { editKey, redirected } = resolvePlanilhaEditKey(key)
     const trimmed = String(quantidade ?? '').trim()
-    if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(key)
-    else checklistContagemBancoDirtyKeysRef.current.add(key)
+    if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(editKey)
+    else checklistContagemBancoDirtyKeysRef.current.add(editKey)
+    if (redirected && key !== editKey) checklistContagemBancoDirtyKeysRef.current.delete(key)
     setOfflineSession((prev) => {
       if (!prev || prev.status !== 'aberta') return prev
       const trimmed = String(quantidade ?? '').trim()
       const next = {
         ...prev,
-        items: prev.items.map((it) =>
-          it.key === key
-            ? {
-                ...it,
-                quantidade_contada: quantidade,
-                quantidade_local_dirty: trimmed !== '',
-              }
-            : it,
-        ),
+        items: prev.items.map((it) => {
+          if (it.key === editKey) {
+            return {
+              ...it,
+              quantidade_contada: quantidade,
+              quantidade_local_dirty: trimmed !== '',
+            }
+          }
+          if (redirected && it.key === key) {
+            return { ...it, ...planilhaLinhaVaziaPatch }
+          }
+          return it
+        }),
       }
       saveOfflineSession(next, sessionMode)
       if (
@@ -3011,13 +3018,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         isPlanilhaListMode(prev.listMode) &&
         String(quantidade ?? '').trim() !== ''
       ) {
-        queueMicrotask(() => syncPlanilhaSeletorAposEdicaoItem(key, next.items))
+        queueMicrotask(() => syncPlanilhaSeletorAposEdicaoItem(editKey, next.items))
       }
       return next
     })
-    schedulePendentesGrace(key, quantidade)
-    flashChecklistRowSaved(key)
-    scheduleContagemDiariaRascunhoPersist(key)
+    schedulePendentesGrace(editKey, quantidade)
+    flashChecklistRowSaved(editKey)
+    scheduleContagemDiariaRascunhoPersist(editKey)
   }
 
   function handleLimparQuantidadeOffline(key: string) {
@@ -3040,20 +3047,27 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         | 'dun'
         | 'data_fabricacao'
         | 'data_validade'
+        | 'inventario_repeticao'
+        | 'quantidade_local_dirty'
       >
     >,
-    opts?: { skipBloqueioGuard?: boolean },
+    opts?: { skipBloqueioGuard?: boolean; skipPlanilhaRedirect?: boolean },
   ) {
     if (!opts?.skipBloqueioGuard && checklistEdicaoBloqueada) {
       setBloqueioContagemDiariaModalOpen(true)
       bloqueioResolverRef.current = null
-      bloqueioPendingActionRef.current = () => updateOfflineItemFields(key, patch, { skipBloqueioGuard: true })
+      bloqueioPendingActionRef.current = () =>
+        updateOfflineItemFields(key, patch, { ...opts, skipBloqueioGuard: true })
       return
     }
+    const { editKey, redirected } = opts?.skipPlanilhaRedirect
+      ? { editKey: key, redirected: false }
+      : resolvePlanilhaEditKey(key)
     if ('quantidade_contada' in patch) {
       const trimmed = String(patch.quantidade_contada ?? '').trim()
-      if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(key)
-      else checklistContagemBancoDirtyKeysRef.current.add(key)
+      if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(editKey)
+      else checklistContagemBancoDirtyKeysRef.current.add(editKey)
+      if (redirected && key !== editKey) checklistContagemBancoDirtyKeysRef.current.delete(key)
     }
     setOfflineSession((prev) => {
       if (!prev || prev.status !== 'aberta') return prev
@@ -3061,13 +3075,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         'quantidade_contada' in patch ? String(patch.quantidade_contada ?? '').trim() !== '' : undefined
       const next = {
         ...prev,
-        items: prev.items.map((it) =>
-          it.key === key
-            ? nextQtyDirty === undefined
+        items: prev.items.map((it) => {
+          if (it.key === editKey) {
+            return nextQtyDirty === undefined
               ? { ...it, ...patch }
               : { ...it, ...patch, quantidade_local_dirty: nextQtyDirty }
-            : it,
-        ),
+          }
+          if (redirected && it.key === key) {
+            return { ...it, ...planilhaLinhaVaziaPatch }
+          }
+          return it
+        }),
       }
       saveOfflineSession(next, sessionMode)
       if (
@@ -3075,14 +3093,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         isPlanilhaListMode(prev.listMode) &&
         ('codigo_interno' in patch || 'quantidade_contada' in patch)
       ) {
-        queueMicrotask(() => syncPlanilhaSeletorAposEdicaoItem(key, next.items))
+        queueMicrotask(() => syncPlanilhaSeletorAposEdicaoItem(editKey, next.items))
       }
       return next
     })
     if ('quantidade_contada' in patch) {
-      schedulePendentesGrace(key, String(patch.quantidade_contada ?? ''))
+      schedulePendentesGrace(editKey, String(patch.quantidade_contada ?? ''))
     }
-    flashChecklistRowSaved(key)
+    flashChecklistRowSaved(editKey)
     const syncKeys: (keyof OfflineChecklistItem)[] = [
       'quantidade_contada',
       'up_quantidade',
@@ -3093,7 +3111,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       'ean',
       'dun',
     ]
-    if (syncKeys.some((k) => k in patch)) scheduleContagemDiariaRascunhoPersist(key)
+    if (syncKeys.some((k) => k in patch)) scheduleContagemDiariaRascunhoPersist(editKey)
   }
 
   function handleToggleChecklistCollapse() {
@@ -3249,28 +3267,71 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     )
   }
 
-  function clearPlanilhaLinhaCamposProduto(key: string) {
-    updateOfflineItemFields(key, {
-      codigo_interno: '',
-      descricao: '',
-      unidade_medida: null,
-      ean: null,
-      dun: null,
-      data_fabricacao: '',
-      data_validade: '',
+  function isPlanilhaModoAtivo(): boolean {
+    const s = offlineSessionRef.current
+    return !!(inventario && s && s.status === 'aberta' && isPlanilhaListMode(s.listMode))
+  }
+
+  /** Gravações na planilha vão sempre para a linha do seletor RUA/POS/NÍVEL/repetição. */
+  function resolvePlanilhaEditKey(key: string): { editKey: string; redirected: boolean } {
+    if (!isPlanilhaModoAtivo()) return { editKey: key, redirected: false }
+    const target = getPlanilhaTargetFromEndereco()
+    if (!target) return { editKey: key, redirected: false }
+    return { editKey: target.key, redirected: target.key !== key }
+  }
+
+  const planilhaLinhaVaziaPatch: Partial<OfflineChecklistItem> = {
+    codigo_interno: '',
+    descricao: '',
+    unidade_medida: null,
+    ean: null,
+    dun: null,
+    data_fabricacao: '',
+    data_validade: '',
+    quantidade_contada: '',
+    quantidade_local_dirty: false,
+    lote: '',
+    observacao: '',
+    up_quantidade: '',
+  }
+
+  function clearPlanilhaDuplicatasIrmas(target: OfflineChecklistItem, codigo: string) {
+    const c = String(codigo ?? '').trim()
+    if (!c) return
+    const s = offlineSessionRef.current
+    if (!s || target.armazem_grupo == null || target.planilha_ordem_na_aba == null) return
+    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(target.planilha_ordem_na_aba)
+    const irmaos = planilhaSlotsAtPosNivel(s.items, target.armazem_grupo, pos, nivel)
+    const keysLimpar = irmaos
+      .filter((sl) => sl.key !== target.key && codigoInternoIguais(sl.codigo_interno, c))
+      .map((sl) => sl.key)
+    if (keysLimpar.length === 0) return
+    setOfflineSession((prev) => {
+      if (!prev || prev.status !== 'aberta') return prev
+      const limpar = new Set(keysLimpar)
+      const next = {
+        ...prev,
+        items: prev.items.map((it) => (limpar.has(it.key) ? { ...it, ...planilhaLinhaVaziaPatch } : it)),
+      }
+      saveOfflineSession(next, sessionMode)
+      return next
     })
+  }
+
+  function clearPlanilhaLinhaCamposProduto(key: string) {
+    updateOfflineItemFields(key, planilhaLinhaVaziaPatch, { skipPlanilhaRedirect: true })
   }
 
   function handlePlanilhaCodigoBlur(key: string, codigo: string) {
     const c = String(codigo ?? '').trim()
-    const s = offlineSessionRef.current
-    if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) {
+    if (!isPlanilhaModoAtivo()) {
       aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
     const target = getPlanilhaTargetFromEndereco()
     if (!target) {
-      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      setProdutoError('Selecione RUA, POS, NÍVEL e linha (1ª–3ª) no seletor acima.')
+      if (c) clearPlanilhaLinhaCamposProduto(key)
       return
     }
     if (!c) {
@@ -3291,9 +3352,15 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (shouldSkipPlanilhaBipBurst(c)) return
     if (key !== target.key) clearPlanilhaLinhaCamposProduto(key)
     aplicarCatalogoPorCodigoPlanilha(target.key, c)
-    updateOfflineItemFields(target.key, { inventario_repeticao: inventarioPlanilhaRepeticao })
+    updateOfflineItemFields(
+      target.key,
+      { inventario_repeticao: inventarioPlanilhaRepeticao },
+      { skipPlanilhaRedirect: true },
+    )
+    clearPlanilhaDuplicatasIrmas(target, c)
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(c)
+    setProdutoError('')
   }
 
   function getInventarioPlanilhaGrupoSelecionado(): number | null {
@@ -3336,7 +3403,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       return false
     }
     aplicarCatalogoPorCodigoPlanilha(target.key, c)
-    updateOfflineItemFields(target.key, { inventario_repeticao: inventarioPlanilhaRepeticao })
+    updateOfflineItemFields(
+      target.key,
+      { inventario_repeticao: inventarioPlanilhaRepeticao },
+      { skipPlanilhaRedirect: true },
+    )
+    clearPlanilhaDuplicatasIrmas(target, c)
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(c)
     setProdutoError('')
@@ -3384,7 +3456,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (target.key !== rowKey) clearPlanilhaLinhaCamposProduto(rowKey)
 
     aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
-    updateOfflineItemFields(target.key, { inventario_repeticao: inventarioPlanilhaRepeticao })
+    updateOfflineItemFields(
+      target.key,
+      { inventario_repeticao: inventarioPlanilhaRepeticao },
+      { skipPlanilhaRedirect: true },
+    )
+    clearPlanilhaDuplicatasIrmas(target, codigo)
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(codigo)
     setProdutoError('')
@@ -4961,6 +5038,31 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     return getGrupoArmazemFromCamaraRua(cam, inventarioPlanilhaRua)
   }, [checklistPageSafe, inventarioPlanilhaRua])
 
+  const planilhaEnderecoAtivo = useMemo(() => {
+    if (
+      !inventario ||
+      offlineSession?.status !== 'aberta' ||
+      !isPlanilhaListMode(offlineSession.listMode) ||
+      inventarioPlanilhaGrupoAtual == null
+    ) {
+      return null
+    }
+    return {
+      grupo: inventarioPlanilhaGrupoAtual,
+      pos: inventarioPlanilhaPos,
+      nivel: inventarioPlanilhaNivel,
+      repeticao: inventarioPlanilhaRepeticao,
+    }
+  }, [
+    inventario,
+    offlineSession?.status,
+    offlineSession?.listMode,
+    inventarioPlanilhaGrupoAtual,
+    inventarioPlanilhaPos,
+    inventarioPlanilhaNivel,
+    inventarioPlanilhaRepeticao,
+  ])
+
   const planilhaRepeticoesPreenchidasAtual = useMemo(() => {
     if (
       !offlineSession ||
@@ -5871,8 +5973,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                           key={it.key}
                           style={{
                             border: datasOrdemInvalida ? '1px solid #c62828' : '1px solid var(--border, #ccc)',
-                            borderRadius: 8,
-                            padding: 10,
+                            borderRadius: 10,
+                            padding: 12,
                             minWidth: 0,
                             maxWidth: '100%',
                             background: datasOrdemInvalida ? 'rgba(198, 40, 40, 0.12)' : undefined,
@@ -5881,7 +5983,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                           {isEditing && checklistEditDraft ? (
                             <>
                               <div style={{ display: 'grid', gap: 8 }}>
-                                <label style={{ ...labelStyle }}>
+                                <label style={mobileChecklistLabelStyle}>
                                   Código do produto
                                   <input
                                     value={checklistEditDraft.codigo_interno}
@@ -5890,10 +5992,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                         d ? { ...d, codigo_interno: e.target.value } : d,
                                       )
                                     }
-                                    style={{ ...inputStyle, minWidth: 0, padding: '8px 10px', fontSize: 13 }}
+                                    style={mobileChecklistInputStyle}
                                   />
                                 </label>
-                                <label style={{ ...labelStyle }}>
+                                <label style={mobileChecklistLabelStyle}>
                                   Descrição
                                   <textarea
                                     value={checklistEditDraft.descricao}
@@ -5903,12 +6005,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       )
                                     }
                                     rows={2}
-                                    style={{ ...inputStyle, resize: 'vertical', minHeight: 42, padding: '8px 10px', fontSize: 13 }}
+                                    style={{ ...mobileChecklistInputStyle, resize: 'vertical', minHeight: 56 }}
                                   />
                                 </label>
-                                <label style={{ ...labelStyle }}>
+                                <label style={mobileChecklistLabelStyle}>
                                   Quantidade contada
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={mobileChecklistQtyRowStyle}>
                                     <input
                                       type="text"
                                       inputMode="decimal"
@@ -5919,11 +6021,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                         )
                                       }
                                       {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                                      style={{ ...inputStyle, flex: 1, minWidth: 0, padding: '8px 10px', fontSize: 13 }}
+                                      style={mobileChecklistInputStyle}
                                       placeholder="—"
                                     />
                                     <ChecklistQtyCalcButton
-                                      buttonStyle={buttonStyle}
+                                      buttonStyle={{ ...buttonStyle, alignSelf: 'stretch', minHeight: 44 }}
                                       onClick={() =>
                                         openChecklistQtyCalculator(
                                           (v) =>
@@ -5936,17 +6038,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                   </div>
                                 </label>
                               </div>
-                              <div style={{ marginTop: 8, display: 'grid', gap: 8, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                              <div style={{ ...mobileChecklistActionsGrid, marginTop: 10 }}>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#0b5', fontSize: 12, padding: '8px 10px' }}
+                                  style={{ ...buttonStyle, background: '#0b5', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
                                   onClick={() => saveChecklistEdit()}
                                 >
                                   Salvar
                                 </button>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#666', fontSize: 12, padding: '8px 10px' }}
+                                  style={{ ...buttonStyle, background: '#666', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
                                   onClick={() => cancelChecklistEdit()}
                                 >
                                   Cancelar
@@ -6020,25 +6122,15 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                 </div>
                               ) : null}
 
-                              <div
-                                style={{
-                                  marginTop: 4,
-                                  display: 'grid',
-                                  gap: 4,
-                                  gridTemplateColumns:
-                                    inventario || showChecklistColumn('unidade')
-                                      ? 'minmax(0, 1.2fr) minmax(0, 0.8fr)'
-                                      : '1fr',
-                                }}
-                              >
-                                <label style={{ ...labelStyle, gap: 2 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', lineHeight: 1.1 }}>
+                              <div style={{ ...mobileChecklistFieldsGrid, marginTop: 8 }}>
+                                <label style={mobileChecklistLabelStyle}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', lineHeight: 1.2 }}>
                                     <span>Quantidade</span>
                                     {checklistSavedFlashKey === it.key ? (
-                                      <span style={{ fontSize: 10, color: '#0a0', fontWeight: 700 }}>Salvo</span>
+                                      <span style={{ fontSize: 11, color: '#0a0', fontWeight: 700 }}>Salvo</span>
                                     ) : null}
                                   </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={mobileChecklistQtyRowStyle}>
                                     <input
                                       type="text"
                                       inputMode="decimal"
@@ -6049,11 +6141,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       }
                                       onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
                                       {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                                      style={{ ...inputStyle, flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 10 }}
+                                      style={mobileChecklistInputStyle}
                                       placeholder="—"
                                     />
                                     <ChecklistQtyCalcButton
-                                      buttonStyle={buttonStyle}
+                                      buttonStyle={{ ...buttonStyle, alignSelf: 'stretch', minHeight: 44 }}
                                       onClick={() =>
                                         openChecklistQtyCalculator(
                                           (v) => updateOfflineItemQty(it.key, v),
@@ -6065,7 +6157,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                   </div>
                                 </label>
                                 {inventario || showChecklistColumn('unidade') ? (
-                                  <label style={{ ...labelStyle, gap: 2 }}>
+                                  <label style={mobileChecklistLabelStyle}>
                                     <span>Unidade</span>
                                     <input
                                       type="text"
@@ -6075,7 +6167,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                           unidade_medida: e.target.value.trim() === '' ? null : e.target.value,
                                         })
                                       }
-                                      style={{ ...inputStyle, padding: '4px 6px', fontSize: 10 }}
+                                      style={mobileChecklistInputStyle}
                                       placeholder="—"
                                     />
                                   </label>
@@ -6088,16 +6180,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                               showChecklistColumn('lote') ||
                               showChecklistColumn('up') ||
                               showChecklistColumn('observacao') ? (
-                                <div
-                                  style={{
-                                    marginTop: 6,
-                                    display: 'grid',
-                                    gap: 6,
-                                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                                  }}
-                                >
+                                <div style={{ ...mobileChecklistFieldsGrid, marginTop: 8 }}>
                                   {inventario || showChecklistColumn('data_fabricacao') ? (
-                                    <label style={{ ...labelStyle, gap: 4 }}>
+                                    <label style={mobileChecklistLabelStyle}>
                                       <span>Data de fabricação</span>
                                       <input
                                         type="date"
@@ -6108,54 +6193,54 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                             data_fabricacao: clampDataFabricacaoYmd(e.target.value),
                                           })
                                         }
-                                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
+                                        style={mobileChecklistInputStyle}
                                       />
                                     </label>
                                   ) : null}
                                   {inventario || showChecklistColumn('data_validade') ? (
-                                    <label style={{ ...labelStyle, gap: 4 }}>
+                                    <label style={mobileChecklistLabelStyle}>
                                       <span>Data de validade</span>
                                       <input
                                         type="date"
                                         value={it.data_validade ?? ''}
                                         onChange={(e) => updateOfflineItemFields(it.key, { data_validade: e.target.value })}
-                                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
+                                        style={mobileChecklistInputStyle}
                                       />
                                     </label>
                                   ) : null}
                                   {inventario || showChecklistColumn('lote') ? (
-                                    <label style={{ ...labelStyle, gap: 4 }}>
+                                    <label style={mobileChecklistLabelStyle}>
                                       <span>Lote</span>
                                       <input
                                         type="text"
                                         value={it.lote ?? ''}
                                         onChange={(e) => updateOfflineItemFields(it.key, { lote: e.target.value })}
-                                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
+                                        style={mobileChecklistInputStyle}
                                         placeholder="—"
                                       />
                                     </label>
                                   ) : null}
                                   {inventario || showChecklistColumn('up') ? (
-                                    <label style={{ ...labelStyle, gap: 4 }}>
+                                    <label style={mobileChecklistLabelStyle}>
                                       <span>UP</span>
                                       <input
                                         type="text"
                                         inputMode="decimal"
                                         value={it.up_quantidade ?? ''}
                                         onChange={(e) => updateOfflineItemFields(it.key, { up_quantidade: e.target.value })}
-                                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
+                                        style={mobileChecklistInputStyle}
                                         placeholder="—"
                                       />
                                     </label>
                                   ) : null}
                                   {inventario || showChecklistColumn('observacao') ? (
-                                    <label style={{ ...labelStyle, gap: 4, gridColumn: '1 / -1' }}>
+                                    <label style={mobileChecklistLabelStyle}>
                                       <span>Observação</span>
                                       <input
                                         type="text"
                                         value={it.observacao ?? ''}
                                         onChange={(e) => updateOfflineItemFields(it.key, { observacao: e.target.value })}
-                                        style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
+                                        style={mobileChecklistInputStyle}
                                         placeholder="—"
                                       />
                                     </label>
@@ -6163,17 +6248,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                 </div>
                               ) : null}
 
-                              <div style={{ marginTop: 6, display: 'grid', gap: 6, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                              <div style={{ ...mobileChecklistActionsGrid, marginTop: 10 }}>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#2a4d7a', fontSize: 11, padding: '6px 6px' }}
+                                  style={{ ...buttonStyle, background: '#2a4d7a', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
                                   onClick={() => openChecklistEdit(it)}
                                 >
                                   Editar
                                 </button>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#666', fontSize: 11, padding: '6px 6px' }}
+                                  style={{ ...buttonStyle, background: '#666', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
                                   onClick={() => handleLimparQuantidadeOffline(it.key)}
                                 >
                                   Limpar
@@ -6183,8 +6268,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                   style={{
                                     ...buttonStyle,
                                     background: hasPhoto ? '#0b5' : '#444',
-                                    fontSize: 11,
-                                    padding: '6px 6px',
+                                    fontSize: 14,
+                                    padding: '12px 10px',
+                                    minHeight: 44,
+                                    gridColumn: '1 / -1',
                                   }}
                                   onClick={() => openPhotoModalForCodigo(it.codigo_interno)}
                                   title={hasPhoto ? 'Ver/atualizar foto' : 'Anexar foto'}
@@ -6198,10 +6285,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                   style={{
                                     ...buttonStyle,
                                     background: '#a85a00',
-                                    fontSize: 11,
-                                    padding: '6px 8px',
+                                    fontSize: 14,
+                                    padding: '12px 10px',
+                                    minHeight: 44,
                                     width: '100%',
-                                    marginTop: 6,
+                                    marginTop: 8,
                                     boxSizing: 'border-box',
                                   }}
                                   onClick={() => removePhotoFromChecklistItem(it)}
@@ -6238,6 +6326,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       armazemContagem={armazemGrupoAtual?.contagem ?? null}
                       planilhaQtdContagemHeader={planilhaQtdContagemHeader}
                       inventarioNumeroContagemRodada={inventarioNumeroContagemRodada}
+                      planilhaEnderecoAtivo={planilhaEnderecoAtivo}
                       conferenteLabel={conferenteNomeSelecionado}
                       showChecklistColumn={showChecklistColumn}
                       thStyle={thStyle}
@@ -8214,6 +8303,42 @@ const inputStyle: React.CSSProperties = {
   borderRadius: 8,
   width: '100%',
   boxSizing: 'border-box',
+}
+
+/** Checklist em cards (mobile): uma coluna, inputs confortáveis para toque. */
+const mobileChecklistFieldsGrid: React.CSSProperties = {
+  display: 'grid',
+  gap: 10,
+  gridTemplateColumns: '1fr',
+}
+
+const mobileChecklistLabelStyle: React.CSSProperties = {
+  ...labelStyle,
+  gap: 6,
+  fontSize: 13,
+  minWidth: 0,
+}
+
+const mobileChecklistInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  width: '100%',
+  minWidth: 0,
+  padding: '10px 12px',
+  fontSize: 16,
+  minHeight: 44,
+}
+
+const mobileChecklistQtyRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  gap: 8,
+  alignItems: 'stretch',
+}
+
+const mobileChecklistActionsGrid: React.CSSProperties = {
+  display: 'grid',
+  gap: 8,
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
 }
 
 const buttonStyle: React.CSSProperties = {

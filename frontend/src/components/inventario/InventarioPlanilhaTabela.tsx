@@ -10,7 +10,15 @@ import {
   handleChecklistFieldNavKeyDown,
 } from '../../lib/checklistFieldNavigation'
 import { calcHistoryKeyForCodigo, ChecklistQtyCalcButton } from '../ChecklistCalculatorModal'
-import { getInventarioRuaArmazem, inventarioArmazemPosNivel, formatContagemLabel } from './inventarioPlanilhaModel'
+import {
+  getInventarioRuaArmazem,
+  inventarioArmazemPosNivel,
+  formatContagemLabel,
+  formatPlanilhaLinhaRelatorio,
+  isPlanilhaItemLinhaSelecionada,
+  planilhaRepeticaoFromOrdemNaAba,
+  type PlanilhaRepeticao,
+} from './inventarioPlanilhaModel'
 
 export type ChecklistEditDraft = {
   codigo_interno: string
@@ -48,6 +56,13 @@ export type InventarioPlanilhaTabelaProps = {
   conferenteLabel: string
   /** Rodada selecionada (1–4): exibida na coluna de contagem (somente leitura). */
   inventarioNumeroContagemRodada: 1 | 2 | 3 | 4
+  /** Endereço ativo no seletor (RUA/POS/NÍVEL/repetição): só essa linha aceita edição. */
+  planilhaEnderecoAtivo?: {
+    grupo: number
+    pos: number
+    nivel: number
+    repeticao: PlanilhaRepeticao
+  } | null
   /** Abre calculadora para inserir o resultado na quantidade da linha em edição / visualização. */
   openQtyCalculator?: (onApply: (value: string) => void, productHint?: string, historyStorageKey?: string) => void
 }
@@ -83,10 +98,12 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
     onPlanilhaRowBarcodeChange,
     conferenteLabel,
     inventarioNumeroContagemRodada,
+    planilhaEnderecoAtivo,
     openQtyCalculator,
   } = props
 
   const contagemRodadaLabel = formatContagemLabel(inventarioNumeroContagemRodada)
+  const planilhaModoEndereco = planilhaEnderecoAtivo != null && planilhaEnderecoAtivo.grupo > 0
 
   const ruaPlanilha = getInventarioRuaArmazem(armazemContagem)
 
@@ -151,6 +168,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
             <th style={thPlanilha}>RUA</th>
             <th style={thPlanilha}>POS</th>
             <th style={thPlanilha}>NIVEL</th>
+            {planilhaModoEndereco ? <th style={thPlanilha}>LINHA</th> : null}
             {showChecklistColumn('conferente') ? <th style={thPlanilha}>Conferente</th> : null}
             <th style={thPlanilha}>CÓDIGO</th>
             <th style={thPlanilha}>DESCRIÇÃO</th>
@@ -178,7 +196,29 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
             const isEditing = checklistEditingKey === it.key && checklistEditDraft
             const pn =
               armazemItemsSorted.length > 0 ? inventarioArmazemPosNivel(armazemItemsSorted, it) : { pos: 0, nivel: 0 }
+            const linhaRep =
+              it.planilha_ordem_na_aba != null
+                ? planilhaRepeticaoFromOrdemNaAba(it.planilha_ordem_na_aba, pn.pos, pn.nivel)
+                : null
+            const linhaLabel = formatPlanilhaLinhaRelatorio(linhaRep) || '—'
+            const isLinhaAtiva =
+              planilhaEnderecoAtivo != null &&
+              isPlanilhaItemLinhaSelecionada(
+                it,
+                planilhaEnderecoAtivo.grupo,
+                planilhaEnderecoAtivo.pos,
+                planilhaEnderecoAtivo.nivel,
+                planilhaEnderecoAtivo.repeticao,
+              )
+            const edicaoPlanilha = !planilhaModoEndereco || isLinhaAtiva
             const datasOrdemInvalida = isDatasProdutoContagemInvalidas(it.data_fabricacao, it.data_validade)
+            const trHighlight =
+              isLinhaAtiva && planilhaModoEndereco
+                ? {
+                    background: 'rgba(255, 235, 59, 0.14)',
+                    boxShadow: 'inset 0 0 0 2px rgba(255, 235, 59, 0.55)',
+                  }
+                : undefined
             return (
               <tr
                 key={it.key}
@@ -188,7 +228,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                         background: 'rgba(120, 20, 20, 0.42)',
                         boxShadow: 'inset 0 0 0 1px rgba(255, 120, 120, 0.5)',
                       }
-                    : undefined
+                    : trHighlight
                 }
               >
                 {isEditing && checklistEditDraft ? (
@@ -196,6 +236,9 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                     <td style={tdPlanilha}>{ruaPlanilha}</td>
                     <td style={tdPlanilha}>{pn.pos}</td>
                     <td style={tdPlanilha}>{pn.nivel}</td>
+                    {planilhaModoEndereco ? (
+                      <td style={{ ...tdPlanilha, fontWeight: isLinhaAtiva ? 700 : 400 }}>{linhaLabel}</td>
+                    ) : null}
                     {showChecklistColumn('conferente') ? (
                       <td style={{ ...tdPlanilha, maxWidth: 140 }} title="Conferente da sessão">
                         {conferenteLabel}
@@ -362,14 +405,24 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.ean ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            updateOfflineItemFields(it.key, {
-                              ean: v.trim() === '' ? null : v,
-                            })
-                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          readOnly={planilhaModoEndereco ? !edicaoPlanilha : false}
+                          onChange={
+                            !planilhaModoEndereco || edicaoPlanilha
+                              ? (e) => {
+                                  const v = e.target.value
+                                  updateOfflineItemFields(it.key, {
+                                    ean: v.trim() === '' ? null : v,
+                                  })
+                                  onPlanilhaRowBarcodeChange?.(it.key, v)
+                                }
+                              : undefined
+                          }
+                          style={{
+                            ...inputPlanilha,
+                            width: 130,
+                            minWidth: 100,
+                            opacity: !planilhaModoEndereco || edicaoPlanilha ? 1 : 0.65,
                           }}
-                          style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`EAN ${it.codigo_interno}`}
                         />
@@ -381,14 +434,24 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.dun ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            updateOfflineItemFields(it.key, {
-                              dun: v.trim() === '' ? null : v,
-                            })
-                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          readOnly={planilhaModoEndereco ? !edicaoPlanilha : false}
+                          onChange={
+                            !planilhaModoEndereco || edicaoPlanilha
+                              ? (e) => {
+                                  const v = e.target.value
+                                  updateOfflineItemFields(it.key, {
+                                    dun: v.trim() === '' ? null : v,
+                                  })
+                                  onPlanilhaRowBarcodeChange?.(it.key, v)
+                                }
+                              : undefined
+                          }
+                          style={{
+                            ...inputPlanilha,
+                            width: 130,
+                            minWidth: 100,
+                            opacity: !planilhaModoEndereco || edicaoPlanilha ? 1 : 0.65,
                           }}
-                          style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`DUN ${it.codigo_interno}`}
                         />
@@ -423,13 +486,16 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                     <td style={tdPlanilha}>{ruaPlanilha}</td>
                     <td style={tdPlanilha}>{pn.pos}</td>
                     <td style={tdPlanilha}>{pn.nivel}</td>
+                    {planilhaModoEndereco ? (
+                      <td style={{ ...tdPlanilha, fontWeight: isLinhaAtiva ? 700 : 400 }}>{linhaLabel}</td>
+                    ) : null}
                     {showChecklistColumn('conferente') ? (
                       <td style={{ ...tdPlanilha, maxWidth: 140 }} title="Conferente da sessão">
                         {conferenteLabel}
                       </td>
                     ) : null}
                     <td style={tdPlanilha}>
-                      {onPlanilhaCodigoBlur ? (
+                      {onPlanilhaCodigoBlur && edicaoPlanilha ? (
                         <input
                           key={`cod-${it.key}-${it.codigo_interno}`}
                           defaultValue={it.codigo_interno}
@@ -442,18 +508,11 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           aria-label="Código do produto"
                         />
                       ) : (
-                        <>
-                          {it.codigo_interno}
-                          {it.inventario_repeticao ? (
-                            <span style={{ marginLeft: 6, fontSize: 11, color: '#0a7', fontWeight: 700 }}>
-                              ({it.inventario_repeticao}ª)
-                            </span>
-                          ) : null}
-                        </>
+                        it.codigo_interno || '—'
                       )}
                     </td>
                     <td style={{ ...tdPlanilha, whiteSpace: 'normal', maxWidth: 420 }}>
-                      {onPlanilhaCodigoBlur ? (
+                      {onPlanilhaCodigoBlur && edicaoPlanilha ? (
                         <input
                           value={it.descricao}
                           onChange={(e) => updateOfflineItemFields(it.key, { descricao: e.target.value })}
@@ -462,7 +521,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           aria-label="Descrição do produto"
                         />
                       ) : (
-                        it.descricao
+                        it.descricao || '—'
                       )}
                     </td>
                     {showChecklistColumn('unidade') ? (
@@ -488,28 +547,34 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                         </td>
                         <td style={tdPlanilhaQtd}>
                           <div style={planilhaQtdCellWrap}>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={it.quantidade_contada ?? ''}
-                              onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
-                              {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                              style={inputPlanilhaQtdCell}
-                              placeholder="—"
-                              aria-label={`Quantidade ${it.codigo_interno}${it.inventario_repeticao ? ` ${it.inventario_repeticao}ª` : ''}`}
-                            />
-                            {openQtyCalculator ? (
-                              <ChecklistQtyCalcButton
-                                buttonStyle={buttonStyle}
-                                onClick={() =>
-                                  openQtyCalculator(
-                                    (v) => updateOfflineItemQty(it.key, v),
-                                    `${it.codigo_interno} — ${it.descricao}`,
-                                    calcHistoryKeyForCodigo(it.codigo_interno),
-                                  )
-                                }
-                              />
-                            ) : null}
+                            {edicaoPlanilha ? (
+                              <>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={it.quantidade_contada ?? ''}
+                                  onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
+                                  {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
+                                  style={inputPlanilhaQtdCell}
+                                  placeholder="—"
+                                  aria-label={`Quantidade ${it.codigo_interno}${it.inventario_repeticao ? ` ${it.inventario_repeticao}ª` : ''}`}
+                                />
+                                {openQtyCalculator ? (
+                                  <ChecklistQtyCalcButton
+                                    buttonStyle={buttonStyle}
+                                    onClick={() =>
+                                      openQtyCalculator(
+                                        (v) => updateOfflineItemQty(it.key, v),
+                                        `${it.codigo_interno} — ${it.descricao}`,
+                                        calcHistoryKeyForCodigo(it.codigo_interno),
+                                      )
+                                    }
+                                  />
+                                ) : null}
+                              </>
+                            ) : (
+                              <span>{it.quantidade_contada || '—'}</span>
+                            )}
                             {checklistSavedFlashKey === it.key ? (
                               <span
                                 style={{
@@ -605,14 +670,24 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.ean ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            updateOfflineItemFields(it.key, {
-                              ean: v.trim() === '' ? null : v,
-                            })
-                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          readOnly={planilhaModoEndereco ? !edicaoPlanilha : false}
+                          onChange={
+                            !planilhaModoEndereco || edicaoPlanilha
+                              ? (e) => {
+                                  const v = e.target.value
+                                  updateOfflineItemFields(it.key, {
+                                    ean: v.trim() === '' ? null : v,
+                                  })
+                                  onPlanilhaRowBarcodeChange?.(it.key, v)
+                                }
+                              : undefined
+                          }
+                          style={{
+                            ...inputPlanilha,
+                            width: 130,
+                            minWidth: 100,
+                            opacity: !planilhaModoEndereco || edicaoPlanilha ? 1 : 0.65,
                           }}
-                          style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`EAN ${it.codigo_interno}`}
                         />
@@ -624,14 +699,24 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                           type="text"
                           inputMode="numeric"
                           value={it.dun ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            updateOfflineItemFields(it.key, {
-                              dun: v.trim() === '' ? null : v,
-                            })
-                            onPlanilhaRowBarcodeChange?.(it.key, v)
+                          readOnly={planilhaModoEndereco ? !edicaoPlanilha : false}
+                          onChange={
+                            !planilhaModoEndereco || edicaoPlanilha
+                              ? (e) => {
+                                  const v = e.target.value
+                                  updateOfflineItemFields(it.key, {
+                                    dun: v.trim() === '' ? null : v,
+                                  })
+                                  onPlanilhaRowBarcodeChange?.(it.key, v)
+                                }
+                              : undefined
+                          }
+                          style={{
+                            ...inputPlanilha,
+                            width: 130,
+                            minWidth: 100,
+                            opacity: !planilhaModoEndereco || edicaoPlanilha ? 1 : 0.65,
                           }}
-                          style={{ ...inputPlanilha, width: 130, minWidth: 100 }}
                           placeholder="—"
                           aria-label={`DUN ${it.codigo_interno}`}
                         />
