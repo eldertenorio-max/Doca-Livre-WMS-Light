@@ -118,12 +118,20 @@ export default function App() {
     }
   }, [view])
 
-  /** Último modo de lista (contagem diária vs inventário): em todas as abas do painel só aparece o atalho desse modo. */
+  /** Último modo de lista (contagem diária vs inventário): relatório usa para escolher qual prefs de colunas. */
   const preferredChecklistView: 'contagem' | 'inventario' = readLastListWasInventario()
     ? 'inventario'
     : 'contagem'
-  const showContagemBtn = preferredChecklistView === 'contagem'
-  const showInventarioBtn = preferredChecklistView === 'inventario'
+  /** Mantém contagem e inventário montados após o primeiro acesso — não perde estado ao trocar aba. */
+  const [keepAliveListas, setKeepAliveListas] = useState(false)
+
+  useEffect(() => {
+    if (view === 'contagem' || view === 'inventario') {
+      setKeepAliveListas(true)
+    }
+  }, [view])
+
+  const listasKeepAlive = keepAliveListas || view === 'contagem' || view === 'inventario'
 
   if (!splashDone) {
     return <OpeningSplash onComplete={() => setSplashDone(true)} />
@@ -236,36 +244,30 @@ export default function App() {
               <NavIcon emoji="🏠" anim="pulse" />
               Início
             </button>
-            {showContagemBtn ? (
-              <button
-                type="button"
-                onClick={() => setView('contagem')}
-                style={viewNavBtnStyle(view === 'contagem', NAV_ACCENT.contagem)}
-              >
-                <NavIcon emoji="📋" anim="bounce" />
-                Contagem
-              </button>
-            ) : null}
-            {showContagemBtn ? (
-              <button
-                type="button"
-                onClick={() => setView('ambiental')}
-                style={viewNavBtnStyle(view === 'ambiental', NAV_ACCENT.ambiental)}
-              >
-                <NavIcon emoji="🌡️" anim="glow" />
-                Temp/Ocupação
-              </button>
-            ) : null}
-            {showInventarioBtn ? (
-              <button
-                type="button"
-                onClick={() => setView('inventario')}
-                style={viewNavBtnStyle(view === 'inventario', NAV_ACCENT.inventario)}
-              >
-                <NavIcon emoji="📦" anim="float" />
-                Inventário
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setView('contagem')}
+              style={viewNavBtnStyle(view === 'contagem', NAV_ACCENT.contagem)}
+            >
+              <NavIcon emoji="📋" anim="bounce" />
+              Contagem
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('ambiental')}
+              style={viewNavBtnStyle(view === 'ambiental', NAV_ACCENT.ambiental)}
+            >
+              <NavIcon emoji="🌡️" anim="glow" />
+              Temp/Ocupação
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('inventario')}
+              style={viewNavBtnStyle(view === 'inventario', NAV_ACCENT.inventario)}
+            >
+              <NavIcon emoji="📦" anim="float" />
+              Inventário
+            </button>
             <button
               type="button"
               onClick={() => setView('relatorio')}
@@ -318,17 +320,9 @@ export default function App() {
             ) : null}
           </header>
 
-          {view === 'contagem' ? (
-            <PanelErrorBoundary>
-              <ContagemEstoque key="contagem" />
-            </PanelErrorBoundary>
-          ) : view === 'ambiental' ? (
+          {view === 'ambiental' ? (
             <PanelErrorBoundary>
               <ContagemDiariaAmbiental key="ambiental" />
-            </PanelErrorBoundary>
-          ) : view === 'inventario' ? (
-            <PanelErrorBoundary>
-              <ContagemEstoque key="inventario" inventario />
             </PanelErrorBoundary>
           ) : view === 'baseDados' ? (
             <BaseProdutos key="baseDados" />
@@ -343,16 +337,30 @@ export default function App() {
               listColumnPrefsInventario={preferredChecklistView === 'inventario'}
               lockListColumnMode
             />
-          ) : (
+          ) : view === 'todas' ? (
             <RelatorioContagem
               key={preferredChecklistView === 'inventario' ? 'todas-inventario' : 'todas-contagem'}
               mode="dia"
               listColumnPrefsInventario={preferredChecklistView === 'inventario'}
               lockListColumnMode
             />
-          )}
+          ) : null}
         </>
       )}
+      {listasKeepAlive ? (
+        <>
+          <div style={{ display: view === 'contagem' ? 'block' : 'none' }}>
+            <PanelErrorBoundary>
+              <ContagemEstoque key="contagem" />
+            </PanelErrorBoundary>
+          </div>
+          <div style={{ display: view === 'inventario' ? 'block' : 'none' }}>
+            <PanelErrorBoundary>
+              <ContagemEstoque key="inventario" inventario />
+            </PanelErrorBoundary>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

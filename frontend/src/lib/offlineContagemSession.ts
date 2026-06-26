@@ -97,6 +97,18 @@ export type OfflineSession = {
    * (sincronização em tempo real); removidas ao finalizar.
    */
   contagem_diaria_rascunho_sessao_id?: string
+  /** Posição na UI (aba, página, RUA/POS) para retomar ao trocar de tela no painel. */
+  ui?: OfflineSessionUiState
+}
+
+export type OfflineSessionUiState = {
+  checklistPage?: number
+  planilhaTabelaPage?: number
+  inventarioPlanilhaRua?: string
+  inventarioPlanilhaPos?: number
+  inventarioPlanilhaNivel?: number
+  inventarioPlanilhaRepeticao?: 1 | 2 | 3
+  checklistShowAll?: boolean
 }
 
 

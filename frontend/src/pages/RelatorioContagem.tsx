@@ -15,7 +15,12 @@ import {
   type ConferenteDetalheGrupo,
   type ModoListagemContagem,
 } from '../lib/contagemListagemCompat'
-import { formatContagemLabel, inventarioCamaraLabelFromGrupo } from '../components/inventario/inventarioPlanilhaModel'
+import {
+  formatContagemLabel,
+  formatPlanilhaLinhaRelatorio,
+  inventarioCamaraLabelFromGrupo,
+  inventarioPlanilhaRepeticaoFromItem,
+} from '../components/inventario/inventarioPlanilhaModel'
 import { deleteInventarioPlanilhaLinhasForContagensIds } from '../lib/inventarioPlanilhaLinhasDelete'
 import { isVencimentoAntesFabricacao } from '../lib/contagemDatasValidacao'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
@@ -60,6 +65,7 @@ type ContagemRow = {
   planilha_rua?: string | null
   planilha_posicao?: number | null
   planilha_nivel?: number | null
+  planilha_ordem_na_aba?: number | null
   /** Contagem diária agrupada: quantidade por conferente (mesma regra da prévia). */
   preview_conferentes_detalhe?: ConferenteDetalheGrupo[]
   /** true = sincronização em andamento (excluir do relatório oficial). */
@@ -175,8 +181,8 @@ function isColumnMissingErrorRel(e: unknown): boolean {
 
 const TABELA_PRODUTOS_REL = 'Todos os Produtos'
 
-/** Com modo Inventário: Câmara, Rua, POS, Nível, Contagem (rodada), Conferente (6). Contagem diária: só Conferente (1). */
-const RELATORIO_COLS_PLANILHA_LOCAL = 6
+/** Com modo Inventário: Câmara, Rua, POS, Nível, Linha, Contagem (rodada), Conferente (7). Contagem diária: só Conferente (1). */
+const RELATORIO_COLS_PLANILHA_LOCAL = 7
 
 function conferenteNomeRelatorio(r: ContagemRow): string {
   const c = r.conferentes
@@ -444,7 +450,11 @@ export default function RelatorioContagem({
   const showExportExcel = mode === 'periodo'
 
   const listColPrefs = useMemo(() => loadChecklistVisibleColsFromStorage(useInventarioCols), [useInventarioCols])
-  const prevCol = (id: string) => listColPrefs[id] !== false
+  /** Inventário: relatório e Excel sempre com todas as colunas de dados (independente do painel de colunas da checklist). */
+  const prevCol = (id: string) => {
+    if (useInventarioCols && id !== 'acoes') return true
+    return listColPrefs[id] !== false
+  }
   const relatorioListaColCount = useMemo(
     () =>
       (useInventarioCols ? RELATORIO_COLS_PLANILHA_LOCAL : 1) +
@@ -462,7 +472,7 @@ export default function RelatorioContagem({
         'dun',
         'foto',
         'acoes',
-      ].filter((id) => listColPrefs[id] !== false).length,
+      ].filter((id) => prevCol(id)).length,
     [listColPrefs, useInventarioCols],
   )
 
@@ -683,6 +693,8 @@ export default function RelatorioContagem({
       origem,
       inventario_repeticao,
       inventario_numero_contagem,
+      planilha_grupo_armazem,
+      planilha_ordem_na_aba,
       contagem_rascunho
     `
     const selectCompleto = `
@@ -708,6 +720,8 @@ export default function RelatorioContagem({
       origem,
       inventario_repeticao,
       inventario_numero_contagem,
+      planilha_grupo_armazem,
+      planilha_ordem_na_aba,
       contagem_rascunho
     `
     const selectCompletoCompact = selectCompleto.replace(/\s+/g, '')
@@ -751,6 +765,8 @@ export default function RelatorioContagem({
       origem,
       inventario_repeticao,
       inventario_numero_contagem,
+      planilha_grupo_armazem,
+      planilha_ordem_na_aba,
       contagem_rascunho
     `
     const selectFlatCompleto = `
@@ -775,6 +791,8 @@ export default function RelatorioContagem({
       origem,
       inventario_repeticao,
       inventario_numero_contagem,
+      planilha_grupo_armazem,
+      planilha_ordem_na_aba,
       contagem_rascunho
     `
     const selectFlatCompletoCompact = selectFlatCompleto.replace(/\s+/g, '')
@@ -1654,7 +1672,7 @@ export default function RelatorioContagem({
   function buildRelatorioExcelAoa(rowsToExport: ContagemRow[]): (string | number)[][] {
     const header: (string | number)[] = []
     if (useInventarioCols) {
-      header.push('Câmara', 'Rua', 'POS', 'Nível', 'Contagem')
+      header.push('Câmara', 'Rua', 'POS', 'Nível', 'Linha', 'Rodada')
     }
     header.push('Conferente')
     if (!useInventarioCols) header.push('Data da contagem')
@@ -1681,6 +1699,7 @@ export default function RelatorioContagem({
           r.planilha_posicao != null && Number.isFinite(Number(r.planilha_posicao)) ? Number(r.planilha_posicao) : '',
         )
         row.push(r.planilha_nivel != null && Number.isFinite(Number(r.planilha_nivel)) ? Number(r.planilha_nivel) : '')
+        row.push(formatPlanilhaLinhaRelatorio(inventarioPlanilhaRepeticaoFromItem(r)))
         row.push(formatRodadaRelatorioCell(r.inventario_numero_contagem))
       }
       {
@@ -2585,7 +2604,8 @@ export default function RelatorioContagem({
                       <th style={thStyle}>Rua</th>
                       <th style={thStyle}>POS</th>
                       <th style={thStyle}>Nível</th>
-                      <th style={thStyle}>Contagem</th>
+                      <th style={thStyle}>Linha</th>
+                      <th style={thStyle}>Rodada</th>
                     </>
                   ) : null}
                   <th style={thStyle}>Conferente</th>
@@ -2633,6 +2653,9 @@ export default function RelatorioContagem({
                         </td>
                         <td style={tdStyle}>
                           {r.planilha_nivel != null && Number.isFinite(Number(r.planilha_nivel)) ? r.planilha_nivel : '—'}
+                        </td>
+                        <td style={tdStyle}>
+                          {formatPlanilhaLinhaRelatorio(inventarioPlanilhaRepeticaoFromItem(r)) || '—'}
                         </td>
                         <td style={tdStyle}>
                           {r.inventario_numero_contagem != null && Number.isFinite(Number(r.inventario_numero_contagem))

@@ -29,6 +29,7 @@ import {
   findPlanilhaItemInGrupo,
   findPlanilhaSlotParaGravacao,
   getPlanilhaSlotPorRepeticao,
+  inventarioPlanilhaRepeticaoFromItem,
   inventarioPlanilhaPosNivelFromIndex,
   planilhaLinhaTotalmentePreenchida,
   planilhaRepeticoesOcupadas,
@@ -611,6 +612,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [contagemDiaYmd, setContagemDiaYmd] = useState(() => toISODateLocal(new Date()))
   const [offlineSession, setOfflineSession] = useState<OfflineSession | null>(null)
   const offlineSessionRef = useRef<OfflineSession | null>(null)
+  /** Evita resetar aba/página logo após restaurar sessão do localStorage. */
+  const skipNextListUiResetRef = useRef(false)
   const loadPreviewRef = useRef<(dayOverride?: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {})
   /** Evita repetir request 400 por coluna ausente em bancos sem a migração `finalizacao_sessao_id`. */
   const contagensHasFinalizacaoSessaoIdRef = useRef(true)
@@ -906,6 +909,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         setContagemDiaYmd(s.data_contagem_ymd)
       }
       if (s.listMode) setChecklistListMode(normalizeChecklistListMode(s.listMode))
+      const ui = s.ui
+      if (ui) {
+        skipNextListUiResetRef.current = true
+        if (ui.checklistPage != null && ui.checklistPage >= 1) setChecklistPage(ui.checklistPage)
+        if (ui.planilhaTabelaPage != null && ui.planilhaTabelaPage >= 1) {
+          setPlanilhaTabelaPage(ui.planilhaTabelaPage)
+        }
+        if (ui.inventarioPlanilhaRua) setInventarioPlanilhaRua(ui.inventarioPlanilhaRua)
+        if (ui.inventarioPlanilhaPos != null && ui.inventarioPlanilhaPos >= 1) {
+          setInventarioPlanilhaPos(ui.inventarioPlanilhaPos)
+        }
+        if (ui.inventarioPlanilhaNivel != null && ui.inventarioPlanilhaNivel >= 1) {
+          setInventarioPlanilhaNivel(ui.inventarioPlanilhaNivel)
+        }
+        if (ui.inventarioPlanilhaRepeticao != null) {
+          setInventarioPlanilhaRepeticao(ui.inventarioPlanilhaRepeticao)
+        }
+        if (ui.checklistShowAll != null) setChecklistShowAll(ui.checklistShowAll)
+      }
       setStartFreshNotice('')
     }
   }, [sessionMode])
@@ -939,10 +961,44 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   }, [inventario, offlineSession?.sessionId, offlineSession?.status, sessionMode])
 
   useEffect(() => {
+    if (skipNextListUiResetRef.current) {
+      skipNextListUiResetRef.current = false
+      return
+    }
     setChecklistPage(1)
     setChecklistShowAll(false)
     setPlanilhaTabelaPage(1)
-  }, [checklistListMode, checklistFilterCodigo, checklistFilterDescricao, offlineSession?.status])
+  }, [checklistListMode, checklistFilterCodigo, checklistFilterDescricao])
+
+  // Persiste posição na UI (aba, página, RUA/POS) junto com a sessão aberta.
+  useEffect(() => {
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta') return
+    saveOfflineSession(
+      {
+        ...s,
+        ui: {
+          checklistPage,
+          planilhaTabelaPage,
+          inventarioPlanilhaRua,
+          inventarioPlanilhaPos,
+          inventarioPlanilhaNivel,
+          inventarioPlanilhaRepeticao,
+          checklistShowAll,
+        },
+      },
+      sessionMode,
+    )
+  }, [
+    checklistPage,
+    planilhaTabelaPage,
+    inventarioPlanilhaRua,
+    inventarioPlanilhaPos,
+    inventarioPlanilhaNivel,
+    inventarioPlanilhaRepeticao,
+    checklistShowAll,
+    sessionMode,
+  ])
 
   /** Lista quem está com sessão aberta no mesmo dia civil (heartbeat no Supabase). */
   useEffect(() => {
@@ -2838,7 +2894,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
     if (inventario) {
       rowPayload.inventario_numero_contagem = rodadaInv
-      if (it.inventario_repeticao != null) rowPayload.inventario_repeticao = it.inventario_repeticao
+      const repGravar = inventarioPlanilhaRepeticaoFromItem(it) ?? inventarioPlanilhaRepeticao
+      if (repGravar != null) rowPayload.inventario_repeticao = repGravar
       if (it.armazem_grupo != null) rowPayload.planilha_grupo_armazem = it.armazem_grupo
       if (it.planilha_ordem_na_aba != null) rowPayload.planilha_ordem_na_aba = it.planilha_ordem_na_aba
     }
@@ -2916,15 +2973,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (pageGrupo != null && row.armazem_grupo !== pageGrupo) return
 
     const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(row.planilha_ordem_na_aba)
+    const slots = planilhaSlotsAtPosNivel(itemsSnapshot, row.armazem_grupo, pos, nivel)
+    const repIdx = slots.findIndex((sl) => sl.key === key)
+    if (repIdx >= 0) setInventarioPlanilhaRepeticao((repIdx + 1) as PlanilhaRepeticao)
     setInventarioPlanilhaPos(pos)
     setInventarioPlanilhaNivel(nivel)
-
-    const codigo = String(row.codigo_interno ?? '').trim()
-    const qtd = String(row.quantidade_contada ?? '').trim()
-    if (!codigo && !qtd) return
-
-    const livre = primeiraPlanilhaRepeticaoSemCodigo(itemsSnapshot, row.armazem_grupo, pos, nivel)
-    if (livre != null) setInventarioPlanilhaRepeticao(livre)
   }
 
   function updateOfflineItemQty(key: string, quantidade: string, opts?: { skipBloqueioGuard?: boolean }) {
@@ -3182,6 +3235,32 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
   }
 
+  function getPlanilhaTargetFromEndereco(): OfflineChecklistItem | undefined {
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) return undefined
+    const grupo = getInventarioPlanilhaGrupoSelecionado()
+    if (!grupo) return undefined
+    return getPlanilhaSlotPorRepeticao(
+      s.items,
+      grupo,
+      inventarioPlanilhaPos,
+      inventarioPlanilhaNivel,
+      inventarioPlanilhaRepeticao,
+    )
+  }
+
+  function clearPlanilhaLinhaCamposProduto(key: string) {
+    updateOfflineItemFields(key, {
+      codigo_interno: '',
+      descricao: '',
+      unidade_medida: null,
+      ean: null,
+      dun: null,
+      data_fabricacao: '',
+      data_validade: '',
+    })
+  }
+
   function handlePlanilhaCodigoBlur(key: string, codigo: string) {
     const c = String(codigo ?? '').trim()
     const s = offlineSessionRef.current
@@ -3189,42 +3268,30 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
-    const row = s.items.find((i) => i.key === key)
-    if (!row || row.armazem_grupo == null || row.planilha_ordem_na_aba == null) {
+    const target = getPlanilhaTargetFromEndereco()
+    if (!target) {
       aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
     if (!c) {
-      aplicarCatalogoPorCodigoPlanilha(key, codigo)
-      return
-    }
-    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(row.planilha_ordem_na_aba)
-    const slots = planilhaSlotsAtPosNivel(s.items, row.armazem_grupo, pos, nivel)
-    const repIdx = slots.findIndex((sl) => sl.key === key)
-    const repeticao = (repIdx >= 0 ? repIdx + 1 : inventarioPlanilhaRepeticao) as PlanilhaRepeticao
-    const target = getPlanilhaSlotPorRepeticao(s.items, row.armazem_grupo, pos, nivel, repeticao)
-    if (!target) {
-      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      if (key === target.key) aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      else clearPlanilhaLinhaCamposProduto(key)
       return
     }
     if (
       planilhaLinhaTotalmentePreenchida(target) &&
       !codigoInternoIguais(target.codigo_interno, c)
     ) {
-      setProdutoError('Esta linha já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).')
+      setProdutoError(
+        'A linha selecionada (RUA/POS/NÍVEL/repetição) já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).',
+      )
+      if (key !== target.key) clearPlanilhaLinhaCamposProduto(key)
       return
     }
     if (shouldSkipPlanilhaBipBurst(c)) return
-    if (target.key !== key) {
-      updateOfflineItemFields(key, {
-        codigo_interno: '',
-        descricao: '',
-        unidade_medida: null,
-        ean: null,
-        dun: null,
-      })
-    }
+    if (key !== target.key) clearPlanilhaLinhaCamposProduto(key)
     aplicarCatalogoPorCodigoPlanilha(target.key, c)
+    updateOfflineItemFields(target.key, { inventario_repeticao: inventarioPlanilhaRepeticao })
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(c)
   }
@@ -3269,6 +3336,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       return false
     }
     aplicarCatalogoPorCodigoPlanilha(target.key, c)
+    updateOfflineItemFields(target.key, { inventario_repeticao: inventarioPlanilhaRepeticao })
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(c)
     setProdutoError('')
@@ -3281,9 +3349,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
     const s = offlineSessionRef.current
     if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) return
-
-    const row = s.items.find((it) => it.key === rowKey)
-    if (!row || row.armazem_grupo == null || row.planilha_ordem_na_aba == null) return
 
     const found = lookupProductByBarcode(
       scanned,
@@ -3301,34 +3366,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const codigo = found.product.codigo
     if (shouldSkipPlanilhaBipBurst(codigo)) return
 
-    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(row.planilha_ordem_na_aba)
-    const slots = planilhaSlotsAtPosNivel(s.items, row.armazem_grupo, pos, nivel)
-    const repIdx = slots.findIndex((sl) => sl.key === rowKey)
-    const repeticao = (repIdx >= 0 ? repIdx + 1 : inventarioPlanilhaRepeticao) as PlanilhaRepeticao
-    const target = getPlanilhaSlotPorRepeticao(s.items, row.armazem_grupo, pos, nivel, repeticao)
+    const target = getPlanilhaTargetFromEndereco()
     if (!target) {
-      setProdutoError('Linha inválida para esta RUA/POS/NÍVEL.')
+      setProdutoError('Selecione RUA, POS, NÍVEL e repetição (1ª–3ª) antes de bipar.')
       return
     }
     if (
       planilhaLinhaTotalmentePreenchida(target) &&
       !codigoInternoIguais(target.codigo_interno, codigo)
     ) {
-      setProdutoError('Esta linha já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).')
+      setProdutoError(
+        'A linha selecionada (RUA/POS/NÍVEL/repetição) já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).',
+      )
       return
     }
 
-    if (target.key !== rowKey) {
-      updateOfflineItemFields(rowKey, {
-        codigo_interno: '',
-        descricao: '',
-        unidade_medida: null,
-        ean: null,
-        dun: null,
-      })
-    }
+    if (target.key !== rowKey) clearPlanilhaLinhaCamposProduto(rowKey)
 
     aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
+    updateOfflineItemFields(target.key, { inventario_repeticao: inventarioPlanilhaRepeticao })
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(codigo)
     setProdutoError('')
@@ -3544,7 +3600,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           dun: it.dun != null && String(it.dun).trim() !== '' ? String(it.dun).trim() : null,
         }
         if (inventario) {
-          rowPayload.inventario_repeticao = it.inventario_repeticao ?? null
+          const repGravar = inventarioPlanilhaRepeticaoFromItem(it) ?? it.inventario_repeticao ?? null
+          rowPayload.inventario_repeticao = repGravar
           rowPayload.inventario_numero_contagem = clampInventarioNumeroContagem(
             session.inventario_numero_contagem ?? 1,
           )

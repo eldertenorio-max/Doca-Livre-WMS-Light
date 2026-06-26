@@ -229,7 +229,7 @@ export function findPlanilhaSlotParaBip(
   return planilhaSlotsAtPosNivel(items, grupo, pos, nivel).find(planilhaLinhaSemCodigo)
 }
 
-/** Gravar quantidade/dados: linha da repetição selecionada ou fallback por código. */
+/** Gravar quantidade/dados: somente a repetição escolhida (1ª–3ª) no endereço RUA/POS/NÍVEL. */
 export function findPlanilhaSlotParaGravacao(
   items: OfflineChecklistItem[],
   grupo: number,
@@ -239,19 +239,19 @@ export function findPlanilhaSlotParaGravacao(
   preferKey?: string | null,
   repeticao?: PlanilhaRepeticao | null,
 ): OfflineChecklistItem | undefined {
-  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
   const cod = String(codigo ?? '').trim()
 
   if (repeticao != null) {
     const sel = getPlanilhaSlotPorRepeticao(items, grupo, pos, nivel, repeticao)
-    if (sel) {
-      if (!cod) return sel
-      if (preferKey && sel.key === preferKey && codigoInternoIguais(sel.codigo_interno, cod)) return sel
-      if (codigoInternoIguais(sel.codigo_interno, cod) && planilhaLinhaSemQuantidade(sel)) return sel
-      if (planilhaLinhaSemCodigo(sel)) return sel
-      if (codigoInternoIguais(sel.codigo_interno, cod)) return sel
-    }
+    if (!sel) return undefined
+    if (!cod) return sel
+    if (planilhaLinhaSemCodigo(sel)) return sel
+    if (codigoInternoIguais(sel.codigo_interno, cod)) return sel
+    if (preferKey && sel.key === preferKey) return sel
+    return undefined
   }
+
+  const slots = planilhaSlotsAtPosNivel(items, grupo, pos, nivel)
 
   if (!cod) return findPlanilhaSlotParaBip(items, grupo, pos, nivel)
 
@@ -260,13 +260,13 @@ export function findPlanilhaSlotParaGravacao(
     if (pref && codigoInternoIguais(pref.codigo_interno, cod)) return pref
   }
 
+  const vazio = slots.find(planilhaLinhaSemCodigo)
+  if (vazio) return vazio
+
   const mesmoCodSemQtd = slots.find(
     (s) => codigoInternoIguais(s.codigo_interno, cod) && planilhaLinhaSemQuantidade(s),
   )
   if (mesmoCodSemQtd) return mesmoCodSemQtd
-
-  const vazio = slots.find(planilhaLinhaSemCodigo)
-  if (vazio) return vazio
 
   const mesmoCod = slots.find((s) => codigoInternoIguais(s.codigo_interno, cod))
   if (mesmoCod) return mesmoCod
@@ -323,6 +323,30 @@ export function inventarioPlanilhaPosNivelFromIndex(idx: number): { pos: number;
   const within = idx % rows
   const nivel = Math.floor(within / rep) + 1
   return { pos, nivel }
+}
+
+/** Repetição física (1ª–3ª linha) no mesmo POS/NÍVEL — usada no relatório e ao gravar no banco. */
+export function inventarioPlanilhaRepeticaoFromItem(
+  it: { inventario_repeticao?: number | null; planilha_ordem_na_aba?: number | null },
+): 1 | 2 | 3 | null {
+  if (it.inventario_repeticao != null) {
+    const r = Math.round(Number(it.inventario_repeticao))
+    if (r >= 1 && r <= 3) return r as 1 | 2 | 3
+  }
+  if (it.planilha_ordem_na_aba != null && Number.isFinite(it.planilha_ordem_na_aba)) {
+    const { pos, nivel } = inventarioPlanilhaPosNivelFromIndex(it.planilha_ordem_na_aba)
+    const base = planilhaOrdemFromPosNivel(pos, nivel, 1)
+    const rep = it.planilha_ordem_na_aba - base + 1
+    if (rep >= 1 && rep <= 3) return rep as 1 | 2 | 3
+  }
+  return null
+}
+
+export function formatPlanilhaLinhaRelatorio(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n))) return ''
+  const r = Math.round(Number(n))
+  if (r >= 1 && r <= 3) return `${r}ª`
+  return String(r)
 }
 
 export function inventarioArmazemPosNivel(
