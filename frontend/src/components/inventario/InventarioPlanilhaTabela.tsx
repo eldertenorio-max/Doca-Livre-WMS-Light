@@ -10,7 +10,7 @@ import {
   handleChecklistFieldNavKeyDown,
 } from '../../lib/checklistFieldNavigation'
 import { calcHistoryKeyForCodigo, ChecklistQtyCalcButton } from '../ChecklistCalculatorModal'
-import { getInventarioRuaArmazem, inventarioArmazemPosNivel } from './inventarioPlanilhaModel'
+import { getInventarioRuaArmazem, inventarioArmazemPosNivel, formatContagemLabel } from './inventarioPlanilhaModel'
 
 export type ChecklistEditDraft = {
   codigo_interno: string
@@ -46,7 +46,7 @@ export type InventarioPlanilhaTabelaProps = {
   onPlanilhaRowBarcodeChange?: (key: string, raw: string) => void
   /** Nome do conferente da sessão (mesmo em todas as linhas). */
   conferenteLabel: string
-  /** Rodada selecionada (1–4): preenche a coluna de quantidade quando o campo está vazio. */
+  /** Rodada selecionada (1–4): exibida na coluna de contagem (somente leitura). */
   inventarioNumeroContagemRodada: 1 | 2 | 3 | 4
   /** Abre calculadora para inserir o resultado na quantidade da linha em edição / visualização. */
   openQtyCalculator?: (onApply: (value: string) => void, productHint?: string, historyStorageKey?: string) => void
@@ -86,10 +86,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
     openQtyCalculator,
   } = props
 
-  const qtdPlanilhaRodada = (it: OfflineChecklistItem) => {
-    const t = String(it.quantidade_contada ?? '').trim()
-    return t === '' ? String(inventarioNumeroContagemRodada) : t
-  }
+  const contagemRodadaLabel = formatContagemLabel(inventarioNumeroContagemRodada)
 
   const ruaPlanilha = getInventarioRuaArmazem(armazemContagem)
 
@@ -148,7 +145,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
         marginTop: 0,
       }}
     >
-      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 1660 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 1740 }}>
         <thead>
           <tr>
             <th style={thPlanilha}>RUA</th>
@@ -159,7 +156,10 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
             <th style={thPlanilha}>DESCRIÇÃO</th>
             {showChecklistColumn('unidade') ? <th style={thPlanilha}>UNIDADE</th> : null}
             {showChecklistColumn('quantidade') ? (
-              <th style={thPlanilha}>{planilhaQtdContagemHeader}</th>
+              <>
+                <th style={thPlanilha}>{planilhaQtdContagemHeader}</th>
+                <th style={thPlanilha}>QUANTIDADE</th>
+              </>
             ) : null}
             {showChecklistColumn('data_fabricacao') ? <th style={thPlanilha}>FABRICAÇÃO</th> : null}
             {showChecklistColumn('data_validade') ? <th style={thPlanilha}>VENCIMENTO</th> : null}
@@ -249,41 +249,42 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                       </td>
                     ) : null}
                     {showChecklistColumn('quantidade') ? (
-                      <td style={tdPlanilhaQtd}>
-                        <div style={planilhaQtdCellWrap}>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={
-                              String(checklistEditDraft.quantidade_contada ?? '').trim() === ''
-                                ? String(inventarioNumeroContagemRodada)
-                                : checklistEditDraft.quantidade_contada
-                            }
-                            onChange={(e) =>
-                              setChecklistEditDraft((d) =>
-                                d ? { ...d, quantidade_contada: e.target.value } : d,
-                              )
-                            }
-                            {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                            style={inputPlanilhaQtdCell}
-                            placeholder="—"
-                            aria-label="Quantidade"
-                          />
-                          {openQtyCalculator ? (
-                            <ChecklistQtyCalcButton
-                              buttonStyle={buttonStyle}
-                              onClick={() =>
-                                openQtyCalculator(
-                                  (v) =>
-                                    setChecklistEditDraft((d) => (d ? { ...d, quantidade_contada: v } : d)),
-                                  `${checklistEditDraft.codigo_interno} — ${checklistEditDraft.descricao}`,
-                                  calcHistoryKeyForCodigo(checklistEditDraft.codigo_interno),
+                      <>
+                        <td style={{ ...tdPlanilha, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          {contagemRodadaLabel}
+                        </td>
+                        <td style={tdPlanilhaQtd}>
+                          <div style={planilhaQtdCellWrap}>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={checklistEditDraft.quantidade_contada}
+                              onChange={(e) =>
+                                setChecklistEditDraft((d) =>
+                                  d ? { ...d, quantidade_contada: e.target.value } : d,
                                 )
                               }
+                              {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
+                              style={inputPlanilhaQtdCell}
+                              placeholder="—"
+                              aria-label="Quantidade"
                             />
-                          ) : null}
-                        </div>
-                      </td>
+                            {openQtyCalculator ? (
+                              <ChecklistQtyCalcButton
+                                buttonStyle={buttonStyle}
+                                onClick={() =>
+                                  openQtyCalculator(
+                                    (v) =>
+                                      setChecklistEditDraft((d) => (d ? { ...d, quantidade_contada: v } : d)),
+                                    `${checklistEditDraft.codigo_interno} — ${checklistEditDraft.descricao}`,
+                                    calcHistoryKeyForCodigo(checklistEditDraft.codigo_interno),
+                                  )
+                                }
+                              />
+                            ) : null}
+                          </div>
+                        </td>
+                      </>
                     ) : null}
                     {showChecklistColumn('data_fabricacao') ? (
                       <td style={tdPlanilha}>
@@ -483,47 +484,52 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                       </td>
                     ) : null}
                     {showChecklistColumn('quantidade') ? (
-                      <td style={tdPlanilhaQtd}>
-                        <div style={planilhaQtdCellWrap}>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={qtdPlanilhaRodada(it)}
-                            onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
-                            {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                            style={inputPlanilhaQtdCell}
-                            placeholder="—"
-                            aria-label={`Quantidade ${it.codigo_interno}${it.inventario_repeticao ? ` ${it.inventario_repeticao}ª` : ''}`}
-                          />
-                          {openQtyCalculator ? (
-                            <ChecklistQtyCalcButton
-                              buttonStyle={buttonStyle}
-                              onClick={() =>
+                      <>
+                        <td style={{ ...tdPlanilha, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          {contagemRodadaLabel}
+                        </td>
+                        <td style={tdPlanilhaQtd}>
+                          <div style={planilhaQtdCellWrap}>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={it.quantidade_contada ?? ''}
+                              onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
+                              {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
+                              style={inputPlanilhaQtdCell}
+                              placeholder="—"
+                              aria-label={`Quantidade ${it.codigo_interno}${it.inventario_repeticao ? ` ${it.inventario_repeticao}ª` : ''}`}
+                            />
+                            {openQtyCalculator ? (
+                              <ChecklistQtyCalcButton
+                                buttonStyle={buttonStyle}
+                                onClick={() =>
                                   openQtyCalculator(
                                     (v) => updateOfflineItemQty(it.key, v),
                                     `${it.codigo_interno} — ${it.descricao}`,
                                     calcHistoryKeyForCodigo(it.codigo_interno),
                                   )
-                              }
-                            />
-                          ) : null}
-                          {checklistSavedFlashKey === it.key ? (
-                            <span
-                              style={{
-                                position: 'absolute',
-                                top: -14,
-                                right: 0,
-                                fontSize: 10,
-                                color: '#0a0',
-                                fontWeight: 700,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              Salvo
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
+                                }
+                              />
+                            ) : null}
+                            {checklistSavedFlashKey === it.key ? (
+                              <span
+                                style={{
+                                  position: 'absolute',
+                                  top: -14,
+                                  right: 0,
+                                  fontSize: 10,
+                                  color: '#0a0',
+                                  fontWeight: 700,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Salvo
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                      </>
                     ) : null}
                     {showChecklistColumn('data_fabricacao') ? (
                       <td style={tdPlanilha}>

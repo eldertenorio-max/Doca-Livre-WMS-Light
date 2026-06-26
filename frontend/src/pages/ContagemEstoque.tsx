@@ -632,7 +632,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [checklistFilterPendentes, setChecklistFilterPendentes] = useState(false)
   const [checklistListCollapsed, setChecklistListCollapsed] = useState(false)
   const [checklistColsPanelOpen, setChecklistColsPanelOpen] = useState(true)
-  const [checklistListMode, setChecklistListMode] = useState<ChecklistListMode>('todos')
+  const [checklistListMode, setChecklistListMode] = useState<ChecklistListMode>(() =>
+    inventario ? 'planilha-1' : 'todos',
+  )
   const [checklistVisibleCols, setChecklistVisibleCols] = useState<Record<string, boolean>>(() =>
     loadChecklistVisibleColsFromStorage(inventario),
   )
@@ -908,11 +910,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
   }, [sessionMode])
 
-  /** Inventário físico: lista padrão = planilha CAMARA/RUA, salvo sessão já aberta. */
+  /** Inventário físico: única lista = planilha CAMARA/RUA (rodada escolhida depois na aba). */
   useEffect(() => {
     if (!inventario) return
     if (offlineSession?.status === 'aberta') return
-    setChecklistListMode((prev) => (prev === 'todos' ? 'planilha-1' : prev))
+    setChecklistListMode((prev) => (isPlanilhaListMode(prev) ? prev : 'planilha-1'))
   }, [inventario, offlineSession?.status])
 
   /** Pré-carrega aba Base Principal (Google Sheets) para modo armazém / inventário. */
@@ -5487,23 +5489,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           >
             Tipo de lista
             <select
-              value={checklistListMode}
+              value={inventario ? 'planilha-1' : checklistListMode}
               onChange={(e) =>
                 setChecklistListMode(normalizeChecklistListMode(e.target.value as ChecklistListMode))
               }
               style={inputStyle}
-              disabled={!!offlineSession && offlineSession.status === 'aberta'}
+              disabled={
+                inventario || (!!offlineSession && offlineSession.status === 'aberta')
+              }
             >
-              <option value="todos">Todos os Produtos (cadastro)</option>
-              <option value="armazem" title={inventario ? 'No inventário, cada produto aparece 3 vezes (3 contagens).' : undefined}>
-                Armazém (dividida em {INVENTARIO_ARMAZEM_NUM_GRUPOS} abas CAMARA/RUA)
-              </option>
               {inventario ? (
+                <option value="planilha-1">Inventário (planilha CAMARA/RUA, abas)</option>
+              ) : (
                 <>
-                  <option value="planilha-1">Inventário — planilha 1ª contagem (CAMARA/RUA, abas)</option>
-                  <option value="planilha-2">Inventário — planilha 2ª contagem (CAMARA/RUA, abas)</option>
+                  <option value="todos">Todos os Produtos (cadastro)</option>
+                  <option value="armazem">
+                    Armazém (dividida em {INVENTARIO_ARMAZEM_NUM_GRUPOS} abas CAMARA/RUA)
+                  </option>
                 </>
-              ) : null}
+              )}
             </select>
           </label>
         </div>
