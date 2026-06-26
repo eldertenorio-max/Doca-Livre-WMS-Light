@@ -6161,7 +6161,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                     color: 'var(--text, #ccc)',
                                   }}
                                 >
-                                  Selecione esta linha no seletor acima para editar.
+                                  Para editar, selecione o mesmo endereço (RUA, POS, Nível e Linha) no formulário
+                                  abaixo.
                                 </div>
                               ) : null}
 
