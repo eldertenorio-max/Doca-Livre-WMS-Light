@@ -104,27 +104,38 @@ async function fetchUltimasInventarioPorChave(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return map
   const rodada = Math.min(4, Math.max(1, Math.round(numeroContagemRodada)))
 
-  const sel =
+  const selComPlanilha =
     'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,inventario_numero_contagem,inventario_repeticao,planilha_grupo_armazem,planilha_ordem_na_aba'
+  const selSemPlanilha =
+    'id,conferente_id,codigo_interno,descricao,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,data_hora_contagem,inventario_numero_contagem,inventario_repeticao'
 
-  const acc: Record<string, unknown>[] = []
-  let from = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from(TABLE_CONTAGEM_INVENTARIO)
-      .select(sel)
-      .eq('data_contagem', ymd)
-      .order('id', { ascending: true })
-      .range(from, from + FETCH_CHUNK - 1)
-    if (error) {
-      if (import.meta.env.DEV) console.warn('[mergeInventarioDoBanco] select', error)
+  async function pullAll(sel: string): Promise<Record<string, unknown>[] | null> {
+    const acc: Record<string, unknown>[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(TABLE_CONTAGEM_INVENTARIO)
+        .select(sel)
+        .eq('data_contagem', ymd)
+        .order('id', { ascending: true })
+        .range(from, from + FETCH_CHUNK - 1)
+      if (error) return null
+      const batch = (data ?? []) as Record<string, unknown>[]
+      acc.push(...batch)
+      if (batch.length < FETCH_CHUNK) break
+      from += FETCH_CHUNK
+      if (from > 120000) break
+    }
+    return acc
+  }
+
+  let acc = await pullAll(selComPlanilha)
+  if (acc == null) {
+    acc = await pullAll(selSemPlanilha)
+    if (acc == null) {
+      if (import.meta.env.DEV) console.warn('[mergeInventarioDoBanco] select falhou (planilha e legado)')
       return map
     }
-    const batch = (data ?? []) as Record<string, unknown>[]
-    acc.push(...batch)
-    if (batch.length < FETCH_CHUNK) break
-    from += FETCH_CHUNK
-    if (from > 120000) break
   }
 
   for (const r of acc) {

@@ -42,6 +42,9 @@ import {
   getRuasPorCamara,
   inventarioArmazemPosNivel,
   inventarioCamaraLabelFromGrupo,
+  formatPlanilhaLinhaRelatorio,
+  isPlanilhaItemLinhaSelecionada,
+  planilhaRepeticaoFromOrdemNaAba,
   INVENTARIO_ARMAZEM_GRUPO_IDS,
   INVENTARIO_ARMAZEM_NUM_GRUPOS,
   INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA,
@@ -130,6 +133,8 @@ const PREVIEW_COLS_PLANILHA_BASE = 5
 const CHECKLIST_PAGE_SIZE = 15
 /** Linhas por página na tabela “Inventário — formato planilha” (cada aba pode ter centenas de linhas). */
 const PLANILHA_TABELA_PAGE_SIZE = 30
+/** Cards no mobile: menos linhas por página para caber na tela. */
+const MOBILE_CHECKLIST_PAGE_SIZE = 10
 /** Código(s) removidos da lista de contagem diária. */
 const CONTAGEM_DIARIA_EXCLUIR_DA_LISTA = new Set([
   normalizeCodigoInternoCompareKey('01.04.0028'),
@@ -2165,8 +2170,16 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,origem,inventario_repeticao'
     const previewSelectFlatSemOrigemSemNc =
       'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_repeticao'
+    /** `contagens_inventario` não tem coluna `origem` (só `contagens_estoque`). */
+    const previewSelectInventarioFullLegacy = previewSelectSemOrigem
+    const previewSelectInventarioFullBase = `${previewSelectSemOrigem},finalizacao_sessao_id`
+    const previewSelectInventarioFull = `${previewSelectInventarioFullBase},contagem_rascunho`
+    const previewSelectFlatInventarioFullLegacy =
+      'id,data_hora_contagem,data_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,foto_base64,inventario_repeticao,inventario_numero_contagem'
+    const previewSelectFlatInventarioFullBase = `${previewSelectFlatInventarioFullLegacy},finalizacao_sessao_id`
+    const previewSelectFlatInventarioFull = `${previewSelectFlatInventarioFullBase},contagem_rascunho`
 
-    let previewOrigemAusenteNoResultado = false
+    let previewOrigemAusenteNoResultado = inventario
 
     /** Páginas de no máx. 1000 linhas — acima disso a API do Supabase (max_rows) costuma responder 400. */
     const PREVIEW_PAGE_SIZE = 1000
@@ -2190,18 +2203,24 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       return { data: acc, error: null }
     }
 
-    const previewSelectInitial = contagensHasFinalizacaoSessaoIdRef.current ? previewSelectFull : previewSelectFullLegacy
+    const previewSelectInitial = inventario
+      ? contagensHasFinalizacaoSessaoIdRef.current
+        ? previewSelectInventarioFull
+        : previewSelectInventarioFullLegacy
+      : contagensHasFinalizacaoSessaoIdRef.current
+        ? previewSelectFull
+        : previewSelectFullLegacy
     let { data, error } = await queryPreview(previewSelectInitial)
 
     if (error && isMissingDbColumnError(error, 'finalizacao_sessao_id')) {
       contagensHasFinalizacaoSessaoIdRef.current = false
-      const rSess = await queryPreview(previewSelectFullLegacy)
+      const rSess = await queryPreview(inventario ? previewSelectInventarioFullLegacy : previewSelectFullLegacy)
       data = rSess.data
       error = rSess.error
     }
 
     if (error && isMissingDbColumnError(error, 'contagem_rascunho')) {
-      const rR = await queryPreview(previewSelectFullBase)
+      const rR = await queryPreview(inventario ? previewSelectInventarioFullBase : previewSelectFullBase)
       data = rR.data
       error = rR.error
     }
@@ -2238,18 +2257,26 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     /** Falha comum: embed `conferentes(nome)` bloqueado por RLS — tenta colunas planas (sem join). */
     if (error) {
       let rFlat = await queryPreview(
-        contagensHasFinalizacaoSessaoIdRef.current ? previewSelectFlatFull : previewSelectFlatFullLegacy,
+        inventario
+          ? contagensHasFinalizacaoSessaoIdRef.current
+            ? previewSelectFlatInventarioFull
+            : previewSelectFlatInventarioFullLegacy
+          : contagensHasFinalizacaoSessaoIdRef.current
+            ? previewSelectFlatFull
+            : previewSelectFlatFullLegacy,
       )
       if (rFlat.error && isMissingDbColumnError(rFlat.error, 'finalizacao_sessao_id')) {
         contagensHasFinalizacaoSessaoIdRef.current = false
-        rFlat = await queryPreview(previewSelectFlatFullLegacy)
+        rFlat = await queryPreview(
+          inventario ? previewSelectFlatInventarioFullLegacy : previewSelectFlatFullLegacy,
+        )
       } else if (rFlat.error && isMissingDbColumnError(rFlat.error, 'contagem_rascunho')) {
-        rFlat = await queryPreview(previewSelectFlatFullBase)
+        rFlat = await queryPreview(inventario ? previewSelectFlatInventarioFullBase : previewSelectFlatFullBase)
       }
       if (!rFlat.error) {
         data = rFlat.data
         error = null
-        previewOrigemAusenteNoResultado = false
+        previewOrigemAusenteNoResultado = inventario
       }
     }
     if (error) {
@@ -5212,23 +5239,77 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     return armazemItemsSorted
   }, [inventarioPlanilhaArmazem, armazemItemsSorted])
 
+  const planilhaListaPageSize = isMobile ? MOBILE_CHECKLIST_PAGE_SIZE : PLANILHA_TABELA_PAGE_SIZE
+
   const planilhaTabelaTotalPages = Math.max(
     1,
-    Math.ceil(linhasTabelaPlanilhaInventario.length / PLANILHA_TABELA_PAGE_SIZE) || 1,
+    Math.ceil(linhasTabelaPlanilhaInventario.length / planilhaListaPageSize) || 1,
   )
   const planilhaTabelaPageSafe = Math.min(Math.max(1, planilhaTabelaPage), planilhaTabelaTotalPages)
   const itemsPlanilhaTabelaPagina = useMemo(() => {
-    const start = (planilhaTabelaPageSafe - 1) * PLANILHA_TABELA_PAGE_SIZE
-    return linhasTabelaPlanilhaInventario.slice(start, start + PLANILHA_TABELA_PAGE_SIZE)
-  }, [linhasTabelaPlanilhaInventario, planilhaTabelaPageSafe])
+    const start = (planilhaTabelaPageSafe - 1) * planilhaListaPageSize
+    return linhasTabelaPlanilhaInventario.slice(start, start + planilhaListaPageSize)
+  }, [linhasTabelaPlanilhaInventario, planilhaTabelaPageSafe, planilhaListaPageSize])
   const planilhaTabelaRangeFrom =
     linhasTabelaPlanilhaInventario.length === 0
       ? 0
-      : (planilhaTabelaPageSafe - 1) * PLANILHA_TABELA_PAGE_SIZE + 1
+      : (planilhaTabelaPageSafe - 1) * planilhaListaPageSize + 1
   const planilhaTabelaRangeTo = Math.min(
-    planilhaTabelaPageSafe * PLANILHA_TABELA_PAGE_SIZE,
+    planilhaTabelaPageSafe * planilhaListaPageSize,
     linhasTabelaPlanilhaInventario.length,
   )
+
+  const mobileInnerListTotal = useMemo(() => {
+    if (!isMobile || checklistShowAll) return 0
+    if (inventarioPlanilhaArmazem) return linhasTabelaPlanilhaInventario.length
+    if (isArmazemPaginado) return armazemGrupos[checklistPageSafe - 1]?.items.length ?? 0
+    return 0
+  }, [
+    isMobile,
+    checklistShowAll,
+    inventarioPlanilhaArmazem,
+    linhasTabelaPlanilhaInventario.length,
+    isArmazemPaginado,
+    armazemGrupos,
+    checklistPageSafe,
+  ])
+
+  const mobileInnerTotalPages = useMemo(() => {
+    if (!isMobile || checklistShowAll || mobileInnerListTotal <= 0) return 1
+    return Math.max(1, Math.ceil(mobileInnerListTotal / MOBILE_CHECKLIST_PAGE_SIZE))
+  }, [isMobile, checklistShowAll, mobileInnerListTotal])
+
+  const mobileInnerPageSafe = Math.min(planilhaTabelaPageSafe, mobileInnerTotalPages)
+
+  const mobileInnerRangeFrom =
+    mobileInnerListTotal === 0 ? 0 : (mobileInnerPageSafe - 1) * MOBILE_CHECKLIST_PAGE_SIZE + 1
+  const mobileInnerRangeTo = Math.min(mobileInnerPageSafe * MOBILE_CHECKLIST_PAGE_SIZE, mobileInnerListTotal)
+
+  const mobileChecklistRenderItems: ChecklistDisplayItem[] = useMemo(() => {
+    if (!isMobile) return checklistDisplayPageItems
+    if (inventarioPlanilhaArmazem) return itemsPlanilhaTabelaPagina
+    if (isArmazemPaginado && !checklistShowAll) {
+      const group = armazemGrupos[checklistPageSafe - 1]
+      if (!group) return []
+      const start = (mobileInnerPageSafe - 1) * MOBILE_CHECKLIST_PAGE_SIZE
+      const slice = group.items.slice(start, start + MOBILE_CHECKLIST_PAGE_SIZE)
+      return [
+        { kind: 'header', key: `hdr-mobile-${group.contagem}`, contagem: group.contagem },
+        ...slice,
+      ]
+    }
+    return checklistDisplayPageItems
+  }, [
+    isMobile,
+    checklistDisplayPageItems,
+    inventarioPlanilhaArmazem,
+    itemsPlanilhaTabelaPagina,
+    isArmazemPaginado,
+    checklistShowAll,
+    armazemGrupos,
+    checklistPageSafe,
+    mobileInnerPageSafe,
+  ])
 
   const checklistColumns = useMemo(() => {
     const cols = [
@@ -5300,6 +5381,63 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     offlineSession.status !== 'aberta' ||
     offlineSession.items.length === 0
 
+  const mobileInnerPaginationBar =
+    isMobile &&
+    !checklistShowAll &&
+    mobileInnerListTotal > MOBILE_CHECKLIST_PAGE_SIZE ? (
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 8,
+          marginBottom: 4,
+        }}
+      >
+        <span style={{ fontSize: 12, color: 'var(--text, #888)', flex: '1 1 140px' }}>
+          Linhas {mobileInnerRangeFrom}–{mobileInnerRangeTo} de {mobileInnerListTotal} · Página{' '}
+          {mobileInnerPageSafe} de {mobileInnerTotalPages} · {MOBILE_CHECKLIST_PAGE_SIZE} por página
+        </span>
+        <button
+          type="button"
+          disabled={mobileInnerPageSafe <= 1}
+          onClick={() => {
+            setPlanilhaTabelaPage((p) => Math.max(1, p - 1))
+            scrollToChecklistTitle()
+          }}
+          style={{
+            ...buttonStyle,
+            ...mobileChecklistActionBtnStyle,
+            background: '#444',
+            flex: '1 1 88px',
+            opacity: mobileInnerPageSafe <= 1 ? 0.5 : 1,
+            cursor: mobileInnerPageSafe <= 1 ? 'not-allowed' : 'pointer',
+          }}
+        >
+          Anterior
+        </button>
+        <button
+          type="button"
+          disabled={mobileInnerPageSafe >= mobileInnerTotalPages}
+          onClick={() => {
+            setPlanilhaTabelaPage((p) => Math.min(mobileInnerTotalPages, p + 1))
+            scrollToChecklistTitle()
+          }}
+          style={{
+            ...buttonStyle,
+            ...mobileChecklistActionBtnStyle,
+            background: '#444',
+            flex: '1 1 88px',
+            opacity: mobileInnerPageSafe >= mobileInnerTotalPages ? 0.5 : 1,
+            cursor: mobileInnerPageSafe >= mobileInnerTotalPages ? 'not-allowed' : 'pointer',
+          }}
+        >
+          Próxima
+        </button>
+      </div>
+    ) : null
+
   const checklistPaginationControls =
     checklistProductTotal > 0 ? (
       <div
@@ -5325,10 +5463,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages} · ${CHECKLIST_PAGE_SIZE} por página`}
         </span>
         {isPlanilhaInventarioNav ? (
-          <span style={{ fontSize: 12, color: 'var(--text, #888)', maxWidth: 480 }}>
-            Troque de <strong>CAMARA/RUA</strong> pelas <strong>abas</strong> acima. A lista é a mesma ordem do modo
-            armazém na contagem, com <strong>3 contagens por produto</strong> no inventário.
-          </span>
+          isMobile ? (
+            <>
+              {mobileInnerListTotal > 0 ? (
+                <span style={{ fontSize: 12, color: 'var(--text, #888)', width: '100%' }}>
+                  {checklistRangeFrom}–{checklistRangeTo} de {checklistProductTotal} · Aba {checklistPageSafe} de{' '}
+                  {checklistTotalPages} · {mobileInnerListTotal} linhas nesta RUA
+                </span>
+              ) : null}
+              <span style={{ fontSize: 11, color: 'var(--text, #888)', width: '100%', lineHeight: 1.35 }}>
+                Troque de <strong>CAMARA/RUA</strong> pelas abas acima.
+              </span>
+              {mobileInnerPaginationBar}
+            </>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--text, #888)', maxWidth: 480 }}>
+              Troque de <strong>CAMARA/RUA</strong> pelas <strong>abas</strong> acima. A lista é a mesma ordem do modo
+              armazém na contagem, com <strong>3 contagens por produto</strong> no inventário.
+            </span>
+          )
         ) : (
           <>
             <button
@@ -5924,12 +6077,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                 {isMobile ? (
                   <>
                     {checklistPaginationControls}
+                    {mobileInnerPaginationBar &&
+                    !isPlanilhaInventarioNav &&
+                    (inventarioPlanilhaArmazem || isArmazemPaginado)
+                      ? mobileInnerPaginationBar
+                      : null}
                     <div
                       data-checklist-nav-root
-                      style={{ marginTop: 6, display: 'grid', gap: 6 }}
+                      style={{ marginTop: 4, display: 'grid', gap: 4 }}
                       onKeyDown={handleChecklistFieldNavKeyDown}
                     >
-                    {checklistDisplayPageItems.map((item) => {
+                    {mobileChecklistRenderItems.map((item) => {
                       if ('kind' in item && item.kind === 'header') {
                         return (
                           <div
@@ -5967,14 +6125,47 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                         inventario && isPlanilhaListMode(offlineSession?.listMode)
                           ? inventarioArmazemPosNivel(armazemItemsSorted, it)
                           : null
+                      const itemLinhaRep =
+                        itemPn && it.planilha_ordem_na_aba != null
+                          ? planilhaRepeticaoFromOrdemNaAba(it.planilha_ordem_na_aba, itemPn.pos, itemPn.nivel)
+                          : null
+                      const itemLinhaLabel = formatPlanilhaLinhaRelatorio(itemLinhaRep) || '—'
+                      const planilhaModoMobile =
+                        inventario && isPlanilhaListMode(offlineSession?.listMode) && planilhaEnderecoAtivo != null
+                      const mobileLinhaPlanilhaAtiva =
+                        !planilhaModoMobile ||
+                        (planilhaEnderecoAtivo != null &&
+                          it.armazem_grupo != null &&
+                          isPlanilhaItemLinhaSelecionada(
+                            it,
+                            planilhaEnderecoAtivo.grupo,
+                            planilhaEnderecoAtivo.pos,
+                            planilhaEnderecoAtivo.nivel,
+                            planilhaEnderecoAtivo.repeticao,
+                          ))
+                      /** Mobile: todos os campos de preenchimento visíveis (independente do painel de colunas). */
+                      const mobileShowField = (_id: string) => true
+                      const mobileFieldReadonly = planilhaModoMobile && !mobileLinhaPlanilhaAtiva
+                      const mobileInputStyle = (extra?: React.CSSProperties): React.CSSProperties => ({
+                        ...mobileChecklistInputStyle,
+                        opacity: !planilhaModoMobile || mobileLinhaPlanilhaAtiva ? 1 : 0.65,
+                        ...extra,
+                      })
+                      const hasDetalhesExtras = Boolean(
+                        String(it.data_fabricacao ?? '').trim() ||
+                          String(it.data_validade ?? '').trim() ||
+                          String(it.lote ?? '').trim() ||
+                          String(it.up_quantidade ?? '').trim() ||
+                          String(it.observacao ?? '').trim(),
+                      )
 
                       return (
                         <div
                           key={it.key}
                           style={{
                             border: datasOrdemInvalida ? '1px solid #c62828' : '1px solid var(--border, #ccc)',
-                            borderRadius: 10,
-                            padding: 12,
+                            borderRadius: 8,
+                            padding: 8,
                             minWidth: 0,
                             maxWidth: '100%',
                             background: datasOrdemInvalida ? 'rgba(198, 40, 40, 0.12)' : undefined,
@@ -5982,9 +6173,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                         >
                           {isEditing && checklistEditDraft ? (
                             <>
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                <label style={mobileChecklistLabelStyle}>
-                                  Código do produto
+                              <div style={{ ...mobileChecklistFieldsGridFull, gap: 6 }}>
+                                <label style={{ ...mobileChecklistLabelStyle, ...mobileChecklistSpan2 }}>
+                                  Código
                                   <input
                                     value={checklistEditDraft.codigo_interno}
                                     onChange={(e) =>
@@ -5995,21 +6186,20 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                     style={mobileChecklistInputStyle}
                                   />
                                 </label>
-                                <label style={mobileChecklistLabelStyle}>
+                                <label style={{ ...mobileChecklistLabelStyle, ...mobileChecklistSpan2 }}>
                                   Descrição
-                                  <textarea
+                                  <input
                                     value={checklistEditDraft.descricao}
                                     onChange={(e) =>
                                       setChecklistEditDraft((d) =>
                                         d ? { ...d, descricao: e.target.value } : d,
                                       )
                                     }
-                                    rows={2}
-                                    style={{ ...mobileChecklistInputStyle, resize: 'vertical', minHeight: 56 }}
+                                    style={mobileChecklistInputStyle}
                                   />
                                 </label>
-                                <label style={mobileChecklistLabelStyle}>
-                                  Quantidade contada
+                                <label style={{ ...mobileChecklistLabelStyle, ...mobileChecklistSpan2 }}>
+                                  Quantidade
                                   <div style={mobileChecklistQtyRowStyle}>
                                     <input
                                       type="text"
@@ -6025,7 +6215,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       placeholder="—"
                                     />
                                     <ChecklistQtyCalcButton
-                                      buttonStyle={{ ...buttonStyle, alignSelf: 'stretch', minHeight: 44 }}
+                                      buttonStyle={{ ...buttonStyle, ...mobileChecklistCalcBtnStyle }}
                                       onClick={() =>
                                         openChecklistQtyCalculator(
                                           (v) =>
@@ -6038,17 +6228,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                   </div>
                                 </label>
                               </div>
-                              <div style={{ ...mobileChecklistActionsGrid, marginTop: 10 }}>
+                              <div style={{ ...mobileChecklistActionsGrid, marginTop: 6 }}>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#0b5', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
+                                  style={{ ...buttonStyle, ...mobileChecklistActionBtnStyle, background: '#0b5' }}
                                   onClick={() => saveChecklistEdit()}
                                 >
                                   Salvar
                                 </button>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#666', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
+                                  style={{ ...buttonStyle, ...mobileChecklistActionBtnStyle, background: '#666' }}
                                   onClick={() => cancelChecklistEdit()}
                                 >
                                   Cancelar
@@ -6057,226 +6247,312 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                             </>
                           ) : (
                             <>
-                              <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 2 }}>
-                                {String(it.contagem_banco_ultimo_conferente_nome ?? '').trim() !== '' ? (
-                                  <>
-                                    <div>
-                                      Última gravação (hoje):{' '}
-                                      <strong style={{ fontWeight: 600 }}>
-                                        {String(it.contagem_banco_ultimo_conferente_nome ?? '').trim()}
-                                      </strong>
-                                    </div>
-                                    <div style={{ fontSize: 9, marginTop: 2, opacity: 0.9 }}>
-                                      Sua sessão: {String(conferenteNomeSelecionado || '').trim() || '—'}
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    Conferente:{' '}
-                                    <strong style={{ fontWeight: 600 }}>
-                                      {String(conferenteNomeSelecionado || '').trim() || '—'}
-                                    </strong>
-                                  </>
-                                )}
-                              </div>
-                              <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 1 }}>
-                                Status: <strong style={{ color: pend ? '#a60' : '#0a0' }}>{pend ? 'Pendente' : 'Contado'}</strong>
-                              </div>
-                              {inventario && isPlanilhaListMode(offlineSession?.listMode) ? (
-                                <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text, #666)', marginBottom: 1 }}>
-                                  RUA: <strong style={{ fontWeight: 700 }}>{itemRua ?? '—'}</strong> · POS:{' '}
-                                  <strong style={{ fontWeight: 700 }}>{itemPn?.pos ?? '—'}</strong> · NÍVEL:{' '}
-                                  <strong style={{ fontWeight: 700 }}>{itemPn?.nivel ?? '—'}</strong>
-                                </div>
-                              ) : null}
-                              <div style={{ fontSize: 11, lineHeight: 1.1, fontWeight: 800, fontFamily: 'monospace' }}>
-                                {String(it.codigo_interno || '').trim() || '—'}
-                                {it.inventario_repeticao ? (
-                                  <span style={{ marginLeft: 6, fontSize: 10, color: '#0a7', fontWeight: 700 }}>
-                                    ({it.inventario_repeticao}ª contagem)
-                                  </span>
-                                ) : null}
-                              </div>
                               <div
                                 style={{
-                                  fontSize: 13,
-                                  lineHeight: 1.4,
-                                  whiteSpace: 'normal',
-                                  color: 'var(--text, #111)',
-                                  marginTop: 0,
-                                  wordBreak: 'break-word',
-                                  overflowWrap: 'anywhere',
+                                  fontSize: 10,
+                                  lineHeight: 1.25,
+                                  color: 'var(--text, #666)',
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: '2px 8px',
+                                  marginBottom: 4,
                                 }}
                               >
-                                {String(it.descricao || '').trim() || 'Descrição não informada'}
+                                <span>
+                                  <strong style={{ fontWeight: 600 }}>
+                                    {String(conferenteNomeSelecionado || '').trim() || '—'}
+                                  </strong>
+                                </span>
+                                <span>·</span>
+                                <span style={{ color: pend ? '#a60' : '#0a0', fontWeight: 700 }}>
+                                  {pend ? 'Pendente' : 'Contado'}
+                                </span>
+                                {inventario && isPlanilhaListMode(offlineSession?.listMode) ? (
+                                  <>
+                                    <span>·</span>
+                                    <span>
+                                      {itemRua ?? '—'} P{itemPn?.pos ?? '—'} N{itemPn?.nivel ?? '—'} L
+                                      {itemLinhaLabel}
+                                    </span>
+                                  </>
+                                ) : null}
+                                {checklistSavedFlashKey === it.key ? (
+                                  <span style={{ color: '#0a0', fontWeight: 700 }}>Salvo</span>
+                                ) : null}
                               </div>
-                              {inventario || showChecklistColumn('ean') || showChecklistColumn('dun') ? (
-                                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text, #666)', display: 'grid', gap: 2 }}>
-                                  {inventario || showChecklistColumn('ean') ? <div>EAN: {it.ean ?? '—'}</div> : null}
-                                  {inventario || showChecklistColumn('dun') ? <div>DUN: {it.dun ?? '—'}</div> : null}
-                                </div>
-                              ) : null}
-                              {inventario || showChecklistColumn('foto') ? (
-                                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text, #666)' }}>
-                                  Foto: {hasPhoto ? 'Com foto' : 'Sem foto'}
+                              {planilhaModoMobile && !mobileLinhaPlanilhaAtiva ? (
+                                <div
+                                  style={{
+                                    marginBottom: 4,
+                                    padding: '5px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    lineHeight: 1.3,
+                                    background: 'rgba(255, 193, 7, 0.12)',
+                                    border: '1px solid rgba(255, 193, 7, 0.45)',
+                                    color: 'var(--text, #ccc)',
+                                  }}
+                                >
+                                  Selecione esta linha no seletor acima para editar.
                                 </div>
                               ) : null}
 
-                              <div style={{ ...mobileChecklistFieldsGrid, marginTop: 8 }}>
-                                <label style={mobileChecklistLabelStyle}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', lineHeight: 1.2 }}>
-                                    <span>Quantidade</span>
-                                    {checklistSavedFlashKey === it.key ? (
-                                      <span style={{ fontSize: 11, color: '#0a0', fontWeight: 700 }}>Salvo</span>
-                                    ) : null}
-                                  </div>
-                                  <div style={mobileChecklistQtyRowStyle}>
+                              <div style={{ ...mobileChecklistFieldsGrid, marginTop: 2 }}>
+                                {mobileShowField('codigo') ? (
+                                  <label style={{ ...mobileChecklistLabelStyle, ...mobileChecklistSpan2 }}>
+                                    <span>Código</span>
+                                    {isPlanilhaListMode(offlineSession?.listMode) ? (
+                                      <input
+                                        key={`mob-cod-${it.key}-${it.codigo_interno}`}
+                                        defaultValue={it.codigo_interno}
+                                        readOnly={mobileFieldReadonly}
+                                        onBlur={(e) => {
+                                          if (mobileLinhaPlanilhaAtiva) {
+                                            handlePlanilhaCodigoBlur(it.key, e.target.value)
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                        }}
+                                        style={mobileInputStyle()}
+                                        placeholder="Código ou bip"
+                                      />
+                                    ) : (
+                                      <input
+                                        type="text"
+                                        value={it.codigo_interno}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, { codigo_interno: e.target.value })
+                                        }
+                                        onBlur={(e) => aplicarCatalogoPorCodigoPlanilha(it.key, e.target.value)}
+                                        style={mobileInputStyle()}
+                                        placeholder="—"
+                                      />
+                                    )}
+                                  </label>
+                                ) : null}
+                                {mobileShowField('descricao') ? (
+                                  <label style={{ ...mobileChecklistLabelStyle, ...mobileChecklistSpan2 }}>
+                                    <span>Descrição</span>
                                     <input
                                       type="text"
-                                      inputMode="decimal"
-                                      value={
-                                        inventario && isPlanilhaListMode(offlineSession?.listMode)
-                                          ? quantidadePlanilhaInventarioEfetiva(it, inventarioNumeroContagemRodada)
-                                          : it.quantidade_contada
+                                      value={it.descricao}
+                                      readOnly={mobileFieldReadonly}
+                                      onChange={(e) =>
+                                        updateOfflineItemFields(it.key, { descricao: e.target.value })
                                       }
-                                      onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
-                                      {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                                      style={mobileChecklistInputStyle}
+                                      style={mobileInputStyle()}
                                       placeholder="—"
                                     />
-                                    <ChecklistQtyCalcButton
-                                      buttonStyle={{ ...buttonStyle, alignSelf: 'stretch', minHeight: 44 }}
-                                      onClick={() =>
-                                        openChecklistQtyCalculator(
-                                          (v) => updateOfflineItemQty(it.key, v),
-                                          `${it.codigo_interno} — ${it.descricao}`,
-                                          calcHistoryKeyForCodigo(it.codigo_interno),
-                                        )
-                                      }
+                                  </label>
+                                ) : null}
+                                {mobileShowField('ean') ? (
+                                  <label style={mobileChecklistLabelStyle}>
+                                    <span>EAN</span>
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      value={it.ean ?? ''}
+                                      readOnly={mobileFieldReadonly}
+                                      onChange={(e) => {
+                                        const v = e.target.value
+                                        updateOfflineItemFields(it.key, { ean: v.trim() === '' ? null : v })
+                                        if (isPlanilhaListMode(offlineSession?.listMode) && mobileLinhaPlanilhaAtiva) {
+                                          schedulePlanilhaRowBarcodeApply(it.key, v)
+                                        }
+                                      }}
+                                      style={mobileInputStyle()}
+                                      placeholder="—"
                                     />
-                                  </div>
-                                </label>
-                                {inventario || showChecklistColumn('unidade') ? (
+                                  </label>
+                                ) : null}
+                                {mobileShowField('dun') ? (
+                                  <label style={mobileChecklistLabelStyle}>
+                                    <span>DUN</span>
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      value={it.dun ?? ''}
+                                      readOnly={mobileFieldReadonly}
+                                      onChange={(e) => {
+                                        const v = e.target.value
+                                        updateOfflineItemFields(it.key, { dun: v.trim() === '' ? null : v })
+                                        if (isPlanilhaListMode(offlineSession?.listMode) && mobileLinhaPlanilhaAtiva) {
+                                          schedulePlanilhaRowBarcodeApply(it.key, v)
+                                        }
+                                      }}
+                                      style={mobileInputStyle()}
+                                      placeholder="—"
+                                    />
+                                  </label>
+                                ) : null}
+                                {mobileShowField('quantidade') ? (
+                                  <label style={mobileChecklistLabelStyle}>
+                                    <span>Quantidade</span>
+                                    <div style={mobileChecklistQtyRowStyle}>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={
+                                          inventario && isPlanilhaListMode(offlineSession?.listMode)
+                                            ? quantidadePlanilhaInventarioEfetiva(it, inventarioNumeroContagemRodada)
+                                            : it.quantidade_contada
+                                        }
+                                        onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
+                                        {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
+                                        readOnly={mobileFieldReadonly}
+                                        style={mobileInputStyle()}
+                                        placeholder="—"
+                                      />
+                                      {mobileLinhaPlanilhaAtiva ? (
+                                        <ChecklistQtyCalcButton
+                                          buttonStyle={{ ...buttonStyle, ...mobileChecklistCalcBtnStyle }}
+                                          onClick={() =>
+                                            openChecklistQtyCalculator(
+                                              (v) => updateOfflineItemQty(it.key, v),
+                                              `${it.codigo_interno} — ${it.descricao}`,
+                                              calcHistoryKeyForCodigo(it.codigo_interno),
+                                            )
+                                          }
+                                        />
+                                      ) : null}
+                                    </div>
+                                  </label>
+                                ) : null}
+                                {mobileShowField('unidade') ? (
                                   <label style={mobileChecklistLabelStyle}>
                                     <span>Unidade</span>
                                     <input
                                       type="text"
                                       value={it.unidade_medida ?? ''}
+                                      readOnly={mobileFieldReadonly}
                                       onChange={(e) =>
                                         updateOfflineItemFields(it.key, {
                                           unidade_medida: e.target.value.trim() === '' ? null : e.target.value,
                                         })
                                       }
-                                      style={mobileChecklistInputStyle}
+                                      style={mobileInputStyle()}
                                       placeholder="—"
                                     />
                                   </label>
                                 ) : null}
                               </div>
 
-                              {inventario ||
-                              showChecklistColumn('data_fabricacao') ||
-                              showChecklistColumn('data_validade') ||
-                              showChecklistColumn('lote') ||
-                              showChecklistColumn('up') ||
-                              showChecklistColumn('observacao') ? (
-                                <div style={{ ...mobileChecklistFieldsGrid, marginTop: 8 }}>
-                                  {inventario || showChecklistColumn('data_fabricacao') ? (
+                              <details open={hasDetalhesExtras} style={{ marginTop: 6 }}>
+                                <summary
+                                  style={{
+                                    cursor: 'pointer',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: 'var(--text, #888)',
+                                    padding: '2px 0 4px',
+                                    userSelect: 'none',
+                                  }}
+                                >
+                                  Datas, lote, UP e observação
+                                </summary>
+                                <div style={{ ...mobileChecklistFieldsGrid, marginTop: 4 }}>
+                                  {mobileShowField('data_fabricacao') ? (
                                     <label style={mobileChecklistLabelStyle}>
-                                      <span>Data de fabricação</span>
+                                      <span>Fabricação</span>
                                       <input
                                         type="date"
                                         max={maxDataFabricacaoHoje()}
                                         value={it.data_fabricacao ?? ''}
+                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) =>
                                           updateOfflineItemFields(it.key, {
                                             data_fabricacao: clampDataFabricacaoYmd(e.target.value),
                                           })
                                         }
-                                        style={mobileChecklistInputStyle}
+                                        style={mobileInputStyle()}
                                       />
                                     </label>
                                   ) : null}
-                                  {inventario || showChecklistColumn('data_validade') ? (
+                                  {mobileShowField('data_validade') ? (
                                     <label style={mobileChecklistLabelStyle}>
-                                      <span>Data de validade</span>
+                                      <span>Validade</span>
                                       <input
                                         type="date"
                                         value={it.data_validade ?? ''}
-                                        onChange={(e) => updateOfflineItemFields(it.key, { data_validade: e.target.value })}
-                                        style={mobileChecklistInputStyle}
+                                        readOnly={mobileFieldReadonly}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, { data_validade: e.target.value })
+                                        }
+                                        style={mobileInputStyle()}
                                       />
                                     </label>
                                   ) : null}
-                                  {inventario || showChecklistColumn('lote') ? (
+                                  {mobileShowField('lote') ? (
                                     <label style={mobileChecklistLabelStyle}>
                                       <span>Lote</span>
                                       <input
                                         type="text"
                                         value={it.lote ?? ''}
+                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) => updateOfflineItemFields(it.key, { lote: e.target.value })}
-                                        style={mobileChecklistInputStyle}
+                                        style={mobileInputStyle()}
                                         placeholder="—"
                                       />
                                     </label>
                                   ) : null}
-                                  {inventario || showChecklistColumn('up') ? (
+                                  {mobileShowField('up') ? (
                                     <label style={mobileChecklistLabelStyle}>
                                       <span>UP</span>
                                       <input
                                         type="text"
                                         inputMode="decimal"
                                         value={it.up_quantidade ?? ''}
-                                        onChange={(e) => updateOfflineItemFields(it.key, { up_quantidade: e.target.value })}
-                                        style={mobileChecklistInputStyle}
+                                        readOnly={mobileFieldReadonly}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, { up_quantidade: e.target.value })
+                                        }
+                                        style={mobileInputStyle()}
                                         placeholder="—"
                                       />
                                     </label>
                                   ) : null}
-                                  {inventario || showChecklistColumn('observacao') ? (
-                                    <label style={mobileChecklistLabelStyle}>
+                                  {mobileShowField('observacao') ? (
+                                    <label style={{ ...mobileChecklistLabelStyle, ...mobileChecklistSpan2 }}>
                                       <span>Observação</span>
                                       <input
                                         type="text"
                                         value={it.observacao ?? ''}
-                                        onChange={(e) => updateOfflineItemFields(it.key, { observacao: e.target.value })}
-                                        style={mobileChecklistInputStyle}
+                                        readOnly={mobileFieldReadonly}
+                                        onChange={(e) =>
+                                          updateOfflineItemFields(it.key, { observacao: e.target.value })
+                                        }
+                                        style={mobileInputStyle()}
                                         placeholder="—"
                                       />
                                     </label>
                                   ) : null}
                                 </div>
-                              ) : null}
+                              </details>
 
-                              <div style={{ ...mobileChecklistActionsGrid, marginTop: 10 }}>
+                              <div style={{ ...mobileChecklistActionsGrid, marginTop: 6 }}>
                                 <button
                                   type="button"
-                                  style={{ ...buttonStyle, background: '#2a4d7a', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
-                                  onClick={() => openChecklistEdit(it)}
+                                  style={{
+                                    ...buttonStyle,
+                                    ...mobileChecklistActionBtnStyle,
+                                    background: '#2a4d7a',
+                                  }}
+                                  onClick={() => openPhotoModalForCodigo(it.codigo_interno)}
+                                  title={hasPhoto ? 'Ver/atualizar foto' : 'Anexar foto'}
                                 >
-                                  Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  style={{ ...buttonStyle, background: '#666', fontSize: 14, padding: '12px 10px', minHeight: 44 }}
-                                  onClick={() => handleLimparQuantidadeOffline(it.key)}
-                                >
-                                  Limpar
+                                  {hasPhoto ? 'Foto ✓' : 'Foto'}
                                 </button>
                                 <button
                                   type="button"
                                   style={{
                                     ...buttonStyle,
-                                    background: hasPhoto ? '#0b5' : '#444',
-                                    fontSize: 14,
-                                    padding: '12px 10px',
-                                    minHeight: 44,
-                                    gridColumn: '1 / -1',
+                                    ...mobileChecklistActionBtnStyle,
+                                    background: '#666',
                                   }}
-                                  onClick={() => openPhotoModalForCodigo(it.codigo_interno)}
-                                  title={hasPhoto ? 'Ver/atualizar foto' : 'Anexar foto'}
+                                  onClick={() => handleLimparQuantidadeOffline(it.key)}
                                 >
-                                  {hasPhoto ? 'Foto (ok)' : 'Sem foto'}
+                                  Limpar
                                 </button>
                               </div>
                               {hasPhoto ? (
@@ -6284,12 +6560,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                   type="button"
                                   style={{
                                     ...buttonStyle,
+                                    ...mobileChecklistActionBtnStyle,
                                     background: '#a85a00',
-                                    fontSize: 14,
-                                    padding: '12px 10px',
-                                    minHeight: 44,
                                     width: '100%',
-                                    marginTop: 8,
+                                    marginTop: 6,
                                     boxSizing: 'border-box',
                                   }}
                                   onClick={() => removePhotoFromChecklistItem(it)}
@@ -6303,6 +6577,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       )
                     })}
                     </div>
+                    {mobileInnerPaginationBar}
                   </>
                 ) : inventarioPlanilhaArmazem ? (
                   <section
@@ -6368,7 +6643,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                         <span>
                           Linhas {planilhaTabelaRangeFrom}–{planilhaTabelaRangeTo} de {linhasTabelaPlanilhaInventario.length}{' '}
                           · Página da tabela {planilhaTabelaPageSafe} de {planilhaTabelaTotalPages} ·{' '}
-                          {PLANILHA_TABELA_PAGE_SIZE} linhas por página
+                          {planilhaListaPageSize} linhas por página
                         </span>
                         <button
                           type="button"
@@ -8305,41 +8580,64 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-/** Checklist em cards (mobile): uma coluna, inputs confortáveis para toque. */
+/** Checklist em cards (mobile): compacto — pares em 2 colunas quando couber. */
 const mobileChecklistFieldsGrid: React.CSSProperties = {
   display: 'grid',
-  gap: 10,
+  gap: 6,
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+}
+
+const mobileChecklistFieldsGridFull: React.CSSProperties = {
+  display: 'grid',
+  gap: 6,
   gridTemplateColumns: '1fr',
 }
 
 const mobileChecklistLabelStyle: React.CSSProperties = {
   ...labelStyle,
-  gap: 6,
-  fontSize: 13,
+  gap: 2,
+  fontSize: 11,
   minWidth: 0,
+  lineHeight: 1.2,
 }
 
 const mobileChecklistInputStyle: React.CSSProperties = {
   ...inputStyle,
   width: '100%',
   minWidth: 0,
-  padding: '10px 12px',
-  fontSize: 16,
-  minHeight: 44,
+  padding: '7px 9px',
+  fontSize: 15,
+  minHeight: 36,
 }
 
 const mobileChecklistQtyRowStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'minmax(0, 1fr) auto',
-  gap: 8,
+  gap: 6,
   alignItems: 'stretch',
 }
 
 const mobileChecklistActionsGrid: React.CSSProperties = {
   display: 'grid',
-  gap: 8,
+  gap: 6,
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
 }
+
+const mobileChecklistCalcBtnStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  fontSize: 11,
+  minWidth: 56,
+  minHeight: 36,
+  alignSelf: 'stretch',
+}
+
+const mobileChecklistActionBtnStyle: React.CSSProperties = {
+  fontSize: 13,
+  padding: '8px 8px',
+  minHeight: 38,
+}
+
+const mobileChecklistSpan2: React.CSSProperties = { gridColumn: '1 / -1' }
 
 const buttonStyle: React.CSSProperties = {
   padding: '10px 14px',
