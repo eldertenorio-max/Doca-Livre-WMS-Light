@@ -5310,10 +5310,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           marginTop: 10,
         }}
       >
-        <span style={{ fontSize: 13, color: 'var(--text, #888)' }}>
-          {checklistShowAll
-            ? `Exibindo todos os ${checklistProductTotal} registros`
-            : isArmazemPaginado
+        {checklistShowAll ? (
+          <span style={{ fontSize: 13, color: 'var(--text, #888)' }}>
+            Exibindo todos os {checklistProductTotal} registros
+          </span>
+        ) : isMobile && isPlanilhaInventarioNav ? null : (
+          <span style={{ fontSize: 13, color: 'var(--text, #888)' }}>
+            {isArmazemPaginado
               ? isPlanilhaInventarioNav
                 ? `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Aba ${checklistPageSafe} de ${checklistTotalPages} · ${armazemGrupos[checklistPageSafe - 1]?.items.length ?? 0} linhas nesta RUA`
                 : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages}${
@@ -5322,22 +5325,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                       : ` · ${formatContagemLabel(armazemGrupos[checklistPageSafe - 1]?.contagem ?? checklistPageSafe)}`
                   }`
               : `${checklistRangeFrom}–${checklistRangeTo} de ${checklistProductTotal} · Página ${checklistPageSafe} de ${checklistTotalPages} · ${CHECKLIST_PAGE_SIZE} por página`}
-        </span>
+          </span>
+        )}
         {isPlanilhaInventarioNav ? (
-          isMobile ? (
-            <>
-              {mobileInnerListTotal > 0 ? (
-                <span style={{ fontSize: 12, color: 'var(--text, #888)', width: '100%' }}>
-                  {checklistRangeFrom}–{checklistRangeTo} de {checklistProductTotal} · Aba {checklistPageSafe} de{' '}
-                  {checklistTotalPages} · {mobileInnerListTotal} linhas nesta RUA
-                </span>
-              ) : null}
-              <span style={{ fontSize: 11, color: 'var(--text, #888)', width: '100%', lineHeight: 1.35 }}>
-                Troque de <strong>CAMARA/RUA</strong> pelas abas acima.
-              </span>
-              {mobileInnerPaginationBar}
-            </>
-          ) : (
+          isMobile ? null : (
             <span style={{ fontSize: 12, color: 'var(--text, #888)', maxWidth: 480 }}>
               Troque de <strong>CAMARA/RUA</strong> pelas <strong>abas</strong> acima. A lista é a mesma ordem do modo
               armazém na contagem, com <strong>3 contagens por produto</strong> no inventário.
@@ -5937,12 +5928,28 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                 ) : null}
                 {isMobile ? (
                   <>
-                    {checklistPaginationControls}
-                    {mobileInnerPaginationBar &&
-                    !isPlanilhaInventarioNav &&
-                    (inventarioPlanilhaArmazem || isArmazemPaginado)
-                      ? mobileInnerPaginationBar
-                      : null}
+                    {isPlanilhaInventarioNav && !checklistShowAll ? (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gap: 4,
+                          marginTop: 8,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {mobileInnerListTotal > 0 ? (
+                          <span style={{ fontSize: 12, color: 'var(--text, #888)' }}>
+                            {checklistRangeFrom}–{checklistRangeTo} de {checklistProductTotal} · Aba {checklistPageSafe}{' '}
+                            de {checklistTotalPages} · {mobileInnerListTotal} linhas nesta RUA
+                          </span>
+                        ) : null}
+                        <span style={{ fontSize: 11, color: 'var(--text, #888)', lineHeight: 1.35 }}>
+                          Troque de <strong>CAMARA/RUA</strong> pelas abas acima.
+                        </span>
+                      </div>
+                    ) : (
+                      checklistPaginationControls
+                    )}
                     <div
                       data-checklist-nav-root
                       style={{ marginTop: 4, display: 'grid', gap: 4 }}
