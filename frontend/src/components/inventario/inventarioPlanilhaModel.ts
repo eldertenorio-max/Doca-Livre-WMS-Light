@@ -375,6 +375,25 @@ export function formatPlanilhaLinhaRelatorio(n: number | null | undefined): stri
   return String(r)
 }
 
+/** Endereço legível para cards mobile (Rua · Pos. · Nível · Linha). */
+export function formatPlanilhaEnderecoLegivel(opts: {
+  rua?: string | null
+  pos?: number | null
+  nivel?: number | null
+  linhaRepeticao?: number | null
+}): string {
+  const parts: string[] = []
+  const rua = String(opts.rua ?? '').trim()
+  if (rua) parts.push(`Rua ${rua}`)
+  if (opts.pos != null && Number.isFinite(Number(opts.pos))) parts.push(`Pos. ${Math.round(Number(opts.pos))}`)
+  if (opts.nivel != null && Number.isFinite(Number(opts.nivel))) {
+    parts.push(`Nível ${Math.round(Number(opts.nivel))}`)
+  }
+  const lin = formatPlanilhaLinhaRelatorio(opts.linhaRepeticao)
+  if (lin) parts.push(`Linha ${lin}`)
+  return parts.length > 0 ? parts.join(' · ') : '—'
+}
+
 export function inventarioArmazemPosNivel(
   itemsSorted: OfflineChecklistItem[],
   it: OfflineChecklistItem,

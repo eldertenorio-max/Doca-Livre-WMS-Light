@@ -44,8 +44,7 @@ import {
   getRuasPorCamara,
   inventarioArmazemPosNivel,
   inventarioCamaraLabelFromGrupo,
-  formatPlanilhaLinhaRelatorio,
-  isPlanilhaItemLinhaSelecionada,
+  formatPlanilhaEnderecoLegivel,
   planilhaRepeticaoFromOrdemNaAba,
   INVENTARIO_ARMAZEM_GRUPO_IDS,
   INVENTARIO_ARMAZEM_NUM_GRUPOS,
@@ -3160,9 +3159,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     return !!(inventario && s && s.status === 'aberta' && isPlanilhaListMode(s.listMode))
   }
 
-  /** Gravações na planilha vão sempre para a linha do seletor RUA/POS/NÍVEL/repetição. */
+  /** Gravações na planilha vão para a linha do seletor (desktop); no mobile edita-se direto na lista. */
   function resolvePlanilhaEditKey(key: string): { editKey: string; redirected: boolean } {
     if (!isPlanilhaModoAtivo()) return { editKey: key, redirected: false }
+    if (isMobile) return { editKey: key, redirected: false }
     const target = getPlanilhaTargetFromEndereco()
     if (!target) return { editKey: key, redirected: false }
     return { editKey: target.key, redirected: target.key !== key }
@@ -3214,6 +3214,25 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const c = String(codigo ?? '').trim()
     if (!isPlanilhaModoAtivo()) {
       aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      return
+    }
+    if (isMobile) {
+      if (!c) {
+        aplicarCatalogoPorCodigoPlanilha(key, codigo)
+        return
+      }
+      if (shouldSkipPlanilhaBipBurst(c)) return
+      const s = offlineSessionRef.current
+      const item = s?.items.find((it) => it.key === key)
+      aplicarCatalogoPorCodigoPlanilha(key, c)
+      if (item) {
+        const rep = inventarioPlanilhaRepeticaoFromItem(item)
+        if (rep != null) {
+          updateOfflineItemFields(key, { inventario_repeticao: rep }, { skipPlanilhaRedirect: true })
+        }
+        clearPlanilhaDuplicatasIrmas(item, c)
+      }
+      setProdutoError('')
       return
     }
     const target = getPlanilhaTargetFromEndereco()
@@ -5997,26 +6016,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                         itemPn && it.planilha_ordem_na_aba != null
                           ? planilhaRepeticaoFromOrdemNaAba(it.planilha_ordem_na_aba, itemPn.pos, itemPn.nivel)
                           : null
-                      const itemLinhaLabel = formatPlanilhaLinhaRelatorio(itemLinhaRep) || '—'
-                      const planilhaModoMobile =
-                        inventario && isPlanilhaListMode(offlineSession?.listMode) && planilhaEnderecoAtivo != null
-                      const mobileLinhaPlanilhaAtiva =
-                        !planilhaModoMobile ||
-                        (planilhaEnderecoAtivo != null &&
-                          it.armazem_grupo != null &&
-                          isPlanilhaItemLinhaSelecionada(
-                            it,
-                            planilhaEnderecoAtivo.grupo,
-                            planilhaEnderecoAtivo.pos,
-                            planilhaEnderecoAtivo.nivel,
-                            planilhaEnderecoAtivo.repeticao,
-                          ))
+                      const itemEnderecoLabel =
+                        inventario && isPlanilhaListMode(offlineSession?.listMode)
+                          ? formatPlanilhaEnderecoLegivel({
+                              rua: itemRua,
+                              pos: itemPn?.pos,
+                              nivel: itemPn?.nivel,
+                              linhaRepeticao: itemLinhaRep,
+                            })
+                          : null
                       /** Mobile: todos os campos de preenchimento visíveis (independente do painel de colunas). */
                       const mobileShowField = (_id: string) => true
-                      const mobileFieldReadonly = planilhaModoMobile && !mobileLinhaPlanilhaAtiva
                       const mobileInputStyle = (extra?: React.CSSProperties): React.CSSProperties => ({
                         ...mobileChecklistInputStyle,
-                        opacity: !planilhaModoMobile || mobileLinhaPlanilhaAtiva ? 1 : 0.65,
                         ...extra,
                       })
                       const hasDetalhesExtras = Boolean(
@@ -6138,33 +6150,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                 {inventario && isPlanilhaListMode(offlineSession?.listMode) ? (
                                   <>
                                     <span>·</span>
-                                    <span>
-                                      {itemRua ?? '—'} P{itemPn?.pos ?? '—'} N{itemPn?.nivel ?? '—'} L
-                                      {itemLinhaLabel}
-                                    </span>
+                                    <span>{itemEnderecoLabel}</span>
                                   </>
                                 ) : null}
                                 {checklistSavedFlashKey === it.key ? (
                                   <span style={{ color: '#0a0', fontWeight: 700 }}>Salvo</span>
                                 ) : null}
                               </div>
-                              {planilhaModoMobile && !mobileLinhaPlanilhaAtiva ? (
-                                <div
-                                  style={{
-                                    marginBottom: 4,
-                                    padding: '5px 8px',
-                                    borderRadius: 6,
-                                    fontSize: 10,
-                                    lineHeight: 1.3,
-                                    background: 'rgba(255, 193, 7, 0.12)',
-                                    border: '1px solid rgba(255, 193, 7, 0.45)',
-                                    color: 'var(--text, #ccc)',
-                                  }}
-                                >
-                                  Para editar, selecione o mesmo endereço (RUA, POS, Nível e Linha) no formulário
-                                  abaixo.
-                                </div>
-                              ) : null}
 
                               <div style={{ ...mobileChecklistFieldsGrid, marginTop: 2 }}>
                                 {mobileShowField('codigo') ? (
@@ -6174,12 +6166,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       <input
                                         key={`mob-cod-${it.key}-${it.codigo_interno}`}
                                         defaultValue={it.codigo_interno}
-                                        readOnly={mobileFieldReadonly}
-                                        onBlur={(e) => {
-                                          if (mobileLinhaPlanilhaAtiva) {
-                                            handlePlanilhaCodigoBlur(it.key, e.target.value)
-                                          }
-                                        }}
+                                        onBlur={(e) => handlePlanilhaCodigoBlur(it.key, e.target.value)}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                                         }}
@@ -6206,7 +6193,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                     <input
                                       type="text"
                                       value={it.descricao}
-                                      readOnly={mobileFieldReadonly}
                                       onChange={(e) =>
                                         updateOfflineItemFields(it.key, { descricao: e.target.value })
                                       }
@@ -6222,11 +6208,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       type="text"
                                       inputMode="numeric"
                                       value={it.ean ?? ''}
-                                      readOnly={mobileFieldReadonly}
                                       onChange={(e) => {
                                         const v = e.target.value
                                         updateOfflineItemFields(it.key, { ean: v.trim() === '' ? null : v })
-                                        if (isPlanilhaListMode(offlineSession?.listMode) && mobileLinhaPlanilhaAtiva) {
+                                        if (isPlanilhaListMode(offlineSession?.listMode)) {
                                           schedulePlanilhaRowBarcodeApply(it.key, v)
                                         }
                                       }}
@@ -6242,11 +6227,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       type="text"
                                       inputMode="numeric"
                                       value={it.dun ?? ''}
-                                      readOnly={mobileFieldReadonly}
                                       onChange={(e) => {
                                         const v = e.target.value
                                         updateOfflineItemFields(it.key, { dun: v.trim() === '' ? null : v })
-                                        if (isPlanilhaListMode(offlineSession?.listMode) && mobileLinhaPlanilhaAtiva) {
+                                        if (isPlanilhaListMode(offlineSession?.listMode)) {
                                           schedulePlanilhaRowBarcodeApply(it.key, v)
                                         }
                                       }}
@@ -6269,22 +6253,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                         }
                                         onChange={(e) => updateOfflineItemQty(it.key, e.target.value)}
                                         {...{ [CHECKLIST_QTY_NAV_ATTR]: '' }}
-                                        readOnly={mobileFieldReadonly}
                                         style={mobileInputStyle()}
                                         placeholder="—"
                                       />
-                                      {mobileLinhaPlanilhaAtiva ? (
-                                        <ChecklistQtyCalcButton
-                                          buttonStyle={{ ...buttonStyle, ...mobileChecklistCalcBtnStyle }}
-                                          onClick={() =>
-                                            openChecklistQtyCalculator(
-                                              (v) => updateOfflineItemQty(it.key, v),
-                                              `${it.codigo_interno} — ${it.descricao}`,
-                                              calcHistoryKeyForCodigo(it.codigo_interno),
-                                            )
-                                          }
-                                        />
-                                      ) : null}
+                                      <ChecklistQtyCalcButton
+                                        buttonStyle={{ ...buttonStyle, ...mobileChecklistCalcBtnStyle }}
+                                        onClick={() =>
+                                          openChecklistQtyCalculator(
+                                            (v) => updateOfflineItemQty(it.key, v),
+                                            `${it.codigo_interno} — ${it.descricao}`,
+                                            calcHistoryKeyForCodigo(it.codigo_interno),
+                                          )
+                                        }
+                                      />
                                     </div>
                                   </label>
                                 ) : null}
@@ -6294,7 +6275,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                     <input
                                       type="text"
                                       value={it.unidade_medida ?? ''}
-                                      readOnly={mobileFieldReadonly}
                                       onChange={(e) =>
                                         updateOfflineItemFields(it.key, {
                                           unidade_medida: e.target.value.trim() === '' ? null : e.target.value,
@@ -6328,7 +6308,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                         type="date"
                                         max={maxDataFabricacaoHoje()}
                                         value={it.data_fabricacao ?? ''}
-                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) =>
                                           updateOfflineItemFields(it.key, {
                                             data_fabricacao: clampDataFabricacaoYmd(e.target.value),
@@ -6344,7 +6323,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       <input
                                         type="date"
                                         value={it.data_validade ?? ''}
-                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) =>
                                           updateOfflineItemFields(it.key, { data_validade: e.target.value })
                                         }
@@ -6358,7 +6336,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       <input
                                         type="text"
                                         value={it.lote ?? ''}
-                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) => updateOfflineItemFields(it.key, { lote: e.target.value })}
                                         style={mobileInputStyle()}
                                         placeholder="—"
@@ -6372,7 +6349,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                         type="text"
                                         inputMode="decimal"
                                         value={it.up_quantidade ?? ''}
-                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) =>
                                           updateOfflineItemFields(it.key, { up_quantidade: e.target.value })
                                         }
@@ -6387,7 +6363,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                       <input
                                         type="text"
                                         value={it.observacao ?? ''}
-                                        readOnly={mobileFieldReadonly}
                                         onChange={(e) =>
                                           updateOfflineItemFields(it.key, { observacao: e.target.value })
                                         }
