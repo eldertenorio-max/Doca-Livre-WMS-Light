@@ -205,6 +205,91 @@ async function fetchUltimasInventarioPorChave(
   return map
 }
 
+/**
+ * Preenche o mapa a partir de `inventario_planilha_linhas` (fonte da planilha após finalizar).
+ * Garante que “Carregar lista” traga qty/código/lote mesmo se `contagens_inventario` não tiver POS/grupo.
+ */
+async function hydrateMapFromPlanilhaLinhas(
+  map: Map<string, RowSnapshot>,
+  dataContagemYmd: string,
+  numeroContagemRodada: number,
+): Promise<void> {
+  const ymd = String(dataContagemYmd ?? '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
+  const rodada = Math.min(4, Math.max(1, Math.round(numeroContagemRodada)))
+  try {
+    const { data, error } = await supabase
+      .from('inventario_planilha_linhas')
+      .select(
+        'id, conferente_id, grupo_armazem, posicao, nivel, inventario_repeticao, numero_contagem, codigo_interno, descricao, quantidade, data_fabricacao, data_validade, lote, up_quantidade, observacao, created_at, contagens_inventario_id, contagens_estoque_id',
+      )
+      .eq('data_inventario', ymd)
+    if (error || !data?.length) return
+    for (const pl of data) {
+      const nc = Number(pl.numero_contagem ?? 1)
+      if (Number.isFinite(nc) && Math.round(nc) !== rodada) continue
+      const grupo = Number(pl.grupo_armazem)
+      const pos = Number(pl.posicao)
+      const nivel = Number(pl.nivel)
+      const repRaw = Number(pl.inventario_repeticao ?? 1)
+      const rep = Number.isFinite(repRaw) && repRaw >= 1 && repRaw <= 3 ? repRaw : 1
+      if (!Number.isFinite(grupo) || !Number.isFinite(pos) || !Number.isFinite(nivel)) continue
+      const qRaw = pl.quantidade
+      const q = typeof qRaw === 'number' ? qRaw : Number(String(qRaw ?? '').replace(',', '.'))
+      if (!Number.isFinite(q) || q < 0) continue
+      const ordem = planilhaOrdemFromPosNivel(pos, nivel, rep)
+      const key = inventarioPlanilhaMergeKey(ymd, grupo, ordem, rodada)
+      const cidRow =
+        pl.conferente_id != null && String(pl.conferente_id).trim() !== ''
+          ? String(pl.conferente_id).trim()
+          : ''
+      if (!cidRow) continue
+      let up_adicional: number | null = null
+      const upRaw = pl.up_quantidade
+      if (upRaw != null && String(upRaw).trim() !== '') {
+        const u = typeof upRaw === 'number' ? upRaw : Number(String(upRaw).replace(',', '.'))
+        if (Number.isFinite(u) && u >= 0) up_adicional = u
+      }
+      const fkId = pl.contagens_inventario_id ?? pl.contagens_estoque_id ?? pl.id
+      const rowId = fkId != null ? String(fkId) : String(pl.id ?? '')
+      if (!rowId) continue
+      const snap: RowSnapshot = {
+        contagensRowId: rowId,
+        conferente_id: cidRow,
+        codigo_interno: String(pl.codigo_interno ?? ''),
+        descricao: String(pl.descricao ?? ''),
+        quantidade_up: q,
+        up_adicional,
+        lote: pl.lote != null && String(pl.lote).trim() !== '' ? String(pl.lote) : null,
+        observacao:
+          pl.observacao != null && String(pl.observacao).trim() !== '' ? String(pl.observacao) : null,
+        data_fabricacao: pl.data_fabricacao != null ? String(pl.data_fabricacao) : null,
+        data_validade: pl.data_validade != null ? String(pl.data_validade) : null,
+        ean: null,
+        dun: null,
+        data_hora_contagem:
+          pl.created_at != null ? String(pl.created_at) : new Date(0).toISOString(),
+        planilha_grupo_armazem: grupo,
+        planilha_ordem_na_aba: ordem,
+        inventario_numero_contagem: rodada,
+        inventario_repeticao: rep,
+      }
+      const prev = map.get(key)
+      if (
+        !prev ||
+        contagemLinhaAVenceB(
+          { data_hora_contagem: snap.data_hora_contagem, id: snap.contagensRowId },
+          { data_hora_contagem: prev.data_hora_contagem, id: prev.contagensRowId },
+        )
+      ) {
+        map.set(key, snap)
+      }
+    }
+  } catch {
+    /* tabela ausente ou RLS */
+  }
+}
+
 /** Completa código/descrição a partir de `inventario_planilha_linhas` quando a linha em contagens veio sem produto. */
 async function enrichMapComPlanilhaLinhasCodigo(
   map: Map<string, RowSnapshot>,
@@ -302,6 +387,7 @@ export async function mergeInventarioDoDiaParaItems(
   const skipKeys = options?.skipKeys
   const rodada = Math.min(4, Math.max(1, Math.round(options?.numeroContagemRodada ?? 1)))
   const porChave = await fetchUltimasInventarioPorChave(dataContagemYmd, rodada)
+  await hydrateMapFromPlanilhaLinhas(porChave, dataContagemYmd, rodada)
   await enrichMapComPlanilhaLinhasCodigo(porChave, dataContagemYmd)
   if (porChave.size === 0) {
     return { items: items.map((i) => ({ ...i })), preenchidos: 0 }

@@ -351,6 +351,17 @@ function formatContagemLabel(contagem: number) {
   return `${contagem}° CONTAGEM`
 }
 
+/** Após finalizar/limpar sessão: inventário mantém modo planilha para “Carregar lista” trazer do banco. */
+function checklistListModeAposEncerrarSessao(
+  modoInventario: boolean,
+  prev: ChecklistListMode,
+): ChecklistListMode {
+  if (modoInventario) {
+    return isPlanilhaListMode(prev) ? normalizeChecklistListMode(prev) : 'planilha-1'
+  }
+  return 'todos'
+}
+
 function formatSessionInterval(startIso: string, endIso: string): string {
   const startMs = new Date(startIso).getTime()
   const endMs = new Date(endIso).getTime()
@@ -986,7 +997,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (isYmd(s.data_contagem_ymd) && s.data_contagem_ymd !== todayYmd) {
         clearOfflineSession(sessionMode)
         setOfflineSession(null)
-        setChecklistListMode('todos')
+        setChecklistListMode((prev) => checklistListModeAposEncerrarSessao(inventario, prev))
         setStartFreshNotice(
           `Sessão local de ${formatDateBRFromYmd(s.data_contagem_ymd)} encerrada automaticamente por virada de dia.`,
         )
@@ -1374,7 +1385,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       void apagarRascunhoSupabaseParaSessao(s)
       clearOfflineSession(sessionMode)
       setOfflineSession(null)
-      setChecklistListMode('todos')
+      setChecklistListMode((prev) => checklistListModeAposEncerrarSessao(inventario, prev))
       setChecklistError('')
       setStartFreshNotice(
         `Sessão local de ${formatDateBRFromYmd(s.data_contagem_ymd)} encerrada automaticamente por virada de dia.`,
@@ -2592,7 +2603,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
     setChecklistLoading(true)
     try {
-      const listModeEfetivo: ChecklistListMode = checklistListMode
+      const listModeEfetivo: ChecklistListMode = inventario
+        ? isPlanilhaListMode(checklistListMode)
+          ? normalizeChecklistListMode(checklistListMode)
+          : 'planilha-1'
+        : checklistListMode
       if (inventario && isPlanilhaListMode(listModeEfetivo)) {
         if (isAppOnline()) {
           await loadProductOptions()
@@ -2603,14 +2618,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         const rodadaPlanilha = inventarioRodadaFromListMode(listModeEfetivo)
         let items = buildBlankPlanilhaInventarioItems()
         let avisoMergeLinhas = ''
-        if (isAppOnline()) {
+        if (!forceZero && isAppOnline()) {
           const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(contagemDiaYmd, items, {
             numeroContagemRodada: rodadaPlanilha,
           })
           items = merged
           if (preenchidos > 0) {
-            avisoMergeLinhas = ` ${preenchidos} linha(s) já gravadas por qualquer conferente neste dia.`
+            avisoMergeLinhas = ` ${preenchidos} linha(s) já preenchida(s) com o que está no banco hoje (última gravação por endereço, todos os conferentes).`
           }
+        } else if (!forceZero && !isAppOnline()) {
+          avisoMergeLinhas =
+            ' Sem internet — lista em branco neste aparelho; conecte e clique em Carregar lista para trazer o que já foi gravado.'
         }
         setArmazemMissingCodes([])
         const sessionStartedAtIso = new Date().toISOString()
@@ -2639,7 +2657,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         setInventarioPlanilhaRepeticao(1)
         setChecklistPage(1)
         setSaveSuccess(
-          `Lista em branco (${formatContagemLabel(rodadaPlanilha)}): ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas.${avisoMergeLinhas} Selecione RUA, POS, NÍVEL e linha (1ª–3ª) e bip o produto.`,
+          avisoMergeLinhas.trim() !== ''
+            ? `Lista de inventário (${formatContagemLabel(rodadaPlanilha)}): ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas.${avisoMergeLinhas} Selecione RUA, POS, NÍVEL e linha (1ª–3ª) e bip o produto.`
+            : `Lista em branco (${formatContagemLabel(rodadaPlanilha)}): ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas. Selecione RUA, POS, NÍVEL e linha (1ª–3ª) e bip o produto.`,
         )
         setSaveError('')
         setStartFreshNotice('')
@@ -2744,10 +2764,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         })
       })
       let preenchidosDoBanco = 0
-      if (!inventario && !forceZero) {
-        const merged = await mergeContagensDiariasDoDiaParaItems(contagemDiaYmd, items)
-        items = merged.items
-        preenchidosDoBanco = merged.preenchidos
+      if (!forceZero) {
+        if (inventario) {
+          const rodadaInv = clampInventarioNumeroContagem(inventarioRodadaFromListMode(listModeEfetivo))
+          const merged = await mergeInventarioDoDiaParaItems(contagemDiaYmd, items, {
+            numeroContagemRodada: rodadaInv,
+          })
+          items = merged.items
+          preenchidosDoBanco = merged.preenchidos
+        } else {
+          const merged = await mergeContagensDiariasDoDiaParaItems(contagemDiaYmd, items)
+          items = merged.items
+          preenchidosDoBanco = merged.preenchidos
+        }
       }
       const sessionStartedAtIso = new Date().toISOString()
       const sessionStartedAtMs = new Date(sessionStartedAtIso).getTime()
@@ -2778,7 +2807,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
       setSaveSuccess(
         inventario
-          ? `Lista de inventário: ${items.length} linhas (${itemsRaw.length} produtos × 3 contagens)${sufixoArmazem}. Preencha as quantidades e finalize.`
+          ? `Lista de inventário: ${items.length} linhas${sufixoArmazem}.${
+              preenchidosDoBanco > 0
+                ? ` ${preenchidosDoBanco} linha(s) já preenchida(s) com o que está no banco hoje (última gravação por endereço, todos os conferentes).`
+                : ''
+            } Preencha as quantidades e finalize.`
           : `Lista carregada: ${items.length} itens.${sufixoArmazem}${
               preenchidosDoBanco > 0
                 ? ` ${preenchidosDoBanco} linha(s) já preenchida(s) com o que está no banco hoje (última gravação por código, todos os conferentes).`
@@ -2804,7 +2837,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (!offlineSession || offlineSession.status !== 'aberta') {
       clearOfflineSession(sessionMode)
       setOfflineSession(null)
-      setChecklistListMode('todos')
+      setChecklistListMode((prev) => checklistListModeAposEncerrarSessao(inventario, prev))
       return
     }
     if (!confirm('Limpar a sessão local? As quantidades não finalizadas serão perdidas.')) return
@@ -2812,7 +2845,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     clearOfflineSession(sessionMode)
     setOfflineSession(null)
     setChecklistError('')
-    setChecklistListMode('todos')
+    setChecklistListMode((prev) => checklistListModeAposEncerrarSessao(inventario, prev))
   }
 
   function handleIniciarContagemDiaDoZero() {
@@ -3854,7 +3887,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         })
         clearOfflineSession(sessionMode)
         setOfflineSession(null)
-        setChecklistListMode('todos')
+        setChecklistListMode((prev) => checklistListModeAposEncerrarSessao(inventario, prev))
         setPendingSyncCount(countPendingFinalize())
         setSaveSuccess(
           inventario
@@ -3990,7 +4023,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
       clearOfflineSession(sessionMode)
       setOfflineSession(null)
-      setChecklistListMode('todos')
+      setChecklistListMode((prev) => checklistListModeAposEncerrarSessao(inventario, prev))
       const inventarioDbCompatMsg =
         inventario && insertWithoutInventarioColumns
           ? ' Recomendado: verifique a tabela contagens_inventario no Supabase (scripts em supabase/sql).'
@@ -4007,7 +4040,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         setSaveSuccess(
           `Inventário do dia ${ymd} finalizado: ${rows.length} novo(s) registro(s) em ${tContagens} (acumula com contagens anteriores do mesmo dia).${
             planilhaGravada ? ` ${rows.length} linha(s) em inventario_planilha_linhas.` : ''
-          }${planilhaAviso ?? ''}${inventarioDbCompatMsg}${msgCadastroEanDun}`,
+          }${planilhaAviso ?? ''}${inventarioDbCompatMsg}${msgCadastroEanDun} Clique em Carregar lista para rever e editar o que foi gravado.`,
         )
       } else {
         setSavedCountModal({
