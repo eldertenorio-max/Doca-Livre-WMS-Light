@@ -126,6 +126,11 @@ import {
 } from '../lib/productOptionMapper'
 import { subscribeTodosOsProdutosRealtime } from '../lib/subscribeTodosOsProdutosRealtime'
 import {
+  deletePlanilhaLinhaPorEndereco,
+  insertInventarioContagensRows,
+  replaceInventarioExistentePorEndereco,
+} from '../lib/inventarioUpsertOnFinalize'
+import {
   fetchResumoFinalizadosInventarioRodada,
   inventarioRodadaCompleta,
   INVENTARIO_CONFERENTES_META_RODADA,
@@ -3928,49 +3933,47 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       await apagarRascunhoSupabaseParaSessao(session)
 
       setFinalizeProgress('Conectando ao banco...')
-      /** Cada finalização apenas INSERT: não apaga contagens do mesmo dia/lista — evita substituir um lote por outro. */
       let insertWithoutInventarioColumns = false
 
       const CHUNK = 250
       const insertedContagensIds: string[] = []
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        setFinalizeProgress(`Salvando: ${Math.min(i + CHUNK, rows.length)}/${rows.length} registros...`)
-        const chunk = rows.slice(i, i + CHUNK) as Record<string, unknown>[]
-        let attemptPayload: Record<string, unknown>[] = chunk
-        let { data: insertedChunk, error: insErr } = await supabase
-          .from(tContagens)
-          .insert(attemptPayload)
-          .select('id')
-        if (insErr && inventario && isMissingAnyInventarioContagensColumn(insErr)) {
-          insertWithoutInventarioColumns = true
-          attemptPayload = chunk.map((r) => stripContagensEstoqueInventarioColumns(r))
-          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-          insertedChunk = res.data
-          insErr = res.error
-        }
-        if (insErr && isMissingDbColumnError(insErr, 'finalizacao_sessao_id')) {
-          attemptPayload = attemptPayload.map((r) => stripContagensEstoqueFinalizacaoSessaoColumn(r))
-          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-          insertedChunk = res.data
-          insErr = res.error
-        }
-        if (insErr && isMissingDbColumnError(insErr, 'contagem_rascunho')) {
-          attemptPayload = attemptPayload.map((r) => stripContagensEstoqueContagemRascunhoColumn(r))
-          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-          insertedChunk = res.data
-          insErr = res.error
-        }
-        if (insErr && isMissingDbColumnError(insErr, 'planilha_grupo_armazem')) {
-          attemptPayload = attemptPayload.map((r) => stripContagensInventarioPlanilhaMergeColumns(r))
-          const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-          insertedChunk = res.data
-          insErr = res.error
-        }
-        if (insErr) throw insErr
-        if (insertedChunk && insertedChunk.length > 0) {
-          for (const r of insertedChunk) {
-            if (r && typeof r === 'object' && 'id' in r && (r as { id: unknown }).id != null) {
-              insertedContagensIds.push(String((r as { id: string }).id))
+
+      if (inventario) {
+        setFinalizeProgress('Substituindo gravações anteriores no mesmo endereço (dia/câmara/rua)...')
+        await replaceInventarioExistentePorEndereco(ymd, rows)
+        const ins = await insertInventarioContagensRows(rows, {
+          onProgress: (msg) => setFinalizeProgress(msg),
+        })
+        insertWithoutInventarioColumns = ins.insertWithoutInventarioColumns
+        insertedContagensIds.push(...ins.ids)
+      } else {
+        /** Contagem diária: cada finalização INSERT (acumula por sessão). */
+        for (let i = 0; i < rows.length; i += CHUNK) {
+          setFinalizeProgress(`Salvando: ${Math.min(i + CHUNK, rows.length)}/${rows.length} registros...`)
+          const chunk = rows.slice(i, i + CHUNK) as Record<string, unknown>[]
+          let attemptPayload: Record<string, unknown>[] = chunk
+          let { data: insertedChunk, error: insErr } = await supabase
+            .from(tContagens)
+            .insert(attemptPayload)
+            .select('id')
+          if (insErr && isMissingDbColumnError(insErr, 'finalizacao_sessao_id')) {
+            attemptPayload = attemptPayload.map((r) => stripContagensEstoqueFinalizacaoSessaoColumn(r))
+            const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
+            insertedChunk = res.data
+            insErr = res.error
+          }
+          if (insErr && isMissingDbColumnError(insErr, 'contagem_rascunho')) {
+            attemptPayload = attemptPayload.map((r) => stripContagensEstoqueContagemRascunhoColumn(r))
+            const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
+            insertedChunk = res.data
+            insErr = res.error
+          }
+          if (insErr) throw insErr
+          if (insertedChunk && insertedChunk.length > 0) {
+            for (const r of insertedChunk) {
+              if (r && typeof r === 'object' && 'id' in r && (r as { id: unknown }).id != null) {
+                insertedContagensIds.push(String((r as { id: string }).id))
+              }
             }
           }
         }
@@ -3985,12 +3988,19 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       let planilhaAviso: string | null = null
       if (inventario && planilhaLayout) {
         setFinalizeProgress('Gravando tabela inventário (planilha)...')
-        const planilhaRows: Record<string, unknown>[] = finalizeMeta.map((meta, idx) => {
+        const planilhaRows: Record<string, unknown>[] = []
+        for (const meta of finalizeMeta) {
           const layout = planilhaLayout.get(meta.it.key)
           if (!layout) {
             throw new Error('Layout da planilha ausente para um item da sessão.')
           }
-          return {
+          const rep =
+            inventarioPlanilhaRepeticaoFromItem(meta.it) ?? meta.it.inventario_repeticao ?? null
+          await deletePlanilhaLinhaPorEndereco(ymd, layout, rep)
+        }
+        finalizeMeta.forEach((meta, idx) => {
+          const layout = planilhaLayout.get(meta.it.key)!
+          planilhaRows.push({
             conferente_id: session.conferente_id,
             data_inventario: ymd,
             grupo_armazem: layout.grupo_armazem,
@@ -4009,7 +4019,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             observacao: String(meta.it.observacao ?? '').trim() || null,
             produto_id: meta.produtoId,
             [tPlanilhaFk]: insertedContagensIds[idx],
-          }
+          })
         })
         for (let i = 0; i < planilhaRows.length; i += CHUNK) {
           const chunk = planilhaRows.slice(i, i + CHUNK)
@@ -4066,7 +4076,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
       if (inventario) {
         setSaveSuccess(
-          `Inventário do dia ${ymd} finalizado: ${rows.length} novo(s) registro(s) em ${tContagens} (acumula com contagens anteriores do mesmo dia).${
+          `Inventário do dia ${ymd} finalizado: ${rows.length} linha(s) gravada(s) em ${tContagens} (substitui gravação anterior no mesmo endereço — dia/câmara/rua/POS, qualquer conferente).${
             planilhaGravada ? ` ${rows.length} linha(s) em inventario_planilha_linhas.` : ''
           }${planilhaAviso ?? ''}${inventarioDbCompatMsg}${msgCadastroEanDun} Clique em Carregar lista para rever e editar o que foi gravado.`,
         )

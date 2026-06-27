@@ -1,6 +1,11 @@
 import { supabase } from './supabaseClient'
 import type { PlanilhaLayoutMeta } from '../components/inventario/inventarioPlanilhaModel'
 import type { OfflineSessionMode } from './offlineContagemSession'
+import {
+  deletePlanilhaLinhaPorEndereco,
+  insertInventarioContagensRows,
+  replaceInventarioExistentePorEndereco,
+} from './inventarioUpsertOnFinalize'
 
 const QUEUE_KEY = 'contagem-offline-finalize-queue-v1'
 
@@ -54,24 +59,6 @@ function isMissingDbColumnError(e: unknown, columnSqlName: string): boolean {
   )
 }
 
-function isMissingAnyInventarioContagensColumn(e: unknown): boolean {
-  return (
-    isMissingDbColumnError(e, 'origem') ||
-    isMissingDbColumnError(e, 'inventario_repeticao') ||
-    isMissingDbColumnError(e, 'inventario_numero_contagem') ||
-    isMissingDbColumnError(e, 'planilha_grupo_armazem') ||
-    isMissingDbColumnError(e, 'planilha_ordem_na_aba')
-  )
-}
-
-function stripContagensEstoqueInventarioColumns(row: Record<string, unknown>): Record<string, unknown> {
-  const r = { ...row }
-  delete r.origem
-  delete r.inventario_repeticao
-  delete r.inventario_numero_contagem
-  return r
-}
-
 function stripContagensEstoqueFinalizacaoSessaoColumn(row: Record<string, unknown>): Record<string, unknown> {
   const r = { ...row }
   delete r.finalizacao_sessao_id
@@ -81,13 +68,6 @@ function stripContagensEstoqueFinalizacaoSessaoColumn(row: Record<string, unknow
 function stripContagensEstoqueContagemRascunhoColumn(row: Record<string, unknown>): Record<string, unknown> {
   const r = { ...row }
   delete r.contagem_rascunho
-  return r
-}
-
-function stripContagensInventarioPlanilhaMergeColumns(row: Record<string, unknown>): Record<string, unknown> {
-  const r = { ...row }
-  delete r.planilha_grupo_armazem
-  delete r.planilha_ordem_na_aba
   return r
 }
 
@@ -153,44 +133,39 @@ export async function uploadPendingFinalize(
   let insertWithoutInventarioColumns = false
   const insertedContagensIds: string[] = []
 
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    onProgress?.(`Salvando: ${Math.min(i + CHUNK, rows.length)}/${rows.length} registros...`)
-    const chunk = rows.slice(i, i + CHUNK) as Record<string, unknown>[]
-    let attemptPayload: Record<string, unknown>[] = chunk
-    let { data: insertedChunk, error: insErr } = await supabase
-      .from(tContagens)
-      .insert(attemptPayload)
-      .select('id')
-    if (insErr && entry.inventario && isMissingAnyInventarioContagensColumn(insErr)) {
-      insertWithoutInventarioColumns = true
-      attemptPayload = chunk.map((r) => stripContagensEstoqueInventarioColumns(r))
-      const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-      insertedChunk = res.data
-      insErr = res.error
-    }
-    if (insErr && isMissingDbColumnError(insErr, 'finalizacao_sessao_id')) {
-      attemptPayload = attemptPayload.map((r) => stripContagensEstoqueFinalizacaoSessaoColumn(r))
-      const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-      insertedChunk = res.data
-      insErr = res.error
-    }
-    if (insErr && isMissingDbColumnError(insErr, 'contagem_rascunho')) {
-      attemptPayload = attemptPayload.map((r) => stripContagensEstoqueContagemRascunhoColumn(r))
-      const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-      insertedChunk = res.data
-      insErr = res.error
-    }
-    if (insErr && isMissingDbColumnError(insErr, 'planilha_grupo_armazem')) {
-      attemptPayload = attemptPayload.map((r) => stripContagensInventarioPlanilhaMergeColumns(r))
-      const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
-      insertedChunk = res.data
-      insErr = res.error
-    }
-    if (insErr) throw insErr
-    if (insertedChunk?.length) {
-      for (const r of insertedChunk) {
-        if (r && typeof r === 'object' && 'id' in r && (r as { id: unknown }).id != null) {
-          insertedContagensIds.push(String((r as { id: string }).id))
+  if (entry.inventario) {
+    onProgress?.('Substituindo gravações anteriores no mesmo endereço...')
+    await replaceInventarioExistentePorEndereco(entry.ymd, rows)
+    const ins = await insertInventarioContagensRows(rows, { onProgress })
+    insertWithoutInventarioColumns = ins.insertWithoutInventarioColumns
+    insertedContagensIds.push(...ins.ids)
+  } else {
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      onProgress?.(`Salvando: ${Math.min(i + CHUNK, rows.length)}/${rows.length} registros...`)
+      const chunk = rows.slice(i, i + CHUNK) as Record<string, unknown>[]
+      let attemptPayload: Record<string, unknown>[] = chunk
+      let { data: insertedChunk, error: insErr } = await supabase
+        .from(tContagens)
+        .insert(attemptPayload)
+        .select('id')
+      if (insErr && isMissingDbColumnError(insErr, 'finalizacao_sessao_id')) {
+        attemptPayload = attemptPayload.map((r) => stripContagensEstoqueFinalizacaoSessaoColumn(r))
+        const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
+        insertedChunk = res.data
+        insErr = res.error
+      }
+      if (insErr && isMissingDbColumnError(insErr, 'contagem_rascunho')) {
+        attemptPayload = attemptPayload.map((r) => stripContagensEstoqueContagemRascunhoColumn(r))
+        const res = await supabase.from(tContagens).insert(attemptPayload).select('id')
+        insertedChunk = res.data
+        insErr = res.error
+      }
+      if (insErr) throw insErr
+      if (insertedChunk?.length) {
+        for (const r of insertedChunk) {
+          if (r && typeof r === 'object' && 'id' in r && (r as { id: unknown }).id != null) {
+            insertedContagensIds.push(String((r as { id: string }).id))
+          }
         }
       }
     }
@@ -205,10 +180,15 @@ export async function uploadPendingFinalize(
   if (entry.inventario && entry.planilhaLayoutEntries?.length) {
     onProgress?.('Gravando tabela inventário (planilha)...')
     const layoutMap = new Map(entry.planilhaLayoutEntries.map((e) => [e.itemKey, e.layout]))
-    const planilhaRows: Record<string, unknown>[] = entry.finalizeMeta.map((meta, idx) => {
+    const planilhaRows: Record<string, unknown>[] = []
+    for (const meta of entry.finalizeMeta) {
       const layout = layoutMap.get(meta.itemKey)
       if (!layout) throw new Error('Layout da planilha ausente para um item enfileirado.')
-      return {
+      await deletePlanilhaLinhaPorEndereco(entry.ymd, layout, meta.inventario_repeticao ?? null)
+    }
+    entry.finalizeMeta.forEach((meta, idx) => {
+      const layout = layoutMap.get(meta.itemKey)!
+      planilhaRows.push({
         conferente_id: entry.conferenteId,
         data_inventario: entry.ymd,
         grupo_armazem: layout.grupo_armazem,
@@ -227,7 +207,7 @@ export async function uploadPendingFinalize(
         observacao: meta.observacao.trim() || null,
         produto_id: meta.produtoId,
         [tPlanilhaFk]: insertedContagensIds[idx],
-      }
+      })
     })
     for (let i = 0; i < planilhaRows.length; i += CHUNK) {
       const chunk = planilhaRows.slice(i, i + CHUNK)
