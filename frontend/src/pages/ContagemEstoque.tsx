@@ -123,6 +123,21 @@ import {
   ChecklistCalculatorModal,
   ChecklistQtyCalcButton,
 } from '../components/ChecklistCalculatorModal'
+import { isAppOnline, subscribeAppConnectivity } from '../lib/appConnectivity'
+import {
+  loadConferentesCache,
+  loadProductOptionsCache,
+  saveConferentesCache,
+  saveProductOptionsCache,
+} from '../lib/offlineCatalogCache'
+import {
+  countPendingFinalize,
+  enqueuePendingFinalize,
+  loadPendingFinalizeQueue,
+  removePendingFinalize,
+  uploadPendingFinalize,
+  type FinalizeMetaSnapshot,
+} from '../lib/offlineContagemSync'
 
 /** Se o Realtime falhar, ainda sincroniza a checklist a cada 2 min. */
 const CONTAGEM_BANCO_MERGE_FALLBACK_MS = 120_000
@@ -627,12 +642,72 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const [contagemDiaYmd, setContagemDiaYmd] = useState(() => toISODateLocal(new Date()))
   const [offlineSession, setOfflineSession] = useState<OfflineSession | null>(null)
   const offlineSessionRef = useRef<OfflineSession | null>(null)
+  const [appOnline, setAppOnline] = useState(() => isAppOnline())
+  const [pendingSyncCount, setPendingSyncCount] = useState(() => countPendingFinalize())
+  const [syncingPending, setSyncingPending] = useState(false)
+  const syncingPendingRef = useRef(false)
   /** Evita resetar aba/página logo após restaurar sessão do localStorage. */
   const skipNextListUiResetRef = useRef(false)
   const loadPreviewRef = useRef<(dayOverride?: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {})
   useEffect(() => {
     offlineSessionRef.current = offlineSession
   }, [offlineSession])
+
+  useEffect(() => {
+    return subscribeAppConnectivity(setAppOnline)
+  }, [])
+
+  useEffect(() => {
+    setPendingSyncCount(countPendingFinalize())
+  }, [appOnline, offlineSession?.status])
+
+  const flushPendingFinalizes = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (syncingPendingRef.current || !isAppOnline()) return
+      const queue = loadPendingFinalizeQueue()
+      if (!queue.length) {
+        setPendingSyncCount(0)
+        return
+      }
+      syncingPendingRef.current = true
+      setSyncingPending(true)
+      if (!opts?.silent) setSaveError('')
+      try {
+        for (const entry of queue) {
+          setFinalizeProgress(`Enviando contagem offline (${entry.ymd})...`)
+          await uploadPendingFinalize(entry, {
+            tContagens: tableContagens(entry.mode === 'inventario'),
+            tPlanilhaFk: planilhaFkContagemColumn(entry.mode === 'inventario'),
+            onProgress: setFinalizeProgress,
+          })
+          removePendingFinalize(entry.id)
+          setPendingSyncCount(countPendingFinalize())
+        }
+        setFinalizeProgress('')
+        if (!opts?.silent) {
+          setSaveSuccess(`${queue.length} contagem(ns) offline enviada(s) ao banco.`)
+        }
+        const lastYmd = queue[queue.length - 1]?.ymd
+        if (lastYmd && /^\d{4}-\d{2}-\d{2}$/.test(lastYmd)) {
+          await loadPreviewRef.current(lastYmd, { silent: true })
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Erro ao enviar contagem offline.'
+        if (!opts?.silent) setSaveError(`Falha ao enviar contagem offline: ${msg}`)
+      } finally {
+        syncingPendingRef.current = false
+        setSyncingPending(false)
+        setFinalizeProgress('')
+        setPendingSyncCount(countPendingFinalize())
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!appOnline) return
+    void flushPendingFinalizes({ silent: true })
+  }, [appOnline, flushPendingFinalizes])
   /** Linhas editadas localmente: não sobrescrever no refresh do banco até a quantidade ser limpa. */
   const checklistContagemBancoDirtyKeysRef = useRef<Set<string>>(new Set())
   useEffect(() => {
@@ -1017,6 +1092,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   /** Lista quem está com sessão aberta no mesmo dia civil (heartbeat no Supabase). */
   useEffect(() => {
+    if (!appOnline) return
     const ymd =
       offlineSession?.status === 'aberta' && offlineSession.data_contagem_ymd
         ? offlineSession.data_contagem_ymd
@@ -1106,6 +1182,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     offlineSession?.status,
     offlineSession?.data_contagem_ymd,
     offlineSession?.inventario_numero_contagem,
+    appOnline,
   ])
 
   useEffect(() => {
@@ -1114,6 +1191,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   /** Contagem diária / inventário: atualiza quantidades a partir do banco (todos os conferentes), em tempo real. */
   useEffect(() => {
+    if (!appOnline) return
     if (!offlineSession || offlineSession.status !== 'aberta') return
     const ymd = offlineSession.data_contagem_ymd
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
@@ -1173,6 +1251,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     offlineSession?.sessionId,
     offlineSession?.data_contagem_ymd,
     offlineSession?.inventario_numero_contagem,
+    appOnline,
   ])
 
   /** Prévia do banco: carrega ao abrir/mudar o dia e atualiza via Realtime. */
@@ -1192,6 +1271,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   /** Enquanto a checklist estiver aberta, renova presença para o dia da sessão. */
   useEffect(() => {
+    if (!appOnline) return
     if (!offlineSession || offlineSession.status !== 'aberta') return
     const ymd = offlineSession.data_contagem_ymd
     const cid = String(offlineSession.conferente_id ?? '').trim()
@@ -1225,6 +1305,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     offlineSession?.conferente_id,
     offlineSession?.data_contagem_ymd,
     offlineSession?.listMode,
+    appOnline,
   ])
 
   useEffect(() => {
@@ -1305,12 +1386,24 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     ;(async () => {
       setConferentesLoading(true)
       setSaveError('')
+      if (!isAppOnline()) {
+        const cached = loadConferentesCache()
+        if (cached.length) setConferentes(cached)
+        setConferentesLoading(false)
+        return
+      }
       const { data, error } = await supabase.from('conferentes').select('id,nome').order('nome')
       if (error) {
-        setSaveError(`Erro ao carregar conferentes: ${error.message}`)
-        setConferentes([])
+        const cached = loadConferentesCache()
+        if (cached.length) {
+          setConferentes(cached)
+        } else {
+          setSaveError(`Erro ao carregar conferentes: ${error.message}`)
+          setConferentes([])
+        }
       } else {
         setConferentes(data ?? [])
+        saveConferentesCache((data ?? []) as Array<{ id: string; nome: string }>)
       }
       setConferentesLoading(false)
     })()
@@ -1350,6 +1443,15 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }
       const normalized = Array.from(byCode.values())
       setProductOptions(normalized)
+      if (normalized.length) saveProductOptionsCache(normalized)
+
+      if (!normalized.length && !isAppOnline()) {
+        const cached = loadProductOptionsCache()
+        if (cached.length) {
+          setProductOptions(cached as ProductOption[])
+          return cached as ProductOption[]
+        }
+      }
 
       if (!normalized.length) {
         if (lastLoadError) {
@@ -2400,6 +2502,18 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   loadPreviewRef.current = loadPreview
 
   async function fetchListaChecklistFromDb(): Promise<Array<{ codigo_interno: string; descricao: string }>> {
+    if (!isAppOnline()) {
+      const cached = loadProductOptionsCache()
+      const out = cached
+        .map((r) => ({ codigo_interno: r.codigo, descricao: r.descricao }))
+        .filter((r) => !CHECKLIST_EXCLUIR_CODIGOS.has(r.codigo_interno))
+      if (!out.length) {
+        throw new Error(
+          'Sem internet e sem lista de produtos salva neste aparelho. Conecte uma vez, carregue a lista e depois poderá contar offline.',
+        )
+      }
+      return out
+    }
     const { data, error } = await supabase.from(TABELA_PRODUTOS).select('*').limit(15000)
     if (error) {
       throw new Error(`Erro ao carregar "${TABELA_PRODUTOS}": ${error.message}`)
@@ -2444,7 +2558,12 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     try {
       const listModeEfetivo: ChecklistListMode = checklistListMode
       if (inventario && isPlanilhaListMode(listModeEfetivo)) {
-        await loadProductOptions()
+        if (isAppOnline()) {
+          await loadProductOptions()
+        } else {
+          const cached = loadProductOptionsCache()
+          if (cached.length) setProductOptions(cached as ProductOption[])
+        }
         const rodadaPlanilha = inventarioRodadaFromListMode(listModeEfetivo)
         const items = buildBlankPlanilhaInventarioItems()
         setArmazemMissingCodes([])
@@ -2481,7 +2600,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         setChecklistLoading(false)
         return
       }
-      if (!inventario) {
+      if (!inventario && isAppOnline()) {
         const finalizadosHoje = await fetchResumoFinalizadosContagemDiariaDia(contagemDiaYmd)
         if (finalizadosHoje.size >= 2 && !forceZero) {
           const choice = await new Promise<'editar' | 'zero' | 'fechar'>((resolve) => {
@@ -2693,6 +2812,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   function scheduleContagemDiariaRascunhoPersist(itemKey: string) {
     if (finalizing) return
+    if (!isAppOnline()) return
     const s = offlineSessionRef.current
     if (!s || s.status !== 'aberta') return
     if (!s.contagem_diaria_rascunho_sessao_id || !isUuid(s.contagem_diaria_rascunho_sessao_id)) return
@@ -3515,8 +3635,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         return
       }
 
-      await apagarRascunhoSupabaseParaSessao(session)
-
       const dataHoraIso = sessionEndedAtIso
       const finalizacaoSessaoId = newSessionId()
       const rows: Record<string, unknown>[] = []
@@ -3634,6 +3752,53 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             clampInventarioNumeroContagem(session.inventario_numero_contagem ?? 1),
           )
         : null
+
+      if (!isAppOnline()) {
+        const metaSnapshot: FinalizeMetaSnapshot[] = finalizeMeta.map((m) => ({
+          itemKey: m.it.key,
+          codigo_interno: m.it.codigo_interno,
+          descricao: m.it.descricao,
+          inventario_repeticao: m.it.inventario_repeticao ?? null,
+          q: m.q,
+          up_adicional: m.up_adicional,
+          dfRaw: m.dfRaw,
+          dvRaw: m.dvRaw,
+          produtoId: m.produtoId,
+          lote: String(m.it.lote ?? ''),
+          observacao: String(m.it.observacao ?? ''),
+        }))
+        const planilhaLayoutEntries = planilhaLayout
+          ? Array.from(planilhaLayout.entries()).map(([itemKey, layout]) => ({ itemKey, layout }))
+          : null
+        enqueuePendingFinalize({
+          id: finalizacaoSessaoId,
+          mode: sessionMode,
+          inventario,
+          queuedAt: new Date().toISOString(),
+          ymd,
+          conferenteId: session.conferente_id,
+          sessionStartedAtIso,
+          sessionEndedAtIso,
+          finalizacaoSessaoId,
+          rows,
+          finalizeMeta: metaSnapshot,
+          planilhaLayoutEntries,
+          pendAutoZero:
+            pendAutoZeroSnapshot != null && pendAutoZeroSnapshot > 0 ? pendAutoZeroSnapshot : undefined,
+        })
+        clearOfflineSession(sessionMode)
+        setOfflineSession(null)
+        setChecklistListMode('todos')
+        setPendingSyncCount(countPendingFinalize())
+        setSaveSuccess(
+          inventario
+            ? `Inventário salvo neste aparelho (${rows.length} linha(s)). Será enviado ao banco quando a internet voltar.`
+            : `Contagem salva neste aparelho (${rows.length} linha(s)). Será enviada ao banco quando a internet voltar.`,
+        )
+        return
+      }
+
+      await apagarRascunhoSupabaseParaSessao(session)
 
       setFinalizeProgress('Conectando ao banco...')
       /** Cada finalização apenas INSERT: não apaga contagens do mesmo dia/lista — evita substituir um lote por outro. */
@@ -5445,6 +5610,61 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       }}
     >
       <h2>{inventario ? 'Inventário físico' : 'Contagem de Estoque'}</h2>
+
+      {!appOnline ? (
+        <div
+          style={{
+            marginTop: 10,
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: '1px solid rgba(255, 152, 0, 0.55)',
+            background: 'rgba(255, 152, 0, 0.12)',
+            color: '#ffb74d',
+            fontSize: 13,
+          }}
+        >
+          <strong>Sem internet.</strong> A contagem fica salva neste aparelho. Ao reconectar, o envio ao banco
+          ocorre automaticamente.
+        </div>
+      ) : null}
+
+      {pendingSyncCount > 0 ? (
+        <div
+          style={{
+            marginTop: 10,
+            padding: '10px 14px',
+            borderRadius: 8,
+            border: '1px solid rgba(76, 175, 80, 0.45)',
+            background: 'rgba(76, 175, 80, 0.1)',
+            color: '#a5d6a7',
+            fontSize: 13,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span>
+            <strong>{pendingSyncCount}</strong> contagem(ns) aguardando envio ao banco.
+          </span>
+          <button
+            type="button"
+            disabled={!appOnline || syncingPending}
+            onClick={() => void flushPendingFinalizes()}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid rgba(76, 175, 80, 0.6)',
+              background: 'rgba(0,0,0,0.2)',
+              color: '#c8e6c9',
+              cursor: !appOnline || syncingPending ? 'not-allowed' : 'pointer',
+              opacity: !appOnline || syncingPending ? 0.65 : 1,
+            }}
+          >
+            {syncingPending ? 'Enviando…' : 'Enviar agora'}
+          </button>
+        </div>
+      ) : null}
 
       {presencaContagemHoje.length > 0 ? (
         <div
