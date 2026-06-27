@@ -1240,6 +1240,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           ? await mergeInventarioDoDiaParaItems(ymd, s.items, {
               skipKeys: skip,
               numeroContagemRodada: rodadaInv,
+              conferenteIdSessao: String(s.conferente_id ?? '').trim() || undefined,
             })
           : await mergeContagensDiariasDoDiaParaItems(ymd, s.items, {
               skipKeys: skip,
@@ -2598,7 +2599,18 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           if (cached.length) setProductOptions(cached as ProductOption[])
         }
         const rodadaPlanilha = inventarioRodadaFromListMode(listModeEfetivo)
-        const items = buildBlankPlanilhaInventarioItems()
+        let items = buildBlankPlanilhaInventarioItems()
+        let avisoMergeLinhas = ''
+        if (isAppOnline()) {
+          const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(contagemDiaYmd, items, {
+            numeroContagemRodada: rodadaPlanilha,
+            conferenteIdSessao: conferenteId,
+          })
+          items = merged
+          if (preenchidos > 0) {
+            avisoMergeLinhas = ` ${preenchidos} linha(s) já gravadas (inclui rascunho seu neste dia).`
+          }
+        }
         setArmazemMissingCodes([])
         const sessionStartedAtIso = new Date().toISOString()
         const sessionStartedAtMs = new Date(sessionStartedAtIso).getTime()
@@ -2626,7 +2638,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         setInventarioPlanilhaRepeticao(1)
         setChecklistPage(1)
         setSaveSuccess(
-          `Lista em branco (${formatContagemLabel(rodadaPlanilha)}): ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas (código e descrição vazios). Selecione RUA, POS, NÍVEL e linha (1ª–3ª) e bip o produto.`,
+          `Lista em branco (${formatContagemLabel(rodadaPlanilha)}): ${INVENTARIO_ARMAZEM_NUM_GRUPOS} abas × ${INVENTARIO_PLANILHA_LINHAS_TOTAIS_POR_ABA} linhas.${avisoMergeLinhas} Selecione RUA, POS, NÍVEL e linha (1ª–3ª) e bip o produto.`,
         )
         setSaveError('')
         setStartFreshNotice('')
@@ -5395,6 +5407,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const blank = buildBlankPlanilhaInventarioItems()
       const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(ymd, blank, {
         numeroContagemRodada: novaRodada,
+        conferenteIdSessao: String(s.conferente_id ?? '').trim() || undefined,
       })
       checklistContagemBancoDirtyKeysRef.current.clear()
       lastPlanilhaBipKeyRef.current = null

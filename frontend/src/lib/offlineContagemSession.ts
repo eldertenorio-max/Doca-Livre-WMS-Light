@@ -131,13 +131,16 @@ export function itemTemTrabalhoLocal(
   opts?: { planilha?: boolean },
 ): boolean {
   if (item.quantidade_local_dirty) return true
+  if (opts?.planilha) {
+    if (String(item.codigo_interno ?? '').trim() !== '') return true
+    if (String(item.lote ?? '').trim() !== '') return true
+    if (String(item.up_quantidade ?? '').trim() !== '') return true
+    if (String(item.observacao ?? '').trim() !== '') return true
+    if (String(item.foto_base64 ?? '').trim() !== '') return true
+    /** Só quantidade (sem código) em linha em branco: ainda pode completar código/descrição do banco. */
+    return false
+  }
   if (String(item.quantidade_contada ?? '').trim() !== '') return true
-  if (!opts?.planilha) return false
-  if (String(item.codigo_interno ?? '').trim() !== '') return true
-  if (String(item.lote ?? '').trim() !== '') return true
-  if (String(item.up_quantidade ?? '').trim() !== '') return true
-  if (String(item.observacao ?? '').trim() !== '') return true
-  if (String(item.foto_base64 ?? '').trim() !== '') return true
   return false
 }
 

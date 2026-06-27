@@ -117,6 +117,7 @@ function rowToMergeKey(ymd: string, r: RowSnapshot): string | null {
 async function fetchUltimasInventarioPorChave(
   dataContagemYmd: string,
   numeroContagemRodada: number,
+  conferenteIdSessao?: string,
 ): Promise<Map<string, RowSnapshot>> {
   const map = new Map<string, RowSnapshot>()
   const ymd = String(dataContagemYmd ?? '').trim()
@@ -136,8 +137,13 @@ async function fetchUltimasInventarioPorChave(
 
   const hasRascunhoCol = acc.length > 0 && 'contagem_rascunho' in (acc[0] as object)
 
+  const cidSessao = String(conferenteIdSessao ?? '').trim()
+
   for (const r of acc) {
-    if (hasRascunhoCol && r.contagem_rascunho === true) continue
+    if (hasRascunhoCol && r.contagem_rascunho === true) {
+      const cidRowRasc = r.conferente_id != null ? String(r.conferente_id).trim() : ''
+      if (!cidSessao || cidRowRasc !== cidSessao) continue
+    }
 
     const ncRaw = r.inventario_numero_contagem
     const nc = ncRaw != null && String(ncRaw).trim() !== '' ? Number(ncRaw) : 1
@@ -209,6 +215,8 @@ async function fetchUltimasInventarioPorChave(
 export type MergeInventarioOptions = {
   skipKeys?: Set<string>
   numeroContagemRodada?: number
+  /** Rascunhos deste conferente entram no merge (celular ↔ desktop). */
+  conferenteIdSessao?: string
 }
 
 /**
@@ -223,7 +231,11 @@ export async function mergeInventarioDoDiaParaItems(
 ): Promise<{ items: OfflineChecklistItem[]; preenchidos: number }> {
   const skipKeys = options?.skipKeys
   const rodada = Math.min(4, Math.max(1, Math.round(options?.numeroContagemRodada ?? 1)))
-  const porChave = await fetchUltimasInventarioPorChave(dataContagemYmd, rodada)
+  const porChave = await fetchUltimasInventarioPorChave(
+    dataContagemYmd,
+    rodada,
+    options?.conferenteIdSessao,
+  )
   if (porChave.size === 0) {
     return { items: items.map((i) => ({ ...i })), preenchidos: 0 }
   }
@@ -253,13 +265,28 @@ export async function mergeInventarioDoDiaParaItems(
     preenchidos += 1
     const localQty = String(it.quantidade_contada ?? '').trim()
     const mergedQty = formatQtyFromNumber(snap.quantidade_up)
+    const localCodigo = String(it.codigo_interno ?? '').trim()
+    const snapCodigo = String(snap.codigo_interno ?? '').trim()
+    const localDesc = String(it.descricao ?? '').trim()
+    const keepLocalProduto =
+      localCodigo !== '' &&
+      (it.quantidade_local_dirty ||
+        (localDesc !== '' && !localDesc.startsWith('— código não encontrado')))
     const keepLocalMeta =
       localQty !== '' &&
       (it.quantidade_local_dirty ||
         String(it.lote ?? '').trim() !== '' ||
         String(it.up_quantidade ?? '').trim() !== '')
+    const repSnap = snap.inventario_repeticao
+    const repMerged =
+      repSnap != null && Number.isFinite(Number(repSnap)) && Number(repSnap) >= 1 && Number(repSnap) <= 3
+        ? (Math.round(Number(repSnap)) as 1 | 2 | 3)
+        : it.inventario_repeticao
     return {
       ...it,
+      codigo_interno: keepLocalProduto ? it.codigo_interno : snapCodigo || it.codigo_interno,
+      descricao: keepLocalProduto ? it.descricao : snap.descricao || it.descricao,
+      inventario_repeticao: repMerged,
       quantidade_contada: keepLocalMeta ? localQty : mergedQty,
       up_quantidade: keepLocalMeta
         ? (it.up_quantidade ?? '')
