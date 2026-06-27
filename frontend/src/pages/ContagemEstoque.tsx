@@ -116,6 +116,15 @@ import { mergeInventarioDoDiaParaItems, mesclarItemInventarioLocalComBanco } fro
 import { atualizarTodosOsProdutosEanDunAposFinalizacao } from '../lib/atualizarTodosOsProdutosEanDunAposFinalizacao'
 import { subscribeContagensEstoqueDia } from '../lib/subscribeContagensEstoqueRealtime'
 import { subscribeContagensInventarioDia } from '../lib/subscribeContagensInventarioRealtime'
+import { fetchProductOptionByCodigoFromDb } from '../lib/fetchProductOptionByCodigo'
+import {
+  CODIGO_NAO_ENCONTRADO_DESCRICAO,
+  isCodigoNaoEncontradoDescricao,
+  mapRowToProductOption,
+  TABELA_PRODUTOS,
+  type ProductOption,
+} from '../lib/productOptionMapper'
+import { subscribeTodosOsProdutosRealtime } from '../lib/subscribeTodosOsProdutosRealtime'
 import {
   fetchResumoFinalizadosInventarioRodada,
   inventarioRodadaCompleta,
@@ -141,6 +150,9 @@ import {
   uploadPendingFinalize,
   type FinalizeMetaSnapshot,
 } from '../lib/offlineContagemSync'
+
+/** Se o Realtime falhar, ainda sincroniza o cadastro de produtos a cada 2 min. */
+const PRODUTOS_CATALOGO_MERGE_FALLBACK_MS = 120_000
 
 /** Se o Realtime falhar, ainda sincroniza a checklist a cada 2 min. */
 const CONTAGEM_BANCO_MERGE_FALLBACK_MS = 120_000
@@ -261,45 +273,6 @@ function conferenteNomeExibicaoPreviaRow(r: ContagemPreviewRow): string {
   return String(r.conferente_id ?? '').trim() || '—'
 }
 
-type ProductOption = {
-  id: string
-  codigo: string
-  descricao: string
-  unidade_medida: string | null
-  data_fabricacao?: string | null
-  data_validade?: string | null
-  ean?: string | null
-  dun?: string | null
-  foto_base64?: string | null
-  foto_url?: string | null
-}
-
-function pickFirstString(row: Record<string, any>, keys: string[]) {
-  for (const key of keys) {
-    const v = row[key]
-    if (typeof v === 'string' && v.trim() !== '') return v
-  }
-  return ''
-}
-
-/** Código/descrição podem vir como string ou número do PostgREST. */
-function pickFirstCell(row: Record<string, any>, keys: string[]): string {
-  for (const key of keys) {
-    const v = row[key]
-    if (v === null || v === undefined) continue
-    if (typeof v === 'number' && !Number.isNaN(v)) return String(v)
-    if (typeof v === 'boolean') continue
-    if (typeof v === 'string') {
-      const t = v.trim()
-      if (t !== '') return t
-    }
-  }
-  return ''
-}
-
-/** Cadastro existente no Supabase (não criar tabela nova no app). */
-const TABELA_PRODUTOS = 'Todos os Produtos'
-
 /** Alguns códigos da tabela não devem entrar na checklist do app (lista vazia = nenhum). */
 const CHECKLIST_EXCLUIR_CODIGOS = new Set<string>([])
 
@@ -398,27 +371,28 @@ function isUuid(value: string | null | undefined) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function mapRowToProductOption(row: Record<string, any>): ProductOption | null {
-  const codigo = pickFirstCell(row, ['codigo_interno', 'codigo', 'CÓDIGO', 'cod_produto'])
-  if (!codigo) return null
-  const descricao =
-    pickFirstCell(row, ['descricao', 'DESCRIÇÃO', 'descrição', 'desc_produto']) || 'Produto sem descrição'
-  // Só usar como produto_id no Supabase se for UUID real (nunca row_index/dataset_id numérico).
-  const rawId = row.id
-  const id = rawId != null && isUuid(String(rawId)) ? String(rawId) : codigo
-  return {
-    id,
-    codigo,
-    descricao,
-    unidade_medida:
-      pickFirstString(row, ['unidade_medida', 'unidade', 'UNIDADE', 'und']) || null,
-    data_fabricacao: row.data_fabricacao ?? null,
-    data_validade: row.data_validade ?? null,
-    ean: row.ean != null ? String(row.ean) : row.EAN != null ? String(row.EAN) : null,
-    dun: row.dun != null ? String(row.dun) : row.DUN != null ? String(row.DUN) : null,
-    foto_base64: (row.foto_base64 ?? row.FOTO_BASE64 ?? row.fotoBase64) as string | null,
-    foto_url: (row.foto_url ?? row.fotoUrl ?? row.foto_url_base ?? row.FOTO_URL) as string | null,
+function mergeProductIntoOptions(prev: ProductOption[], p: ProductOption): ProductOption[] {
+  const k = normalizeCodigoInternoCompareKey(p.codigo) || p.codigo.trim()
+  const exists = prev.some(
+    (x) =>
+      x.codigo === p.codigo ||
+      (k !== '' && normalizeCodigoInternoCompareKey(x.codigo) === k),
+  )
+  if (exists) return prev
+  const next = [...prev, p].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR'))
+  saveProductOptionsCache(next)
+  return next
+}
+
+function buildProductCatalogMap(products: ProductOption[]): Map<string, ProductOption> {
+  const map = new Map<string, ProductOption>()
+  for (const p of products) {
+    const k = p.codigo.trim()
+    if (k && !map.has(k)) map.set(k, p)
+    const nd = normalizeCodigoInternoCompareKey(k)
+    if (nd && !map.has(nd)) map.set(nd, p)
   }
+  return map
 }
 
 function toDateInputValue(v?: string | null) {
@@ -2204,7 +2178,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           return
         }
         if (codeFinal) {
-          aplicarCatalogoPorCodigoPlanilha(target.key, codeFinal)
+          void aplicarCatalogoPorCodigoPlanilha(target.key, codeFinal)
           clearPlanilhaDuplicatasIrmas(target, codeFinal)
         }
         idx = offlineSession.items.findIndex((it) => it.key === target.key)
@@ -3367,7 +3341,42 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     cancelChecklistEdit()
   }
 
-  function aplicarCatalogoPorCodigoPlanilha(
+  function aplicarCatalogoPorCodigoPlanilhaCampos(
+    key: string,
+    p: ProductOption | null,
+    codigoFallback: string,
+  ) {
+    if (p) {
+      updateOfflineItemFields(key, {
+        codigo_interno: p.codigo,
+        descricao: p.descricao,
+        unidade_medida: p.unidade_medida ?? null,
+        ean: p.ean ?? null,
+        dun: p.dun ?? null,
+        data_fabricacao: p.data_fabricacao ? toDateInputValue(p.data_fabricacao) : '',
+        data_validade: p.data_validade ? toDateInputValue(p.data_validade) : '',
+      })
+      if (checklistEditingKey === key) {
+        setChecklistEditDraft((d) =>
+          d ? { ...d, codigo_interno: p.codigo, descricao: p.descricao } : d,
+        )
+      }
+      return
+    }
+    updateOfflineItemFields(key, {
+      codigo_interno: codigoFallback,
+      descricao: CODIGO_NAO_ENCONTRADO_DESCRICAO,
+    })
+    if (checklistEditingKey === key) {
+      setChecklistEditDraft((d) =>
+        d
+          ? { ...d, codigo_interno: codigoFallback, descricao: CODIGO_NAO_ENCONTRADO_DESCRICAO }
+          : d,
+      )
+    }
+  }
+
+  async function aplicarCatalogoPorCodigoPlanilha(
     key: string,
     codigo: string,
     catalogMap?: Map<string, ProductOption>,
@@ -3394,32 +3403,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     } else {
       p = lookupProductOptionByCodigo(c, productByCode, productByCodeNoDots)
     }
-    if (p) {
-      updateOfflineItemFields(key, {
-        codigo_interno: p.codigo,
-        descricao: p.descricao,
-        unidade_medida: p.unidade_medida ?? null,
-        ean: p.ean ?? null,
-        dun: p.dun ?? null,
-        data_fabricacao: p.data_fabricacao ? toDateInputValue(p.data_fabricacao) : '',
-        data_validade: p.data_validade ? toDateInputValue(p.data_validade) : '',
-      })
-      if (checklistEditingKey === key) {
-        setChecklistEditDraft((d) =>
-          d ? { ...d, codigo_interno: p.codigo, descricao: p.descricao } : d,
-        )
-      }
-    } else {
-      updateOfflineItemFields(key, {
-        codigo_interno: c,
-        descricao: '— código não encontrado no cadastro —',
-      })
-      if (checklistEditingKey === key) {
-        setChecklistEditDraft((d) =>
-          d ? { ...d, codigo_interno: c, descricao: '— código não encontrado no cadastro —' } : d,
-        )
+    if (!p && isAppOnline()) {
+      const remoto = await fetchProductOptionByCodigoFromDb(c)
+      if (remoto) {
+        setProductOptions((prev) => mergeProductIntoOptions(prev, remoto))
+        p = remoto
       }
     }
+    aplicarCatalogoPorCodigoPlanilhaCampos(key, p ?? null, c)
   }
 
   function getPlanilhaTargetFromEndereco(): OfflineChecklistItem | undefined {
@@ -3491,17 +3482,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   function handlePlanilhaCodigoBlur(key: string, codigo: string) {
     const c = String(codigo ?? '').trim()
     if (!isPlanilhaModoAtivo()) {
-      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      void aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
     if (!c) {
-      aplicarCatalogoPorCodigoPlanilha(key, codigo)
+      void aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
     if (shouldSkipPlanilhaBipBurst(c)) return
     const s = offlineSessionRef.current
     const item = s?.items.find((it) => it.key === key)
-    aplicarCatalogoPorCodigoPlanilha(key, c)
+    void aplicarCatalogoPorCodigoPlanilha(key, c)
     if (item) {
       const rep = inventarioPlanilhaRepeticaoFromItem(item)
       if (rep != null) {
@@ -3551,7 +3542,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       )
       return false
     }
-    aplicarCatalogoPorCodigoPlanilha(target.key, c)
+    void aplicarCatalogoPorCodigoPlanilha(target.key, c)
     updateOfflineItemFields(
       target.key,
       { inventario_repeticao: inventarioPlanilhaRepeticao },
@@ -3597,7 +3588,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       return
     }
 
-    aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
+    void aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
     const rep = inventarioPlanilhaRepeticaoFromItem(target)
     if (rep != null) {
       updateOfflineItemFields(target.key, { inventario_repeticao: rep }, { skipPlanilhaRedirect: true })
@@ -3626,21 +3617,58 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     setSaveError('')
     const normalized = await loadProductOptions()
     if (!normalized.length) return
-    const mapPorCodigoTrim = new Map<string, ProductOption>()
-    for (const p of normalized) {
-      const k = p.codigo.trim()
-      if (!mapPorCodigoTrim.has(k)) mapPorCodigoTrim.set(k, p)
-      const nd = normalizeCodigoInternoCompareKey(k)
-      if (nd && !mapPorCodigoTrim.has(nd)) mapPorCodigoTrim.set(nd, p)
-    }
+    const mapPorCodigoTrim = buildProductCatalogMap(normalized)
     if (offlineSession?.status === 'aberta' && isPlanilhaListMode(offlineSession.listMode)) {
       for (const it of offlineSession.items) {
         const c = String(it.codigo_interno ?? '').trim()
-        if (c) aplicarCatalogoPorCodigoPlanilha(it.key, c, mapPorCodigoTrim)
+        if (c) await aplicarCatalogoPorCodigoPlanilha(it.key, c, mapPorCodigoTrim)
       }
     }
     setSaveSuccess('Cadastro de produtos atualizado.')
   }
+
+  const reaplicarCadastroPlanilhaFromDbRef = useRef<() => void>(() => {})
+
+  const reaplicarCadastroPlanilhaFromDb = useCallback(async () => {
+    if (!isAppOnline()) return
+    const normalized = await loadProductOptions()
+    if (!normalized.length) return
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !isPlanilhaListMode(s.listMode)) return
+    const mapPorCodigo = buildProductCatalogMap(normalized)
+    for (const it of s.items) {
+      const c = String(it.codigo_interno ?? '').trim()
+      if (!c) continue
+      const desc = String(it.descricao ?? '').trim()
+      if (isCodigoNaoEncontradoDescricao(desc) || desc === '') {
+        await aplicarCatalogoPorCodigoPlanilha(it.key, c, mapPorCodigo)
+      }
+    }
+  }, [loadProductOptions])
+
+  useEffect(() => {
+    reaplicarCadastroPlanilhaFromDbRef.current = () => {
+      void reaplicarCadastroPlanilhaFromDb()
+    }
+  }, [reaplicarCadastroPlanilhaFromDb])
+
+  /** Cadastro `Todos os Produtos`: atualiza descrições na planilha quando alguém cadastra produto novo. */
+  useEffect(() => {
+    if (!appOnline) return
+    const tick = () => reaplicarCadastroPlanilhaFromDbRef.current()
+    void tick()
+    const unsub = subscribeTodosOsProdutosRealtime(tick)
+    const id = window.setInterval(tick, PRODUTOS_CATALOGO_MERGE_FALLBACK_MS)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      unsub()
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [appOnline, offlineSession?.status, offlineSession?.listMode])
 
   async function handleFinalizarContagemDiaria() {
     setSaveError('')
@@ -6722,7 +6750,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                                         onChange={(e) =>
                                           updateOfflineItemFields(it.key, { codigo_interno: e.target.value })
                                         }
-                                        onBlur={(e) => aplicarCatalogoPorCodigoPlanilha(it.key, e.target.value)}
+                                        onBlur={(e) => void aplicarCatalogoPorCodigoPlanilha(it.key, e.target.value)}
                                         style={mobileInputStyle()}
                                         placeholder="—"
                                       />

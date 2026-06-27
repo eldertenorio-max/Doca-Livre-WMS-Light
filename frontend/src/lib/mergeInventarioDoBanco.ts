@@ -3,7 +3,7 @@ import { fetchContagensPaged } from './contagensSelectCompat'
 import { contagemLinhaAVenceB } from './contagemOrdemLinha'
 import { contagemDiariaChaveProdutoDia } from './contagemListagemCompat'
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
-import { fetchConferentesNomesPorIds } from './conferentesNomesBatch'
+import { isCodigoNaoEncontradoDescricao } from './productOptionMapper'
 import { itemTemTrabalhoLocal, type OfflineChecklistItem } from './offlineContagemSession'
 import { supabase } from './supabaseClient'
 import { planilhaOrdemFromPosNivel } from '../components/inventario/inventarioPlanilhaModel'
@@ -427,7 +427,7 @@ export async function mergeInventarioDoDiaParaItems(
     const keepLocalProduto =
       localCodigo !== '' &&
       (it.quantidade_local_dirty ||
-        (localDesc !== '' && !localDesc.startsWith('— código não encontrado')))
+        (localDesc !== '' && !isCodigoNaoEncontradoDescricao(localDesc)))
     const keepLocalMeta =
       localQty !== '' &&
       (it.quantidade_local_dirty ||
