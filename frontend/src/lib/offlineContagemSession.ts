@@ -163,7 +163,27 @@ export function loadOfflineSession(mode: OfflineSessionMode = 'contagem'): Offli
 }
 
 export function saveOfflineSession(s: OfflineSession, mode: OfflineSessionMode = 'contagem') {
-  const next = { ...s, updatedAt: new Date().toISOString(), context: mode }
+  const stored = loadOfflineSession(mode)
+  const mesmaSessao =
+    stored != null && stored.sessionId === s.sessionId && stored.status === s.status
+  let ui = s.ui
+  if (mesmaSessao && (stored?.ui || s.ui)) {
+    const porGrupo = {
+      ...(stored?.ui?.porGrupo ?? {}),
+      ...(s.ui?.porGrupo ?? {}),
+    }
+    ui = {
+      ...(stored?.ui ?? {}),
+      ...(s.ui ?? {}),
+      ...(Object.keys(porGrupo).length > 0 ? { porGrupo } : {}),
+    }
+  }
+  const next = {
+    ...s,
+    updatedAt: new Date().toISOString(),
+    context: mode,
+    ...(ui !== undefined ? { ui } : {}),
+  }
   localStorage.setItem(storageKey(mode), JSON.stringify(next))
 }
 

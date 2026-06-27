@@ -3516,7 +3516,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (!inventario || offlineSession?.status !== 'aberta' || !isPlanilhaListMode(offlineSession.listMode)) {
       return null
     }
-    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)] ?? 1
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)] ?? 1
     const cam = getCamaraFromGrupo(tabGrupo)
     if (!cam) return null
     return getGrupoArmazemFromCamaraRua(cam, inventarioPlanilhaRua)
@@ -3972,7 +3972,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
             numero_contagem: layout.numero_contagem,
             codigo_interno: meta.it.codigo_interno.trim(),
             descricao: meta.it.descricao.trim(),
-            inventario_repeticao: meta.it.inventario_repeticao ?? null,
+            inventario_repeticao: inventarioPlanilhaRepeticaoFromItem(meta.it) ?? meta.it.inventario_repeticao ?? null,
             quantidade: meta.q,
             data_fabricacao: meta.dfRaw === '' ? null : meta.dfRaw,
             data_validade: meta.dvRaw === '' ? null : meta.dvRaw,
@@ -5434,6 +5434,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
     const ymd = s.data_contagem_ymd
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
+
+    if (!isAppOnline()) {
+      setChecklistError(
+        'Sem internet — conecte antes de trocar de rodada para carregar a lista correta sem perder o trabalho local.',
+      )
+      return
+    }
 
     setChecklistLoading(true)
     setChecklistError('')
