@@ -112,7 +112,7 @@ import {
 } from '../lib/contagemListagemCompat'
 import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 import { mergeContagensDiariasDoDiaParaItems } from '../lib/mergeContagemDiariaDoBanco'
-import { mergeInventarioDoDiaParaItems } from '../lib/mergeInventarioDoBanco'
+import { mergeInventarioDoDiaParaItems, mesclarItemInventarioLocalComBanco } from '../lib/mergeInventarioDoBanco'
 import { atualizarTodosOsProdutosEanDunAposFinalizacao } from '../lib/atualizarTodosOsProdutosEanDunAposFinalizacao'
 import { subscribeContagensEstoqueDia } from '../lib/subscribeContagensEstoqueRealtime'
 import { subscribeContagensInventarioDia } from '../lib/subscribeContagensInventarioRealtime'
@@ -1250,14 +1250,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           if (!prev || prev.status !== 'aberta') return prev
           if (prev.sessionId !== s.sessionId) return prev
           const mergedByKey = new Map(merged.map((it) => [it.key, it]))
+          const planilhaSessao = inventario && isPlanilhaListMode(prev.listMode)
           const nextItems = prev.items.map((it) => {
-            if (
+            const remoto = mergedByKey.get(it.key)
+            if (!remoto) return it
+            const bloqueado =
               it.quantidade_local_dirty ||
               checklistContagemBancoDirtyKeysRef.current.has(it.key)
-            ) {
-              return it
-            }
-            return mergedByKey.get(it.key) ?? it
+            return mesclarItemInventarioLocalComBanco(it, remoto, {
+              planilha: planilhaSessao,
+              bloqueado,
+            })
           })
           return { ...prev, items: nextItems, updatedAt: new Date().toISOString() }
         })
@@ -5447,6 +5450,70 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     }
   }
 
+  async function sincronizarInventarioDoBanco() {
+    if (!appOnline) {
+      setSaveError('Sem internet — conecte para buscar o que já foi contado no celular ou no banco.')
+      return
+    }
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta' || !inventario) return
+    const ymd = s.data_contagem_ymd
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
+
+    for (const it of s.items) {
+      if (String(it.codigo_interno ?? '').trim() === '' && !it.quantidade_local_dirty) {
+        checklistContagemBancoDirtyKeysRef.current.delete(it.key)
+      }
+    }
+
+    setChecklistLoading(true)
+    setChecklistError('')
+    try {
+      const rodadaInv = clampInventarioNumeroContagem(s.inventario_numero_contagem ?? 1)
+      const skip = new Set<string>()
+      for (const it of s.items) {
+        if (it.quantidade_local_dirty) skip.add(it.key)
+        if (isPlanilhaListMode(s.listMode) && itemTemTrabalhoLocal(it, { planilha: true })) {
+          skip.add(it.key)
+        }
+      }
+      const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(ymd, s.items, {
+        skipKeys: skip,
+        numeroContagemRodada: rodadaInv,
+        conferenteIdSessao: String(s.conferente_id ?? '').trim() || undefined,
+      })
+      const planilhaSessao = isPlanilhaListMode(s.listMode)
+      setOfflineSession((prev) => {
+        if (!prev || prev.status !== 'aberta') return prev
+        const mergedByKey = new Map(merged.map((it) => [it.key, it]))
+        const nextItems = prev.items.map((it) => {
+          const remoto = mergedByKey.get(it.key)
+          if (!remoto) return it
+          const bloqueado =
+            it.quantidade_local_dirty ||
+            checklistContagemBancoDirtyKeysRef.current.has(it.key)
+          return mesclarItemInventarioLocalComBanco(it, remoto, {
+            planilha: planilhaSessao,
+            bloqueado,
+          })
+        })
+        const next = { ...prev, items: nextItems, updatedAt: new Date().toISOString() }
+        saveOfflineSession(next, sessionMode)
+        return next
+      })
+      setSaveSuccess(
+        preenchidos > 0
+          ? `Contagem do banco atualizada: ${preenchidos} linha(s) (inclui o que você contou no celular).`
+          : 'Nenhuma linha gravada no banco para este conferente neste dia — confira se finalizou no celular.',
+      )
+      setSaveError('')
+    } catch (e: unknown) {
+      setSaveError(`Erro ao sincronizar: ${e instanceof Error ? e.message : 'verifique a conexão'}`)
+    } finally {
+      setChecklistLoading(false)
+    }
+  }
+
   const planilhaQtdContagemHeader =
     inventario && isArmazemPaginado
       ? formatContagemLabel(inventarioNumeroContagemRodada)
@@ -6358,6 +6425,31 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                     onNumeroContagemChange={handleInventarioNumeroContagemChange}
                     numeroContagemDisabled={checklistLoading || finalizing}
                   />
+                ) : null}
+                {inventario &&
+                offlineSession?.status === 'aberta' &&
+                isPlanilhaListMode(offlineSession.listMode) ? (
+                  <div style={{ marginTop: 8, marginBottom: 4 }}>
+                    <button
+                      type="button"
+                      disabled={checklistLoading || finalizing || !appOnline}
+                      onClick={() => void sincronizarInventarioDoBanco()}
+                      style={{
+                        ...buttonStyle,
+                        background: '#1565c0',
+                        fontSize: 13,
+                        opacity: checklistLoading || finalizing || !appOnline ? 0.55 : 1,
+                      }}
+                      title="Busca no banco o que este conferente já contou (celular ou PC)"
+                    >
+                      {checklistLoading ? 'Atualizando…' : 'Ver contagem do banco / celular'}
+                    </button>
+                    {!appOnline ? (
+                      <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text, #888)' }}>
+                        Sem internet — use quando reconectar.
+                      </span>
+                    ) : null}
+                  </div>
                 ) : null}
                 {isMobile ? (
                   <>

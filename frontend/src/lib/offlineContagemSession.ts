@@ -132,12 +132,8 @@ export function itemTemTrabalhoLocal(
 ): boolean {
   if (item.quantidade_local_dirty) return true
   if (opts?.planilha) {
+    /** Só trava merge quando o produto já foi identificado localmente. */
     if (String(item.codigo_interno ?? '').trim() !== '') return true
-    if (String(item.lote ?? '').trim() !== '') return true
-    if (String(item.up_quantidade ?? '').trim() !== '') return true
-    if (String(item.observacao ?? '').trim() !== '') return true
-    if (String(item.foto_base64 ?? '').trim() !== '') return true
-    /** Só quantidade (sem código) em linha em branco: ainda pode completar código/descrição do banco. */
     return false
   }
   if (String(item.quantidade_contada ?? '').trim() !== '') return true

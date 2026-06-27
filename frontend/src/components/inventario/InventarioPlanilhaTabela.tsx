@@ -497,8 +497,10 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                     <td style={tdPlanilha}>
                       {onPlanilhaCodigoBlur && edicaoPlanilha ? (
                         <input
-                          key={`cod-${it.key}-${it.codigo_interno}`}
-                          defaultValue={it.codigo_interno}
+                          value={it.codigo_interno}
+                          onChange={(e) =>
+                            updateOfflineItemFields(it.key, { codigo_interno: e.target.value })
+                          }
                           onBlur={(e) => onPlanilhaCodigoBlur(it.key, e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') (e.target as HTMLInputElement).blur()

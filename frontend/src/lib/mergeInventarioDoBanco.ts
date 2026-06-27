@@ -5,6 +5,8 @@ import { contagemDiariaChaveProdutoDia } from './contagemListagemCompat'
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
 import { fetchConferentesNomesPorIds } from './conferentesNomesBatch'
 import { itemTemTrabalhoLocal, type OfflineChecklistItem } from './offlineContagemSession'
+import { supabase } from './supabaseClient'
+import { planilhaOrdemFromPosNivel } from '../components/inventario/inventarioPlanilhaModel'
 
 const MERGE_INVENTARIO_COLUMNS = [
   'id',
@@ -212,6 +214,83 @@ async function fetchUltimasInventarioPorChave(
   return map
 }
 
+/** Completa código/descrição a partir de `inventario_planilha_linhas` quando a linha em contagens veio sem produto. */
+async function enrichMapComPlanilhaLinhasCodigo(
+  map: Map<string, RowSnapshot>,
+  dataContagemYmd: string,
+  conferenteIdSessao?: string,
+): Promise<void> {
+  const ymd = String(dataContagemYmd ?? '').trim()
+  const cid = String(conferenteIdSessao ?? '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !cid) return
+  try {
+    const { data, error } = await supabase
+      .from('inventario_planilha_linhas')
+      .select(
+        'grupo_armazem, posicao, nivel, inventario_repeticao, numero_contagem, codigo_interno, descricao, data_inventario',
+      )
+      .eq('data_inventario', ymd)
+      .eq('conferente_id', cid)
+    if (error || !data?.length) return
+    for (const pl of data) {
+      const codPl = String(pl.codigo_interno ?? '').trim()
+      if (!codPl) continue
+      const grupo = Number(pl.grupo_armazem)
+      const pos = Number(pl.posicao)
+      const nivel = Number(pl.nivel)
+      const rep = Number(pl.inventario_repeticao ?? 1)
+      const rod = Number(pl.numero_contagem ?? 1)
+      if (!Number.isFinite(grupo) || !Number.isFinite(pos) || !Number.isFinite(nivel)) continue
+      const ordem = planilhaOrdemFromPosNivel(pos, nivel, rep)
+      const key = inventarioPlanilhaMergeKey(ymd, grupo, ordem, Math.min(4, Math.max(1, Math.round(rod))))
+      const snap = map.get(key)
+      if (!snap) continue
+      if (String(snap.codigo_interno ?? '').trim() !== '') continue
+      map.set(key, {
+        ...snap,
+        codigo_interno: codPl,
+        descricao: String(pl.descricao ?? ''),
+      })
+    }
+  } catch {
+    /* tabela ausente ou RLS */
+  }
+}
+
+/** Mescla remoto no local preservando edição bloqueada, mas preenche código/descrição vazios do banco. */
+export function mesclarItemInventarioLocalComBanco(
+  local: OfflineChecklistItem,
+  remoto: OfflineChecklistItem,
+  opts?: { planilha?: boolean; bloqueado?: boolean },
+): OfflineChecklistItem {
+  if (!opts?.bloqueado) return remoto
+  const localCod = String(local.codigo_interno ?? '').trim()
+  const remotoCod = String(remoto.codigo_interno ?? '').trim()
+  if (opts.planilha && localCod === '' && remotoCod !== '') {
+    return {
+      ...local,
+      codigo_interno: remoto.codigo_interno,
+      descricao: remoto.descricao || local.descricao,
+      inventario_repeticao: remoto.inventario_repeticao ?? local.inventario_repeticao,
+      quantidade_contada:
+        String(local.quantidade_contada ?? '').trim() !== ''
+          ? local.quantidade_contada
+          : remoto.quantidade_contada,
+      lote: String(local.lote ?? '').trim() !== '' ? local.lote : remoto.lote,
+      up_quantidade:
+        String(local.up_quantidade ?? '').trim() !== '' ? local.up_quantidade : remoto.up_quantidade,
+      observacao:
+        String(local.observacao ?? '').trim() !== '' ? local.observacao : remoto.observacao,
+      data_fabricacao: local.data_fabricacao || remoto.data_fabricacao,
+      data_validade: local.data_validade || remoto.data_validade,
+      ean: local.ean ?? remoto.ean,
+      dun: local.dun ?? remoto.dun,
+      unidade_medida: local.unidade_medida ?? remoto.unidade_medida,
+    }
+  }
+  return local
+}
+
 export type MergeInventarioOptions = {
   skipKeys?: Set<string>
   numeroContagemRodada?: number
@@ -236,6 +315,7 @@ export async function mergeInventarioDoDiaParaItems(
     rodada,
     options?.conferenteIdSessao,
   )
+  await enrichMapComPlanilhaLinhasCodigo(porChave, dataContagemYmd, options?.conferenteIdSessao)
   if (porChave.size === 0) {
     return { items: items.map((i) => ({ ...i })), preenchidos: 0 }
   }
