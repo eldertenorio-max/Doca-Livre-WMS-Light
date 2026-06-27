@@ -17,8 +17,11 @@ import {
   isListModeArmazem,
   isPlanilhaListMode,
   normalizeChecklistListMode,
+  type OfflineSessionUiAbaState,
   saveOfflineSession,
   stableItemKey,
+  grupoUiKey,
+  itemTemTrabalhoLocal,
 } from '../lib/offlineContagemSession'
 import {
   inventarioAbaTitulo,
@@ -648,6 +651,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   const syncingPendingRef = useRef(false)
   /** Evita resetar aba/página logo após restaurar sessão do localStorage. */
   const skipNextListUiResetRef = useRef(false)
+  const skipNextPlanilhaTabUiResetRef = useRef(false)
   const loadPreviewRef = useRef<(dayOverride?: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {})
   useEffect(() => {
     offlineSessionRef.current = offlineSession
@@ -1002,19 +1006,24 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const ui = s.ui
       if (ui) {
         skipNextListUiResetRef.current = true
-        if (ui.checklistPage != null && ui.checklistPage >= 1) setChecklistPage(ui.checklistPage)
-        if (ui.planilhaTabelaPage != null && ui.planilhaTabelaPage >= 1) {
-          setPlanilhaTabelaPage(ui.planilhaTabelaPage)
+        const page = ui.checklistPage != null && ui.checklistPage >= 1 ? ui.checklistPage : 1
+        setChecklistPage(page)
+        const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, page - 1)]
+        const aba =
+          tabGrupo != null && ui.porGrupo ? ui.porGrupo[grupoUiKey(tabGrupo)] : undefined
+        const src = aba ?? ui
+        if (src.planilhaTabelaPage != null && src.planilhaTabelaPage >= 1) {
+          setPlanilhaTabelaPage(src.planilhaTabelaPage)
         }
-        if (ui.inventarioPlanilhaRua) setInventarioPlanilhaRua(ui.inventarioPlanilhaRua)
-        if (ui.inventarioPlanilhaPos != null && ui.inventarioPlanilhaPos >= 1) {
-          setInventarioPlanilhaPos(ui.inventarioPlanilhaPos)
+        if (src.inventarioPlanilhaRua) setInventarioPlanilhaRua(src.inventarioPlanilhaRua)
+        if (src.inventarioPlanilhaPos != null && src.inventarioPlanilhaPos >= 1) {
+          setInventarioPlanilhaPos(src.inventarioPlanilhaPos)
         }
-        if (ui.inventarioPlanilhaNivel != null && ui.inventarioPlanilhaNivel >= 1) {
-          setInventarioPlanilhaNivel(ui.inventarioPlanilhaNivel)
+        if (src.inventarioPlanilhaNivel != null && src.inventarioPlanilhaNivel >= 1) {
+          setInventarioPlanilhaNivel(src.inventarioPlanilhaNivel)
         }
-        if (ui.inventarioPlanilhaRepeticao != null) {
-          setInventarioPlanilhaRepeticao(ui.inventarioPlanilhaRepeticao)
+        if (src.inventarioPlanilhaRepeticao != null) {
+          setInventarioPlanilhaRepeticao(src.inventarioPlanilhaRepeticao)
         }
         if (ui.checklistShowAll != null) setChecklistShowAll(ui.checklistShowAll)
       }
@@ -1064,6 +1073,18 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   useEffect(() => {
     const s = offlineSessionRef.current
     if (!s || s.status !== 'aberta') return
+    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)]
+    const abaAtual: OfflineSessionUiAbaState = {
+      planilhaTabelaPage,
+      inventarioPlanilhaRua,
+      inventarioPlanilhaPos,
+      inventarioPlanilhaNivel,
+      inventarioPlanilhaRepeticao,
+    }
+    const porGrupo =
+      inventario && isPlanilhaListMode(s.listMode) && tabGrupo != null
+        ? { ...(s.ui?.porGrupo ?? {}), [grupoUiKey(tabGrupo)]: abaAtual }
+        : s.ui?.porGrupo
     saveOfflineSession(
       {
         ...s,
@@ -1075,6 +1096,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           inventarioPlanilhaNivel,
           inventarioPlanilhaRepeticao,
           checklistShowAll,
+          porGrupo,
         },
       },
       sessionMode,
@@ -1204,6 +1226,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const skip = new Set<string>(checklistContagemBancoDirtyKeysRef.current)
       for (const it of s.items) {
         if (it.quantidade_local_dirty) skip.add(it.key)
+        if (
+          inventario &&
+          isPlanilhaListMode(s.listMode) &&
+          itemTemTrabalhoLocal(it, { planilha: true })
+        ) {
+          skip.add(it.key)
+        }
       }
       try {
         const rodadaInv = clampInventarioNumeroContagem(s.inventario_numero_contagem ?? 1)
@@ -1309,6 +1338,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   ])
 
   useEffect(() => {
+    if (skipNextPlanilhaTabUiResetRef.current) {
+      skipNextPlanilhaTabUiResetRef.current = false
+      return
+    }
     setPlanilhaTabelaPage(1)
   }, [checklistPage])
 
@@ -3134,6 +3167,13 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     if (isMetadataPatch && inventario && isPlanilhaListMode(offlineSessionRef.current?.listMode)) {
       checklistContagemBancoDirtyKeysRef.current.add(editKey)
     }
+    if (
+      'codigo_interno' in patch &&
+      inventario &&
+      isPlanilhaListMode(offlineSessionRef.current?.listMode)
+    ) {
+      checklistContagemBancoDirtyKeysRef.current.add(editKey)
+    }
     if ('quantidade_contada' in patch) {
       const trimmed = String(patch.quantidade_contada ?? '').trim()
       if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(editKey)
@@ -3144,10 +3184,23 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (!prev || prev.status !== 'aberta') return prev
       const nextQtyDirty =
         'quantidade_contada' in patch ? String(patch.quantidade_contada ?? '').trim() !== '' : undefined
+      const isPlanilhaSessao = inventario && isPlanilhaListMode(prev.listMode)
+      const limpandoLinhaPlanilha =
+        isPlanilhaSessao &&
+        'codigo_interno' in patch &&
+        String(patch.codigo_interno ?? '').trim() === '' &&
+        (!('quantidade_contada' in patch) || String(patch.quantidade_contada ?? '').trim() === '')
       const next = {
         ...prev,
         items: prev.items.map((it) => {
           if (it.key === editKey) {
+            if (isPlanilhaSessao) {
+              return {
+                ...it,
+                ...patch,
+                quantidade_local_dirty: limpandoLinhaPlanilha ? false : true,
+              }
+            }
             if (nextQtyDirty !== undefined) {
               return { ...it, ...patch, quantidade_local_dirty: nextQtyDirty }
             }
@@ -5021,6 +5074,111 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       : Math.ceil(checklistProductTotal / CHECKLIST_PAGE_SIZE),
   )
   const checklistPageSafe = Math.min(checklistPage, checklistTotalPages)
+
+  function snapshotUiAbaAtual(): OfflineSessionUiAbaState {
+    return {
+      planilhaTabelaPage,
+      inventarioPlanilhaRua,
+      inventarioPlanilhaPos,
+      inventarioPlanilhaNivel,
+      inventarioPlanilhaRepeticao,
+    }
+  }
+
+  function aplicarUiAbaPlanilha(aba: OfflineSessionUiAbaState | undefined, grupoFallback?: number) {
+    skipNextPlanilhaTabUiResetRef.current = true
+    if (aba?.planilhaTabelaPage != null && aba.planilhaTabelaPage >= 1) {
+      setPlanilhaTabelaPage(aba.planilhaTabelaPage)
+    } else {
+      setPlanilhaTabelaPage(1)
+    }
+    if (aba?.inventarioPlanilhaRua) {
+      setInventarioPlanilhaRua(aba.inventarioPlanilhaRua)
+    } else if (grupoFallback != null) {
+      const rua = getInventarioRuaArmazem(grupoFallback)
+      if (rua !== '—') setInventarioPlanilhaRua(rua)
+    }
+    if (aba?.inventarioPlanilhaPos != null && aba.inventarioPlanilhaPos >= 1) {
+      setInventarioPlanilhaPos(aba.inventarioPlanilhaPos)
+    } else {
+      setInventarioPlanilhaPos(1)
+    }
+    if (aba?.inventarioPlanilhaNivel != null && aba.inventarioPlanilhaNivel >= 1) {
+      setInventarioPlanilhaNivel(aba.inventarioPlanilhaNivel)
+    } else {
+      setInventarioPlanilhaNivel(1)
+    }
+    if (aba?.inventarioPlanilhaRepeticao != null) {
+      setInventarioPlanilhaRepeticao(aba.inventarioPlanilhaRepeticao)
+    } else {
+      setInventarioPlanilhaRepeticao(1)
+    }
+  }
+
+  function flushChecklistEditBeforeNavigate() {
+    if (!checklistEditingKey || !checklistEditDraft) return
+    const cod = checklistEditDraft.codigo_interno.trim()
+    if (!cod) {
+      setChecklistEditingKey(null)
+      setChecklistEditDraft(null)
+      return
+    }
+    const p = lookupProductOptionByCodigo(cod, productByCode, productByCodeNoDots)
+    updateOfflineItemFields(
+      checklistEditingKey,
+      {
+        codigo_interno: cod,
+        descricao: checklistEditDraft.descricao.trim() || (p?.descricao ?? cod),
+        quantidade_contada: checklistEditDraft.quantidade_contada.trim(),
+        ...(p
+          ? {
+              unidade_medida: p.unidade_medida ?? null,
+              ean: p.ean ?? null,
+              dun: p.dun ?? null,
+              data_fabricacao: p.data_fabricacao ? toDateInputValue(p.data_fabricacao) : '',
+              data_validade: p.data_validade ? toDateInputValue(p.data_validade) : '',
+            }
+          : {}),
+      },
+      { skipBloqueioGuard: true, skipPlanilhaRedirect: true },
+    )
+    setChecklistEditingKey(null)
+    setChecklistEditDraft(null)
+  }
+
+  function handleChecklistPageChange(nextPage: number) {
+    const maxPages = Math.max(1, checklistTotalPages)
+    const nextSafe = Math.max(1, Math.min(maxPages, Math.round(nextPage)))
+    if (nextSafe === checklistPageSafe) return
+
+    flushChecklistEditBeforeNavigate()
+
+    const s = offlineSessionRef.current
+    const grupoAtual = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)]
+    const planilhaNav =
+      inventario &&
+      s?.status === 'aberta' &&
+      isPlanilhaListMode(s.listMode) &&
+      grupoAtual != null
+
+    let porGrupoAtualizado = s?.ui?.porGrupo ?? {}
+    if (planilhaNav && s && grupoAtual != null) {
+      porGrupoAtualizado = { ...porGrupoAtualizado, [grupoUiKey(grupoAtual)]: snapshotUiAbaAtual() }
+      saveOfflineSession(
+        { ...s, ui: { ...s.ui, porGrupo: porGrupoAtualizado, checklistPage: nextSafe } },
+        sessionMode,
+      )
+    }
+
+    if (planilhaNav) {
+      const grupoNovo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, nextSafe - 1)]
+      const abaNovo = grupoNovo != null ? porGrupoAtualizado[grupoUiKey(grupoNovo)] : undefined
+      aplicarUiAbaPlanilha(abaNovo, grupoNovo ?? undefined)
+    }
+
+    setChecklistPage(nextSafe)
+  }
+
   const checklistRangeFrom =
     isArmazemPaginado
       ? checklistProductTotal === 0
@@ -5196,14 +5354,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     offlineSession?.items,
   ])
 
-  useEffect(() => {
-    if (!inventario || !isPlanilhaListMode(offlineSession?.listMode) || offlineSession.status !== 'aberta') return
-    const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)]
-    if (!tabGrupo) return
-    const rua = getInventarioRuaArmazem(tabGrupo)
-    if (rua !== '—') setInventarioPlanilhaRua((prev) => (prev === rua ? prev : rua))
-  }, [inventario, offlineSession?.listMode, offlineSession?.status, checklistPageSafe])
-
   function handleInventarioPlanilhaRuaChange(rua: string) {
     setInventarioPlanilhaRua(rua)
     const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPageSafe - 1)] ?? 1
@@ -5212,7 +5362,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const grupo = getGrupoArmazemFromCamaraRua(cam, rua)
     if (grupo == null) return
     const pageIdx = INVENTARIO_ARMAZEM_GRUPO_IDS.indexOf(grupo)
-    if (pageIdx >= 0 && pageIdx + 1 !== checklistPageSafe) setChecklistPage(pageIdx + 1)
+    if (pageIdx >= 0 && pageIdx + 1 !== checklistPageSafe) handleChecklistPageChange(pageIdx + 1)
   }
 
   async function handleInventarioNumeroContagemChange(novaRodada: 1 | 2 | 3 | 4) {
@@ -5539,7 +5689,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               type="button"
               disabled={checklistShowAll || checklistPageSafe <= 1}
               onClick={() => {
-                setChecklistPage((p) => Math.max(1, p - 1))
+                handleChecklistPageChange(checklistPageSafe - 1)
                 scrollToChecklistTitle()
               }}
               style={{
@@ -5556,7 +5706,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               type="button"
               disabled={checklistShowAll || checklistPageSafe >= checklistTotalPages}
               onClick={() => {
-                setChecklistPage((p) => Math.min(checklistTotalPages, p + 1))
+                handleChecklistPageChange(checklistPageSafe + 1)
                 scrollToChecklistTitle()
               }}
               style={{
@@ -5683,7 +5833,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           </strong>
           <span style={{ color: 'var(--text-muted, #aaa)', marginLeft: 8 }}>
             {inventario
-              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes · 1 aba CAMARA/RUA por pessoa · cada um finaliza separado)`
+              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes · troque de CAMARA/RUA livremente · cada um finaliza separado · dados ficam neste aparelho até enviar)`
               : '(checklist aberta · linhas já gravadas no banco · cada um finaliza separado)'}
           </span>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
@@ -6187,7 +6337,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                   <InventarioPlanilhaAbas
                     armazemGrupos={armazemGrupos}
                     checklistPageSafe={checklistPageSafe}
-                    setChecklistPage={setChecklistPage}
+                    setChecklistPage={(next) => {
+                      const resolved = typeof next === 'function' ? next(checklistPageSafe) : next
+                      handleChecklistPageChange(resolved)
+                    }}
                     numeroContagem={inventarioNumeroContagemRodada}
                     onNumeroContagemChange={handleInventarioNumeroContagemChange}
                     numeroContagemDisabled={checklistLoading || finalizing}

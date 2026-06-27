@@ -4,7 +4,7 @@ import { contagemLinhaAVenceB } from './contagemOrdemLinha'
 import { contagemDiariaChaveProdutoDia } from './contagemListagemCompat'
 import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
 import { fetchConferentesNomesPorIds } from './conferentesNomesBatch'
-import type { OfflineChecklistItem } from './offlineContagemSession'
+import { itemTemTrabalhoLocal, type OfflineChecklistItem } from './offlineContagemSession'
 
 const MERGE_INVENTARIO_COLUMNS = [
   'id',
@@ -233,6 +233,7 @@ export async function mergeInventarioDoDiaParaItems(
   const next = items.map((it) => {
     if (skipKeys?.has(it.key)) return { ...it }
     if (it.quantidade_local_dirty) return { ...it }
+    if (itemTemTrabalhoLocal(it, { planilha: true })) return { ...it }
     const key = inventarioItemMergeKey(ymd, it, rodada)
     if (!key) return { ...it }
     const snap = porChave.get(key)

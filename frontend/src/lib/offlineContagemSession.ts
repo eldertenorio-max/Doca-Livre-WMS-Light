@@ -101,6 +101,14 @@ export type OfflineSession = {
   ui?: OfflineSessionUiState
 }
 
+export type OfflineSessionUiAbaState = {
+  planilhaTabelaPage?: number
+  inventarioPlanilhaRua?: string
+  inventarioPlanilhaPos?: number
+  inventarioPlanilhaNivel?: number
+  inventarioPlanilhaRepeticao?: 1 | 2 | 3
+}
+
 export type OfflineSessionUiState = {
   checklistPage?: number
   planilhaTabelaPage?: number
@@ -109,6 +117,28 @@ export type OfflineSessionUiState = {
   inventarioPlanilhaNivel?: number
   inventarioPlanilhaRepeticao?: 1 | 2 | 3
   checklistShowAll?: boolean
+  /** Posição na planilha por aba/grupo (1–8) — retoma RUA/POS ao voltar na CAMARA. */
+  porGrupo?: Record<string, OfflineSessionUiAbaState>
+}
+
+export function grupoUiKey(grupo: number): string {
+  return String(Math.floor(grupo))
+}
+
+/** Linha com alteração local ainda não finalizada — não sobrescrever no merge com o banco. */
+export function itemTemTrabalhoLocal(
+  item: OfflineChecklistItem,
+  opts?: { planilha?: boolean },
+): boolean {
+  if (item.quantidade_local_dirty) return true
+  if (String(item.quantidade_contada ?? '').trim() !== '') return true
+  if (!opts?.planilha) return false
+  if (String(item.codigo_interno ?? '').trim() !== '') return true
+  if (String(item.lote ?? '').trim() !== '') return true
+  if (String(item.up_quantidade ?? '').trim() !== '') return true
+  if (String(item.observacao ?? '').trim() !== '') return true
+  if (String(item.foto_base64 ?? '').trim() !== '') return true
+  return false
 }
 
 
