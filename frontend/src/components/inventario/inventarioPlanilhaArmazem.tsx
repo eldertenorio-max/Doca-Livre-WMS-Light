@@ -83,7 +83,7 @@ export function InventarioPlanilhaAbas(props: {
         </div>
       ) : null}
       <div style={{ fontSize: 12, color: 'var(--text, #888)', marginBottom: 8 }}>
-        Abas (uma por CAMARA/RUA): troque livremente — o que você contou fica salvo neste aparelho (mesmo sem internet) até finalizar.
+        Abas (uma por CAMARA/RUA): troque livremente — a contagem de todos aparece aqui (última gravação por endereço).
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {armazemGrupos.map((g, i) => {

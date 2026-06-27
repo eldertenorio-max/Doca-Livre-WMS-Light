@@ -119,7 +119,6 @@ function rowToMergeKey(ymd: string, r: RowSnapshot): string | null {
 async function fetchUltimasInventarioPorChave(
   dataContagemYmd: string,
   numeroContagemRodada: number,
-  conferenteIdSessao?: string,
 ): Promise<Map<string, RowSnapshot>> {
   const map = new Map<string, RowSnapshot>()
   const ymd = String(dataContagemYmd ?? '').trim()
@@ -137,15 +136,7 @@ async function fetchUltimasInventarioPorChave(
     return map
   }
 
-  const hasRascunhoCol = acc.length > 0 && 'contagem_rascunho' in (acc[0] as object)
-
-  const cidSessao = String(conferenteIdSessao ?? '').trim()
-
   for (const r of acc) {
-    if (hasRascunhoCol && r.contagem_rascunho === true) {
-      const cidRowRasc = r.conferente_id != null ? String(r.conferente_id).trim() : ''
-      if (!cidSessao || cidRowRasc !== cidSessao) continue
-    }
 
     const ncRaw = r.inventario_numero_contagem
     const nc = ncRaw != null && String(ncRaw).trim() !== '' ? Number(ncRaw) : 1
@@ -218,19 +209,16 @@ async function fetchUltimasInventarioPorChave(
 async function enrichMapComPlanilhaLinhasCodigo(
   map: Map<string, RowSnapshot>,
   dataContagemYmd: string,
-  conferenteIdSessao?: string,
 ): Promise<void> {
   const ymd = String(dataContagemYmd ?? '').trim()
-  const cid = String(conferenteIdSessao ?? '').trim()
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !cid) return
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
   try {
     const { data, error } = await supabase
       .from('inventario_planilha_linhas')
       .select(
-        'grupo_armazem, posicao, nivel, inventario_repeticao, numero_contagem, codigo_interno, descricao, data_inventario',
+        'grupo_armazem, posicao, nivel, inventario_repeticao, numero_contagem, codigo_interno, descricao, data_inventario, conferente_id',
       )
       .eq('data_inventario', ymd)
-      .eq('conferente_id', cid)
     if (error || !data?.length) return
     for (const pl of data) {
       const codPl = String(pl.codigo_interno ?? '').trim()
@@ -250,6 +238,10 @@ async function enrichMapComPlanilhaLinhasCodigo(
         ...snap,
         codigo_interno: codPl,
         descricao: String(pl.descricao ?? ''),
+        conferente_id:
+          pl.conferente_id != null && String(pl.conferente_id).trim() !== ''
+            ? String(pl.conferente_id).trim()
+            : snap.conferente_id,
       })
     }
   } catch {
@@ -272,6 +264,8 @@ export function mesclarItemInventarioLocalComBanco(
       codigo_interno: remoto.codigo_interno,
       descricao: remoto.descricao || local.descricao,
       inventario_repeticao: remoto.inventario_repeticao ?? local.inventario_repeticao,
+      contagem_banco_ultimo_conferente_nome:
+        remoto.contagem_banco_ultimo_conferente_nome ?? local.contagem_banco_ultimo_conferente_nome,
       quantidade_contada:
         String(local.quantidade_contada ?? '').trim() !== ''
           ? local.quantidade_contada
@@ -294,14 +288,11 @@ export function mesclarItemInventarioLocalComBanco(
 export type MergeInventarioOptions = {
   skipKeys?: Set<string>
   numeroContagemRodada?: number
-  /** Rascunhos deste conferente entram no merge (celular ↔ desktop). */
-  conferenteIdSessao?: string
 }
 
 /**
- * Preenche itens da checklist de inventário com a última gravação **finalizada** no banco
- * (mesmo dia / rodada, todos os conferentes). Rascunhos de digitação não entram no merge —
- * cada aparelho mantém o próprio rascunho local até finalizar.
+ * Preenche itens da checklist de inventário com a última gravação no banco
+ * (mesmo dia / rodada, todos os conferentes — rascunho e finalizado).
  */
 export async function mergeInventarioDoDiaParaItems(
   dataContagemYmd: string,
@@ -310,15 +301,14 @@ export async function mergeInventarioDoDiaParaItems(
 ): Promise<{ items: OfflineChecklistItem[]; preenchidos: number }> {
   const skipKeys = options?.skipKeys
   const rodada = Math.min(4, Math.max(1, Math.round(options?.numeroContagemRodada ?? 1)))
-  const porChave = await fetchUltimasInventarioPorChave(
-    dataContagemYmd,
-    rodada,
-    options?.conferenteIdSessao,
-  )
-  await enrichMapComPlanilhaLinhasCodigo(porChave, dataContagemYmd, options?.conferenteIdSessao)
+  const porChave = await fetchUltimasInventarioPorChave(dataContagemYmd, rodada)
+  await enrichMapComPlanilhaLinhasCodigo(porChave, dataContagemYmd)
   if (porChave.size === 0) {
     return { items: items.map((i) => ({ ...i })), preenchidos: 0 }
   }
+
+  const ids = [...new Set([...porChave.values()].map((s) => s.conferente_id).filter(Boolean))]
+  const nomesPorId = await fetchConferentesNomesPorIds(ids)
 
   let preenchidos = 0
   const ymd = String(dataContagemYmd ?? '').trim()
@@ -362,11 +352,14 @@ export async function mergeInventarioDoDiaParaItems(
       repSnap != null && Number.isFinite(Number(repSnap)) && Number(repSnap) >= 1 && Number(repSnap) <= 3
         ? (Math.round(Number(repSnap)) as 1 | 2 | 3)
         : it.inventario_repeticao
+    const nomeConf =
+      nomesPorId.get(snap.conferente_id)?.trim() || snap.conferente_id
     return {
       ...it,
       codigo_interno: keepLocalProduto ? it.codigo_interno : snapCodigo || it.codigo_interno,
       descricao: keepLocalProduto ? it.descricao : snap.descricao || it.descricao,
       inventario_repeticao: repMerged,
+      contagem_banco_ultimo_conferente_nome: nomeConf,
       quantidade_contada: keepLocalMeta ? localQty : mergedQty,
       up_quantidade: keepLocalMeta
         ? (it.up_quantidade ?? '')

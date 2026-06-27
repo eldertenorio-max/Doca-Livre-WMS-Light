@@ -240,8 +240,11 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                       <td style={{ ...tdPlanilha, fontWeight: isLinhaAtiva ? 700 : 400 }}>{linhaLabel}</td>
                     ) : null}
                     {showChecklistColumn('conferente') ? (
-                      <td style={{ ...tdPlanilha, maxWidth: 140 }} title="Conferente da sessão">
-                        {conferenteLabel}
+                      <td
+                        style={{ ...tdPlanilha, maxWidth: 140 }}
+                        title="Quem gravou esta linha no banco (visível para todos)"
+                      >
+                        {String(it.contagem_banco_ultimo_conferente_nome ?? '').trim() || conferenteLabel}
                       </td>
                     ) : null}
                     <td style={tdPlanilha}>
@@ -490,8 +493,11 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                       <td style={{ ...tdPlanilha, fontWeight: isLinhaAtiva ? 700 : 400 }}>{linhaLabel}</td>
                     ) : null}
                     {showChecklistColumn('conferente') ? (
-                      <td style={{ ...tdPlanilha, maxWidth: 140 }} title="Conferente da sessão">
-                        {conferenteLabel}
+                      <td
+                        style={{ ...tdPlanilha, maxWidth: 140 }}
+                        title="Quem gravou esta linha no banco (visível para todos)"
+                      >
+                        {String(it.contagem_banco_ultimo_conferente_nome ?? '').trim() || conferenteLabel}
                       </td>
                     ) : null}
                     <td style={tdPlanilha}>

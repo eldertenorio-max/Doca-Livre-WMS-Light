@@ -1240,7 +1240,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           ? await mergeInventarioDoDiaParaItems(ymd, s.items, {
               skipKeys: skip,
               numeroContagemRodada: rodadaInv,
-              conferenteIdSessao: String(s.conferente_id ?? '').trim() || undefined,
             })
           : await mergeContagensDiariasDoDiaParaItems(ymd, s.items, {
               skipKeys: skip,
@@ -2607,11 +2606,10 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         if (isAppOnline()) {
           const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(contagemDiaYmd, items, {
             numeroContagemRodada: rodadaPlanilha,
-            conferenteIdSessao: conferenteId,
           })
           items = merged
           if (preenchidos > 0) {
-            avisoMergeLinhas = ` ${preenchidos} linha(s) já gravadas (inclui rascunho seu neste dia).`
+            avisoMergeLinhas = ` ${preenchidos} linha(s) já gravadas por qualquer conferente neste dia.`
           }
         }
         setArmazemMissingCodes([])
@@ -5410,7 +5408,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const blank = buildBlankPlanilhaInventarioItems()
       const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(ymd, blank, {
         numeroContagemRodada: novaRodada,
-        conferenteIdSessao: String(s.conferente_id ?? '').trim() || undefined,
       })
       checklistContagemBancoDirtyKeysRef.current.clear()
       lastPlanilhaBipKeyRef.current = null
@@ -5480,7 +5477,6 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const { items: merged, preenchidos } = await mergeInventarioDoDiaParaItems(ymd, s.items, {
         skipKeys: skip,
         numeroContagemRodada: rodadaInv,
-        conferenteIdSessao: String(s.conferente_id ?? '').trim() || undefined,
       })
       const planilhaSessao = isPlanilhaListMode(s.listMode)
       setOfflineSession((prev) => {
@@ -5503,8 +5499,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       })
       setSaveSuccess(
         preenchidos > 0
-          ? `Contagem do banco atualizada: ${preenchidos} linha(s) (inclui o que você contou no celular).`
-          : 'Nenhuma linha gravada no banco para este conferente neste dia — confira se finalizou no celular.',
+          ? `Contagem atualizada: ${preenchidos} linha(s) de todos os conferentes (última gravação por endereço).`
+          : 'Nenhuma linha gravada no banco hoje ainda.',
       )
       setSaveError('')
     } catch (e: unknown) {
@@ -5913,7 +5909,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           </strong>
           <span style={{ color: 'var(--text-muted, #aaa)', marginLeft: 8 }}>
             {inventario
-              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes · troque de CAMARA/RUA livremente · cada um finaliza separado · dados ficam neste aparelho até enviar)`
+              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes · todos veem a contagem de todos · troque de CAMARA/RUA livremente)`
               : '(checklist aberta · linhas já gravadas no banco · cada um finaliza separado)'}
           </span>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
@@ -6440,9 +6436,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                         fontSize: 13,
                         opacity: checklistLoading || finalizing || !appOnline ? 0.55 : 1,
                       }}
-                      title="Busca no banco o que este conferente já contou (celular ou PC)"
+                      title="Última gravação no banco de qualquer conferente neste endereço"
                     >
-                      {checklistLoading ? 'Atualizando…' : 'Ver contagem do banco / celular'}
+                      {checklistLoading ? 'Atualizando…' : 'Ver contagem de todos'}
                     </button>
                     {!appOnline ? (
                       <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text, #888)' }}>
