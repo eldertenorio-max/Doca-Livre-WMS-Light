@@ -24,6 +24,7 @@ const MERGE_INVENTARIO_COLUMNS = [
   'inventario_repeticao',
   'planilha_grupo_armazem',
   'planilha_ordem_na_aba',
+  'contagem_rascunho',
 ] as const
 
 function toDateInputValue(v?: string | null) {
@@ -133,7 +134,11 @@ async function fetchUltimasInventarioPorChave(
     return map
   }
 
+  const hasRascunhoCol = acc.length > 0 && 'contagem_rascunho' in (acc[0] as object)
+
   for (const r of acc) {
+    if (hasRascunhoCol && r.contagem_rascunho === true) continue
+
     const ncRaw = r.inventario_numero_contagem
     const nc = ncRaw != null && String(ncRaw).trim() !== '' ? Number(ncRaw) : 1
     if (Number.isFinite(nc) && Math.round(nc) !== rodada) continue
@@ -207,7 +212,9 @@ export type MergeInventarioOptions = {
 }
 
 /**
- * Preenche itens da checklist de inventário com a última gravação no banco (mesmo dia / rodada).
+ * Preenche itens da checklist de inventário com a última gravação **finalizada** no banco
+ * (mesmo dia / rodada, todos os conferentes). Rascunhos de digitação não entram no merge —
+ * cada aparelho mantém o próprio rascunho local até finalizar.
  */
 export async function mergeInventarioDoDiaParaItems(
   dataContagemYmd: string,
@@ -225,6 +232,7 @@ export async function mergeInventarioDoDiaParaItems(
   const ymd = String(dataContagemYmd ?? '').trim()
   const next = items.map((it) => {
     if (skipKeys?.has(it.key)) return { ...it }
+    if (it.quantidade_local_dirty) return { ...it }
     const key = inventarioItemMergeKey(ymd, it, rodada)
     if (!key) return { ...it }
     const snap = porChave.get(key)
@@ -244,13 +252,21 @@ export async function mergeInventarioDoDiaParaItems(
     preenchidos += 1
     const localQty = String(it.quantidade_contada ?? '').trim()
     const mergedQty = formatQtyFromNumber(snap.quantidade_up)
+    const keepLocalMeta =
+      localQty !== '' &&
+      (it.quantidade_local_dirty ||
+        String(it.lote ?? '').trim() !== '' ||
+        String(it.up_quantidade ?? '').trim() !== '')
     return {
       ...it,
-      quantidade_contada:
-        localQty !== '' && it.quantidade_local_dirty ? localQty : mergedQty,
-      up_quantidade: snap.up_adicional != null ? formatQtyFromNumber(snap.up_adicional) : '',
-      lote: snap.lote ?? '',
-      observacao: snap.observacao ?? '',
+      quantidade_contada: keepLocalMeta ? localQty : mergedQty,
+      up_quantidade: keepLocalMeta
+        ? (it.up_quantidade ?? '')
+        : snap.up_adicional != null
+          ? formatQtyFromNumber(snap.up_adicional)
+          : '',
+      lote: keepLocalMeta ? (it.lote ?? '') : (snap.lote ?? ''),
+      observacao: keepLocalMeta ? (it.observacao ?? '') : (snap.observacao ?? ''),
       data_fabricacao: snap.data_fabricacao != null ? toDateInputValue(snap.data_fabricacao) : it.data_fabricacao ?? '',
       data_validade: snap.data_validade != null ? toDateInputValue(snap.data_validade) : it.data_validade ?? '',
       ean: snap.ean != null ? snap.ean : it.ean ?? null,

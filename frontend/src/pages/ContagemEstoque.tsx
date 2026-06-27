@@ -305,11 +305,19 @@ function countPendingForSession(session: OfflineSession | null): number {
 }
 
 /** Resumo para o painel de presença: outros veem X/Y sem ver códigos (finalização continua separada por sessão). */
-function progressoPresencaContagemDiaria(session: OfflineSession): { linhasComQtd: number; linhasTotal: number } {
+function progressoPresencaContagemDiaria(
+  session: OfflineSession,
+  opts?: { armazemGrupoAtivo?: number | null },
+): { linhasComQtd: number; linhasTotal: number } {
   if (session.status !== 'aberta') return { linhasComQtd: 0, linhasTotal: 0 }
   if (isPlanilhaListMode(session.listMode)) {
-    const total = session.items.length
-    const com = session.items.filter((i) => String(i.quantidade_contada ?? '').trim() !== '').length
+    const grupo = opts?.armazemGrupoAtivo
+    const pool =
+      grupo != null && Number.isFinite(grupo)
+        ? session.items.filter((i) => i.armazem_grupo === grupo)
+        : session.items
+    const total = pool.length
+    const com = pool.filter((i) => String(i.quantidade_contada ?? '').trim() !== '').length
     return { linhasComQtd: com, linhasTotal: total }
   }
   const total = session.items.length
@@ -1192,13 +1200,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const tick = () => {
       const s = offlineSessionRef.current
       if (!s || s.status !== 'aberta') return
-      const prog = progressoPresencaContagemDiaria(s)
+      const tabGrupo = INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)] ?? null
+      const prog = progressoPresencaContagemDiaria(s, {
+        armazemGrupoAtivo: inventario && isPlanilhaListMode(s.listMode) ? tabGrupo : null,
+      })
       const contextoInventario =
         inventario && isPlanilhaListMode(s.listMode)
           ? {
-              camara: getCamaraFromGrupo(
-                INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)] ?? 1,
-              ),
+              camara: getCamaraFromGrupo(tabGrupo ?? 1),
               rua: String(inventarioPlanilhaRua ?? '').trim().toUpperCase() || null,
             }
           : {}
@@ -3000,6 +3009,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const itemBefore = offlineSessionRef.current?.items.find((i) => i.key === editKey)
     const hasLocalQty = String(itemBefore?.quantidade_contada ?? '').trim() !== ''
     if (isMetadataPatch && hasLocalQty) {
+      checklistContagemBancoDirtyKeysRef.current.add(editKey)
+    }
+    if (isMetadataPatch && inventario && isPlanilhaListMode(offlineSessionRef.current?.listMode)) {
       checklistContagemBancoDirtyKeysRef.current.add(editKey)
     }
     if ('quantidade_contada' in patch) {
@@ -5451,7 +5463,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           </strong>
           <span style={{ color: 'var(--text-muted, #aaa)', marginLeft: 8 }}>
             {inventario
-              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes por rodada · cada um finaliza separado)`
+              ? `(tempo real · ${INVENTARIO_CONFERENTES_META_RODADA} conferentes · 1 aba CAMARA/RUA por pessoa · cada um finaliza separado)`
               : '(checklist aberta · linhas já gravadas no banco · cada um finaliza separado)'}
           </span>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
