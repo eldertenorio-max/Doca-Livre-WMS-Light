@@ -46,11 +46,17 @@ export type PresencaRow = {
   atualizado_em: string
   linhas_com_qtd?: number | null
   linhas_total?: number | null
+  camara?: number | null
+  rua?: string | null
 }
 
 export type PresencaProgresso = {
   linhasComQtd: number
   linhasTotal: number
+  /** Inventário planilha: câmara da aba ativa no heartbeat. */
+  camara?: number | null
+  /** Inventário planilha: rua selecionada no heartbeat. */
+  rua?: string | null
 }
 
 function isMissingColumnError(e: unknown, columnSqlName: string): boolean {
@@ -96,7 +102,12 @@ export async function upsertContagemDiariaPresenca(
     progresso.linhasTotal >= 0 &&
     Number.isFinite(progresso.linhasComQtd) &&
     progresso.linhasComQtd >= 0
-  const payload =
+  const camaraVal =
+    progresso?.camara != null && Number.isFinite(Number(progresso.camara))
+      ? Math.floor(Number(progresso.camara))
+      : null
+  const ruaVal = progresso?.rua != null ? String(progresso.rua).trim().toUpperCase().slice(0, 8) : ''
+  const payloadBase =
     podeProgresso && progresso
       ? {
           ...base,
@@ -104,10 +115,24 @@ export async function upsertContagemDiariaPresenca(
           linhas_total: Math.floor(progresso.linhasTotal),
         }
       : base
+  const payload =
+    camaraVal != null || ruaVal
+      ? {
+          ...payloadBase,
+          ...(camaraVal != null ? { camara: camaraVal } : {}),
+          ...(ruaVal ? { rua: ruaVal } : {}),
+        }
+      : payloadBase
 
   try {
     let { error } = await supabase.from('contagem_diaria_presenca').upsert(payload, { onConflict: 'conferente_id,data_contagem' })
-    if (error && podeProgresso && (isMissingColumnError(error, 'linhas_com_qtd') || isMissingColumnError(error, 'linhas_total'))) {
+    if (
+      error &&
+      (isMissingColumnError(error, 'linhas_com_qtd') ||
+        isMissingColumnError(error, 'linhas_total') ||
+        isMissingColumnError(error, 'camara') ||
+        isMissingColumnError(error, 'rua'))
+    ) {
       const r2 = await supabase.from('contagem_diaria_presenca').upsert(base, { onConflict: 'conferente_id,data_contagem' })
       error = r2.error
     }
@@ -125,13 +150,28 @@ export async function fetchContagemDiariaPresencaDia(dataContagemYmd: string): P
     let data: unknown[] | null = null
     let res = await supabase
       .from('contagem_diaria_presenca')
-      .select('conferente_id,atualizado_em,linhas_com_qtd,linhas_total')
+      .select('conferente_id,atualizado_em,linhas_com_qtd,linhas_total,camara,rua')
       .eq('data_contagem', ymd)
-    if (res.error && (isMissingColumnError(res.error, 'linhas_com_qtd') || isMissingColumnError(res.error, 'linhas_total'))) {
+    if (
+      res.error &&
+      (isMissingColumnError(res.error, 'linhas_com_qtd') ||
+        isMissingColumnError(res.error, 'linhas_total') ||
+        isMissingColumnError(res.error, 'camara') ||
+        isMissingColumnError(res.error, 'rua'))
+    ) {
       res = await supabase
         .from('contagem_diaria_presenca')
-        .select('conferente_id,atualizado_em')
+        .select('conferente_id,atualizado_em,linhas_com_qtd,linhas_total')
         .eq('data_contagem', ymd)
+      if (
+        res.error &&
+        (isMissingColumnError(res.error, 'linhas_com_qtd') || isMissingColumnError(res.error, 'linhas_total'))
+      ) {
+        res = await supabase
+          .from('contagem_diaria_presenca')
+          .select('conferente_id,atualizado_em')
+          .eq('data_contagem', ymd)
+      }
     }
     const { error } = res
     data = res.data as unknown[] | null
@@ -146,6 +186,8 @@ export async function fetchContagemDiariaPresencaDia(dataContagemYmd: string): P
         atualizado_em?: string
         linhas_com_qtd?: number | null
         linhas_total?: number | null
+        camara?: number | null
+        rua?: string | null
       }
       const id = rec.conferente_id != null ? String(rec.conferente_id).trim() : ''
       const em = rec.atualizado_em != null ? String(rec.atualizado_em) : ''
@@ -155,6 +197,8 @@ export async function fetchContagemDiariaPresencaDia(dataContagemYmd: string): P
           atualizado_em: em,
           linhas_com_qtd: rec.linhas_com_qtd != null ? Number(rec.linhas_com_qtd) : null,
           linhas_total: rec.linhas_total != null ? Number(rec.linhas_total) : null,
+          camara: rec.camara != null && Number.isFinite(Number(rec.camara)) ? Number(rec.camara) : null,
+          rua: rec.rua != null ? String(rec.rua).trim() : null,
         })
       }
     }

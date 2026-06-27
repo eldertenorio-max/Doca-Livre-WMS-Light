@@ -308,9 +308,9 @@ function countPendingForSession(session: OfflineSession | null): number {
 function progressoPresencaContagemDiaria(session: OfflineSession): { linhasComQtd: number; linhasTotal: number } {
   if (session.status !== 'aberta') return { linhasComQtd: 0, linhasTotal: 0 }
   if (isPlanilhaListMode(session.listMode)) {
-    const items = session.items.filter((i) => String(i.codigo_interno ?? '').trim() !== '')
-    const com = items.filter((i) => String(i.quantidade_contada ?? '').trim() !== '').length
-    return { linhasComQtd: com, linhasTotal: items.length }
+    const total = session.items.length
+    const com = session.items.filter((i) => String(i.quantidade_contada ?? '').trim() !== '').length
+    return { linhasComQtd: com, linhasTotal: total }
   }
   const total = session.items.length
   const pend = countPendingItems(session.items)
@@ -684,6 +684,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       atualizado_em: string
       linhasComQtd?: number | null
       linhasTotal?: number | null
+      camara?: number | null
+      rua?: string | null
       linhasGravadas: number
       ultimaGravacao: string | null
       checklistAtiva: boolean
@@ -1068,6 +1070,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
               pres?.linhas_total != null && Number.isFinite(Number(pres.linhas_total))
                 ? Number(pres.linhas_total)
                 : null,
+            camara:
+              pres?.camara != null && Number.isFinite(Number(pres.camara)) ? Number(pres.camara) : null,
+            rua: pres?.rua != null && String(pres.rua).trim() !== '' ? String(pres.rua).trim().toUpperCase() : null,
             linhasGravadas,
             ultimaGravacao,
             checklistAtiva,
@@ -1188,12 +1193,30 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       const s = offlineSessionRef.current
       if (!s || s.status !== 'aberta') return
       const prog = progressoPresencaContagemDiaria(s)
-      void upsertContagemDiariaPresenca(cid, ymd, prog)
+      const contextoInventario =
+        inventario && isPlanilhaListMode(s.listMode)
+          ? {
+              camara: getCamaraFromGrupo(
+                INVENTARIO_ARMAZEM_GRUPO_IDS[Math.max(0, checklistPage - 1)] ?? 1,
+              ),
+              rua: String(inventarioPlanilhaRua ?? '').trim().toUpperCase() || null,
+            }
+          : {}
+      void upsertContagemDiariaPresenca(cid, ymd, { ...prog, ...contextoInventario })
     }
     tick()
     const id = window.setInterval(tick, PRESENCA_PING_INTERVAL_MS)
     return () => window.clearInterval(id)
-  }, [inventario, offlineSession?.status, offlineSession?.sessionId, offlineSession?.conferente_id, offlineSession?.data_contagem_ymd])
+  }, [
+    inventario,
+    checklistPage,
+    inventarioPlanilhaRua,
+    offlineSession?.status,
+    offlineSession?.sessionId,
+    offlineSession?.conferente_id,
+    offlineSession?.data_contagem_ymd,
+    offlineSession?.listMode,
+  ])
 
   useEffect(() => {
     setPlanilhaTabelaPage(1)
@@ -5413,15 +5436,28 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
                 ) : (
                   ''
                 )}
+                {inventario && p.camara != null ? (
+                  <>
+                    {' · '}
+                    <span style={{ opacity: 0.95 }}>Câmara {p.camara}</span>
+                  </>
+                ) : null}
+                {inventario && p.rua ? (
+                  <>
+                    {' · '}
+                    <span style={{ opacity: 0.95 }}>Rua {p.rua}</span>
+                  </>
+                ) : null}
                 {p.checklistAtiva &&
-                p.linhasTotal != null &&
-                p.linhasTotal > 0 &&
                 p.linhasComQtd != null &&
-                Number.isFinite(p.linhasComQtd) ? (
+                Number.isFinite(p.linhasComQtd) &&
+                (inventario || (p.linhasTotal != null && p.linhasTotal > 0)) ? (
                   <>
                     {' · '}
                     <span style={{ opacity: 0.95 }}>
-                      {p.linhasComQtd}/{p.linhasTotal} na checklist
+                      {p.linhasTotal != null && p.linhasTotal > 0
+                        ? `${p.linhasComQtd}/${p.linhasTotal} ${inventario ? 'preenchidas' : 'na checklist'}`
+                        : `${p.linhasComQtd} preenchida(s)`}
                     </span>
                   </>
                 ) : null}
