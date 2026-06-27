@@ -2697,26 +2697,28 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   async function flushPersistContagemDiariaRascunho(itemKey: string) {
     if (finalizing) return
-    const s = offlineSessionRef.current
-    if (!s || s.status !== 'aberta') return
-    const draftId = s.contagem_diaria_rascunho_sessao_id
+    const readItem = () => offlineSessionRef.current?.items.find((i) => i.key === itemKey)
+    const s0 = offlineSessionRef.current
+    if (!s0 || s0.status !== 'aberta') return
+    const draftId = s0.contagem_diaria_rascunho_sessao_id
     if (!draftId || !isUuid(draftId)) return
-    const cid = String(s.conferente_id ?? '').trim()
+    const cid = String(s0.conferente_id ?? '').trim()
     if (!cid) return
-    const ymd = s.data_contagem_ymd
+    const ymd = s0.data_contagem_ymd
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return
-    const it = s.items.find((i) => i.key === itemKey)
+    let it = readItem()
     if (!it) return
     const codRaw = String(it.codigo_interno ?? '').trim()
     if (!codRaw) return
     const catalog = lookupProductOptionByCodigo(codRaw, productByCodeRef.current, productByCodeNoDotsRef.current)
     const codigoDb = String(catalog?.codigo ?? it.codigo_interno).trim()
-    const qStr = String(it.quantidade_contada ?? '').trim()
-    const rodadaInv = clampInventarioNumeroContagem(s.inventario_numero_contagem ?? 1)
+    const rodadaInv = clampInventarioNumeroContagem(s0.inventario_numero_contagem ?? 1)
     const usaChavePlanilha =
       inventario && it.armazem_grupo != null && it.planilha_ordem_na_aba != null
 
     const delLinha = async () => {
+      const snap = readItem()
+      if (!snap) return
       if (usaChavePlanilha) {
         const { error } = await supabase
           .from(tContagens)
@@ -2724,8 +2726,8 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           .eq('data_contagem', ymd)
           .eq('conferente_id', cid)
           .eq('finalizacao_sessao_id', draftId)
-          .eq('planilha_grupo_armazem', it.armazem_grupo!)
-          .eq('planilha_ordem_na_aba', it.planilha_ordem_na_aba!)
+          .eq('planilha_grupo_armazem', snap.armazem_grupo!)
+          .eq('planilha_ordem_na_aba', snap.planilha_ordem_na_aba!)
         if (!error) return
         if (isMissingDbColumnError(error, 'planilha_grupo_armazem') || isMissingDbColumnError(error, 'planilha_ordem_na_aba')) {
           /* fallback por código abaixo */
@@ -2755,11 +2757,23 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       if (import.meta.env.DEV) console.warn('[contagem rascunho] delete qty vazia', error)
     }
 
+    it = readItem()
+    if (!it) return
+    let qStr = String(it.quantidade_contada ?? '').trim()
     if (qStr === '') {
       await delLinha()
+      it = readItem()
+      qStr = String(it?.quantidade_contada ?? '').trim()
+      if (qStr !== '') return
       checklistContagemBancoDirtyKeysRef.current.delete(itemKey)
       return
     }
+    const s = offlineSessionRef.current
+    if (!s || s.status !== 'aberta') return
+    it = readItem()
+    if (!it) return
+    qStr = String(it.quantidade_contada ?? '').trim()
+    if (qStr === '') return
     const q = Number(qStr.replace(',', '.'))
     if (!Number.isFinite(q) || q < 0) return
     const dfRaw = String(it.data_fabricacao ?? '').trim()
@@ -2973,6 +2987,21 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const { editKey, redirected } = opts?.skipPlanilhaRedirect
       ? { editKey: key, redirected: false }
       : resolvePlanilhaEditKey(key)
+    const metadataPersistKeys: (keyof OfflineChecklistItem)[] = [
+      'up_quantidade',
+      'lote',
+      'observacao',
+      'data_fabricacao',
+      'data_validade',
+      'ean',
+      'dun',
+    ]
+    const isMetadataPatch = metadataPersistKeys.some((k) => k in patch)
+    const itemBefore = offlineSessionRef.current?.items.find((i) => i.key === editKey)
+    const hasLocalQty = String(itemBefore?.quantidade_contada ?? '').trim() !== ''
+    if (isMetadataPatch && hasLocalQty) {
+      checklistContagemBancoDirtyKeysRef.current.add(editKey)
+    }
     if ('quantidade_contada' in patch) {
       const trimmed = String(patch.quantidade_contada ?? '').trim()
       if (trimmed === '') checklistContagemBancoDirtyKeysRef.current.delete(editKey)
@@ -2987,9 +3016,14 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
         ...prev,
         items: prev.items.map((it) => {
           if (it.key === editKey) {
-            return nextQtyDirty === undefined
-              ? { ...it, ...patch }
-              : { ...it, ...patch, quantidade_local_dirty: nextQtyDirty }
+            if (nextQtyDirty !== undefined) {
+              return { ...it, ...patch, quantidade_local_dirty: nextQtyDirty }
+            }
+            const keepQtyDirty =
+              isMetadataPatch && String(it.quantidade_contada ?? '').trim() !== ''
+                ? true
+                : it.quantidade_local_dirty
+            return { ...it, ...patch, ...(keepQtyDirty ? { quantidade_local_dirty: true } : {}) }
           }
           if (redirected && it.key === key) {
             return { ...it, ...planilhaLinhaVaziaPatch }
@@ -3011,17 +3045,11 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       schedulePendentesGrace(editKey, String(patch.quantidade_contada ?? ''))
     }
     flashChecklistRowSaved(editKey)
-    const syncKeys: (keyof OfflineChecklistItem)[] = [
-      'quantidade_contada',
-      'up_quantidade',
-      'lote',
-      'observacao',
-      'data_fabricacao',
-      'data_validade',
-      'ean',
-      'dun',
-    ]
-    if (syncKeys.some((k) => k in patch)) scheduleContagemDiariaRascunhoPersist(editKey)
+    const syncKeys: (keyof OfflineChecklistItem)[] = ['quantidade_contada', ...metadataPersistKeys]
+    const deferPersistForEditMode = checklistEditingKey === editKey && !('quantidade_contada' in patch)
+    if (syncKeys.some((k) => k in patch) && !deferPersistForEditMode) {
+      scheduleContagemDiariaRascunhoPersist(editKey)
+    }
   }
 
   function handleToggleChecklistCollapse() {

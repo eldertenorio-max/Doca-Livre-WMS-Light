@@ -242,9 +242,12 @@ export async function mergeInventarioDoDiaParaItems(
     }
 
     preenchidos += 1
+    const localQty = String(it.quantidade_contada ?? '').trim()
+    const mergedQty = formatQtyFromNumber(snap.quantidade_up)
     return {
       ...it,
-      quantidade_contada: formatQtyFromNumber(snap.quantidade_up),
+      quantidade_contada:
+        localQty !== '' && it.quantidade_local_dirty ? localQty : mergedQty,
       up_quantidade: snap.up_adicional != null ? formatQtyFromNumber(snap.up_adicional) : '',
       lote: snap.lote ?? '',
       observacao: snap.observacao ?? '',
