@@ -56,7 +56,7 @@ export type InventarioPlanilhaTabelaProps = {
   conferenteLabel: string
   /** Rodada selecionada (1–4): exibida na coluna de contagem (somente leitura). */
   inventarioNumeroContagemRodada: 1 | 2 | 3 | 4
-  /** Endereço ativo no seletor (RUA/POS/NÍVEL/repetição): só essa linha aceita edição. */
+  /** Endereço ativo no seletor (RUA/POS/NÍVEL/repetição): destaca a linha correspondente. */
   planilhaEnderecoAtivo?: {
     grupo: number
     pos: number
@@ -165,9 +165,9 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
       <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 1740 }}>
         <thead>
           <tr>
-            <th style={thPlanilha}>RUA</th>
-            <th style={thPlanilha}>POS</th>
-            <th style={thPlanilha}>NIVEL</th>
+            <th style={thPlanilha}>Rua</th>
+            <th style={thPlanilha}>Pos.</th>
+            <th style={thPlanilha}>Nível</th>
             {planilhaModoEndereco ? <th style={thPlanilha}>LINHA</th> : null}
             {showChecklistColumn('conferente') ? <th style={thPlanilha}>Conferente</th> : null}
             <th style={thPlanilha}>CÓDIGO</th>
@@ -210,7 +210,7 @@ export function InventarioPlanilhaTabela(props: InventarioPlanilhaTabelaProps) {
                 planilhaEnderecoAtivo.nivel,
                 planilhaEnderecoAtivo.repeticao,
               )
-            const edicaoPlanilha = !planilhaModoEndereco || isLinhaAtiva
+            const edicaoPlanilha = true
             const datasOrdemInvalida = isDatasProdutoContagemInvalidas(it.data_fabricacao, it.data_validade)
             const trHighlight =
               isLinhaAtiva && planilhaModoEndereco

@@ -3159,13 +3159,9 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     return !!(inventario && s && s.status === 'aberta' && isPlanilhaListMode(s.listMode))
   }
 
-  /** Gravações na planilha vão para a linha do seletor (desktop); no mobile edita-se direto na lista. */
+  /** Gravações na planilha vão sempre para a linha editada (lista desktop e mobile). */
   function resolvePlanilhaEditKey(key: string): { editKey: string; redirected: boolean } {
-    if (!isPlanilhaModoAtivo()) return { editKey: key, redirected: false }
-    if (isMobile) return { editKey: key, redirected: false }
-    const target = getPlanilhaTargetFromEndereco()
-    if (!target) return { editKey: key, redirected: false }
-    return { editKey: target.key, redirected: target.key !== key }
+    return { editKey: key, redirected: false }
   }
 
   const planilhaLinhaVaziaPatch: Partial<OfflineChecklistItem> = {
@@ -3216,57 +3212,21 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
       aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
-    if (isMobile) {
-      if (!c) {
-        aplicarCatalogoPorCodigoPlanilha(key, codigo)
-        return
-      }
-      if (shouldSkipPlanilhaBipBurst(c)) return
-      const s = offlineSessionRef.current
-      const item = s?.items.find((it) => it.key === key)
-      aplicarCatalogoPorCodigoPlanilha(key, c)
-      if (item) {
-        const rep = inventarioPlanilhaRepeticaoFromItem(item)
-        if (rep != null) {
-          updateOfflineItemFields(key, { inventario_repeticao: rep }, { skipPlanilhaRedirect: true })
-        }
-        clearPlanilhaDuplicatasIrmas(item, c)
-      }
-      setProdutoError('')
-      return
-    }
-    const target = getPlanilhaTargetFromEndereco()
-    if (!target) {
-      setProdutoError('Selecione RUA, POS, NÍVEL e linha (1ª–3ª) no seletor acima.')
-      if (c) clearPlanilhaLinhaCamposProduto(key)
-      return
-    }
     if (!c) {
-      if (key === target.key) aplicarCatalogoPorCodigoPlanilha(key, codigo)
-      else clearPlanilhaLinhaCamposProduto(key)
-      return
-    }
-    if (
-      planilhaLinhaTotalmentePreenchida(target) &&
-      !codigoInternoIguais(target.codigo_interno, c)
-    ) {
-      setProdutoError(
-        'A linha selecionada (RUA/POS/NÍVEL/repetição) já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).',
-      )
-      if (key !== target.key) clearPlanilhaLinhaCamposProduto(key)
+      aplicarCatalogoPorCodigoPlanilha(key, codigo)
       return
     }
     if (shouldSkipPlanilhaBipBurst(c)) return
-    if (key !== target.key) clearPlanilhaLinhaCamposProduto(key)
-    aplicarCatalogoPorCodigoPlanilha(target.key, c)
-    updateOfflineItemFields(
-      target.key,
-      { inventario_repeticao: inventarioPlanilhaRepeticao },
-      { skipPlanilhaRedirect: true },
-    )
-    clearPlanilhaDuplicatasIrmas(target, c)
-    lastPlanilhaBipKeyRef.current = target.key
-    markPlanilhaBipBurstFilled(c)
+    const s = offlineSessionRef.current
+    const item = s?.items.find((it) => it.key === key)
+    aplicarCatalogoPorCodigoPlanilha(key, c)
+    if (item) {
+      const rep = inventarioPlanilhaRepeticaoFromItem(item)
+      if (rep != null) {
+        updateOfflineItemFields(key, { inventario_repeticao: rep }, { skipPlanilhaRedirect: true })
+      }
+      clearPlanilhaDuplicatasIrmas(item, c)
+    }
     setProdutoError('')
   }
 
@@ -3345,29 +3305,21 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
     const codigo = found.product.codigo
     if (shouldSkipPlanilhaBipBurst(codigo)) return
 
-    const target = getPlanilhaTargetFromEndereco()
-    if (!target) {
-      setProdutoError('Selecione RUA, POS, NÍVEL e repetição (1ª–3ª) antes de bipar.')
-      return
-    }
+    const target = s.items.find((it) => it.key === rowKey)
+    if (!target) return
     if (
       planilhaLinhaTotalmentePreenchida(target) &&
       !codigoInternoIguais(target.codigo_interno, codigo)
     ) {
-      setProdutoError(
-        'A linha selecionada (RUA/POS/NÍVEL/repetição) já está preenchida. Escolha outra repetição (1ª, 2ª ou 3ª).',
-      )
+      setProdutoError('Esta linha já está preenchida com outro produto.')
       return
     }
 
-    if (target.key !== rowKey) clearPlanilhaLinhaCamposProduto(rowKey)
-
     aplicarCatalogoPorCodigoPlanilha(target.key, codigo)
-    updateOfflineItemFields(
-      target.key,
-      { inventario_repeticao: inventarioPlanilhaRepeticao },
-      { skipPlanilhaRedirect: true },
-    )
+    const rep = inventarioPlanilhaRepeticaoFromItem(target)
+    if (rep != null) {
+      updateOfflineItemFields(target.key, { inventario_repeticao: rep }, { skipPlanilhaRedirect: true })
+    }
     clearPlanilhaDuplicatasIrmas(target, codigo)
     lastPlanilhaBipKeyRef.current = target.key
     markPlanilhaBipBurstFilled(codigo)
