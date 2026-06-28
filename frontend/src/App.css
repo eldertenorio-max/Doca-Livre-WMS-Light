@@ -638,6 +638,66 @@
   color: var(--text, #94a3b8);
 }
 
+.page-panel__section-title {
+  margin: 28px 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h, #e5e7eb);
+}
+
+.endereco-lote-panel {
+  margin-bottom: 8px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  background: rgba(167, 139, 250, 0.08);
+}
+
+.endereco-lote-panel__toggle {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: #c4b5fd;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 0 12px;
+}
+
+.endereco-lote-form {
+  padding-top: 4px;
+}
+
+.endereco-lote-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.endereco-lote-check input {
+  width: auto;
+}
+
+.endereco-lote-preview {
+  font-size: 13px;
+  color: var(--text, #cbd5e1);
+  padding: 8px 0;
+}
+
+.endereco-lote-preview__ex {
+  color: var(--text, #94a3b8);
+  font-weight: 400;
+}
+
+.endereco-lote-msg {
+  margin: 0;
+  font-size: 13px;
+  color: #86efac;
+}
+
 .page-alert {
   padding: 10px 14px;
   border-radius: 8px;

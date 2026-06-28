@@ -83,3 +83,102 @@ export function saveEndereco(
 export function deleteEndereco(id: string) {
   writeAll(readAll().filter((r) => r.id !== id))
 }
+
+/** Código legível para bipagem: ex. 11-A-05-03 (câmara, rua, posição, nível). */
+export function buildCodigoEndereco(
+  camara: number,
+  rua: string,
+  posicao: number,
+  nivel: number,
+): string {
+  const r = String(rua ?? '').trim().toUpperCase()
+  const pos = Math.max(1, Math.round(posicao))
+  const niv = Math.max(1, Math.round(nivel))
+  return `${camara}-${r}-${String(pos).padStart(2, '0')}-${niv}`
+}
+
+export type EnderecoLoteInput = {
+  camara: number
+  rua: string
+  nivelDe: number
+  nivelAte: number
+  posicaoDe: number
+  posicaoAte: number
+  observacao?: string
+  /** true = atualiza código já existente com mesmo texto */
+  substituirExistentes?: boolean
+}
+
+export type EnderecoLoteResultado = {
+  criados: number
+  atualizados: number
+  ignorados: number
+  total: number
+}
+
+/** Gera lista de endereços (sem gravar) para prévia. */
+export function planejarEnderecosEmLote(input: EnderecoLoteInput): Omit<EnderecoCadastro, 'id' | 'createdAt'>[] {
+  const camara = Math.round(input.camara)
+  const rua = String(input.rua ?? '').trim().toUpperCase()
+  const nDe = Math.min(input.nivelDe, input.nivelAte)
+  const nAte = Math.max(input.nivelDe, input.nivelAte)
+  const pDe = Math.min(input.posicaoDe, input.posicaoAte)
+  const pAte = Math.max(input.posicaoDe, input.posicaoAte)
+  const obs = String(input.observacao ?? '').trim()
+  const out: Omit<EnderecoCadastro, 'id' | 'createdAt'>[] = []
+
+  for (let nivel = nDe; nivel <= nAte; nivel++) {
+    for (let pos = pDe; pos <= pAte; pos++) {
+      out.push({
+        codigo: buildCodigoEndereco(camara, rua, pos, nivel),
+        camara,
+        rua,
+        posicao: pos,
+        nivel,
+        observacao: obs,
+        ativo: true,
+      })
+    }
+  }
+  return out
+}
+
+export function saveEnderecosEmLote(input: EnderecoLoteInput): EnderecoLoteResultado {
+  const planejados = planejarEnderecosEmLote(input)
+  const all = readAll()
+  const byCodigo = new Map(all.map((r) => [r.codigo.trim().toUpperCase(), r]))
+  const now = new Date().toISOString()
+  let criados = 0
+  let atualizados = 0
+  let ignorados = 0
+
+  for (const p of planejados) {
+    const key = p.codigo.trim().toUpperCase()
+    const existente = byCodigo.get(key)
+    if (existente) {
+      if (input.substituirExistentes) {
+        existente.camara = p.camara
+        existente.rua = p.rua
+        existente.posicao = p.posicao
+        existente.nivel = p.nivel
+        existente.observacao = p.observacao
+        existente.ativo = true
+        atualizados++
+      } else {
+        ignorados++
+      }
+      continue
+    }
+    const row: EnderecoCadastro = {
+      id: crypto.randomUUID(),
+      ...p,
+      createdAt: now,
+    }
+    all.push(row)
+    byCodigo.set(key, row)
+    criados++
+  }
+
+  writeAll(all)
+  return { criados, atualizados, ignorados, total: planejados.length }
+}
