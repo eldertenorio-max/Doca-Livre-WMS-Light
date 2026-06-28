@@ -223,102 +223,166 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
         {msg ? <div className="inventario-captura__alert inventario-captura__alert--ok">{msg}</div> : null}
 
         <div className="inventario-captura__field">
-          <label>Endereço</label>
+          <label htmlFor="inv-endereco">Endereço</label>
           <div className="inventario-captura__input-row">
             <input
+              id="inv-endereco"
               ref={enderecoRef}
               value={endereco}
               onChange={(e) => setEndereco(e.target.value)}
               onBlur={handleEnderecoBlur}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  barcodeRef.current?.focus()
+                }
+              }}
               disabled={readonly}
               autoComplete="off"
+              placeholder="ex.: 21-A-03-02"
             />
-            <button type="button" className="inventario-captura__icon-btn" title="Foco leitura" disabled={readonly}>
-              🔦
-            </button>
             <button
               type="button"
-              className="inventario-captura__icon-btn"
-              title="Leitor código"
+              className="inventario-captura__action-btn"
               disabled={readonly}
               onClick={() => enderecoRef.current?.focus()}
             >
-              ▤
+              Focar
             </button>
           </div>
         </div>
 
         <div className="inventario-captura__field">
-          <label>Código de barras</label>
+          <label htmlFor="inv-barcode">Código de barras</label>
           <div className="inventario-captura__input-row">
             <input
+              id="inv-barcode"
               ref={barcodeRef}
               value={codigoBarras}
               onChange={(e) => void handleBarcodeChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  ;(document.getElementById('inv-quantidade') as HTMLInputElement | null)?.focus()
+                }
+              }}
               disabled={readonly}
               autoComplete="off"
+              placeholder="ex.: 7891234567890"
+              inputMode="numeric"
             />
-            <button type="button" className="inventario-captura__icon-btn" disabled={readonly}>
-              🔦
-            </button>
-            <button type="button" className="inventario-captura__icon-btn" disabled={readonly} onClick={() => barcodeRef.current?.focus()}>
-              ▤
+            <button
+              type="button"
+              className="inventario-captura__action-btn"
+              disabled={readonly}
+              onClick={() => barcodeRef.current?.focus()}
+            >
+              Focar
             </button>
           </div>
         </div>
 
         <div className="inventario-captura__row-2">
           <div className="inventario-captura__field">
-            <label>Quantidade</label>
+            <label htmlFor="inv-quantidade">Quantidade</label>
             <input
+              id="inv-quantidade"
               value={quantidade}
               onChange={(e) => setQuantidade(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleSalvar()
+                }
+              }}
               disabled={readonly}
               inputMode="decimal"
+              placeholder="ex.: 12"
             />
           </div>
           <div className="inventario-captura__field">
-            <label>Unidade</label>
-            <input value={unidade} readOnly className="inventario-captura__readonly" />
+            <label htmlFor="inv-unidade">Unidade</label>
+            <input
+              id="inv-unidade"
+              value={unidade}
+              readOnly
+              className="inventario-captura__readonly"
+              placeholder="PT, CX…"
+            />
           </div>
         </div>
 
         <div className="inventario-captura__row-2">
           <div className="inventario-captura__field inventario-captura__field--short">
-            <label>Lote</label>
-            <input value={lote} onChange={(e) => setLote(e.target.value)} disabled={readonly} />
+            <label htmlFor="inv-lote">Lote</label>
+            <input
+              id="inv-lote"
+              value={lote}
+              onChange={(e) => setLote(e.target.value)}
+              disabled={readonly}
+              placeholder="ex.: L240628"
+              autoComplete="off"
+            />
           </div>
           <div className="inventario-captura__field inventario-captura__field--long">
-            <label>Validade</label>
+            <label htmlFor="inv-validade">Validade</label>
             <div className="inventario-captura__input-row">
               <input
+                id="inv-validade"
                 type="date"
                 value={validade}
                 onChange={(e) => setValidade(e.target.value)}
                 disabled={readonly}
+                title="dd/mm/aaaa"
               />
-              <span className="inventario-captura__cal-icon" aria-hidden>
+              <button
+                type="button"
+                className="inventario-captura__action-btn inventario-captura__action-btn--icon"
+                disabled={readonly}
+                title="Abrir calendário"
+                aria-label="Abrir calendário"
+                onClick={() => {
+                  const el = document.getElementById('inv-validade') as HTMLInputElement | null
+                  el?.focus()
+                  try {
+                    el?.showPicker?.()
+                  } catch {
+                    /* showPicker indisponível */
+                  }
+                }}
+              >
                 📅
-              </span>
+              </button>
             </div>
           </div>
         </div>
 
         <div className="inventario-captura__field">
-          <label>Produto</label>
-          <input value={produtoLabel} readOnly className="inventario-captura__readonly" />
+          <label htmlFor="inv-produto">Produto</label>
+          <input
+            id="inv-produto"
+            value={produtoLabel}
+            readOnly
+            className="inventario-captura__readonly"
+            placeholder="Bipe o código para preencher automaticamente"
+          />
         </div>
 
         <div className="inventario-captura__footer">
-          <input readOnly value={codigoInterno ? `SKU ${codigoInterno}` : '—'} className="inventario-captura__readonly" />
+          <input
+            readOnly
+            value={codigoInterno ? `SKU ${codigoInterno}` : ''}
+            placeholder="ex.: SKU 01.01.0001"
+            className="inventario-captura__readonly inventario-captura__sku"
+            aria-label="Código interno do produto"
+          />
           <button
             type="button"
             className="inventario-captura__save"
             onClick={handleSalvar}
             disabled={readonly}
-            title="Salvar linha"
           >
-            💾
+            Salvar linha
           </button>
         </div>
       </div>

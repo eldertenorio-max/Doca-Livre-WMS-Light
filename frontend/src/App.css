@@ -1423,12 +1423,18 @@
 .inventario-captura__field input {
   flex: 1;
   min-width: 0;
+  min-height: 44px;
   padding: 10px 10px;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.92);
   color: #1a1a1a;
   font-size: 14px;
+}
+
+.inventario-captura__field input::placeholder {
+  color: #6b7280;
+  opacity: 1;
 }
 
 .inventario-captura__readonly {
@@ -1436,14 +1442,39 @@
   color: #333 !important;
 }
 
-.inventario-captura__icon-btn {
-  width: 40px;
+.inventario-captura__readonly::placeholder {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.inventario-captura__action-btn {
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.2);
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
-  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.inventario-captura__action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.inventario-captura__action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.inventario-captura__action-btn--icon {
+  min-width: 44px;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .inventario-captura__row-2 {
@@ -1465,37 +1496,45 @@
   flex: 0.65;
 }
 
-.inventario-captura__cal-icon {
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
-}
-
 .inventario-captura__footer {
   display: flex;
-  gap: 6px;
-  margin: 4px 10px 0;
-  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 10px 0;
 }
 
-.inventario-captura__footer input {
-  flex: 1;
+.inventario-captura__sku {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
   padding: 10px;
-  border-radius: 2px;
+  border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   font-size: 13px;
 }
 
 .inventario-captura__save {
-  width: 48px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.25);
-  font-size: 20px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+}
+
+.inventario-captura__save:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.inventario-captura__save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
 }
 
 @media (max-width: 640px) {
