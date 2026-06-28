@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { usernameFromSession } from '../../lib/authUser'
 
 const EMPRESA_PADRAO = 'Ultrapao Alimentos'
 const CNPJ_PADRAO = '47.380.171/0001-59'
@@ -13,16 +14,6 @@ type Props = {
   theme: Theme
   onThemeToggle: () => void
   onSignOut?: () => void
-}
-
-function usernameFromSession(session: Session | null | undefined): string {
-  if (!session?.user) return 'usuário'
-  const meta = session.user.user_metadata as Record<string, unknown> | undefined
-  const fromMeta = meta?.username ?? meta?.nome ?? meta?.name
-  if (typeof fromMeta === 'string' && fromMeta.trim()) return fromMeta.trim()
-  const email = session.user.email ?? ''
-  const local = email.split('@')[0]?.trim()
-  return local || 'usuário'
 }
 
 function IconBell() {

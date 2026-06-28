@@ -227,7 +227,7 @@ export default function App() {
       ) : null}
       {view === 'contagem' ? (
         <PanelErrorBoundary>
-          <ContagemGerenciar onAbrirContagem={abrirContagem} />
+          <ContagemGerenciar onAbrirContagem={abrirContagem} session={session} />
         </PanelErrorBoundary>
       ) : null}
       {view === 'contagemCaptura' && capturaContagemId ? (

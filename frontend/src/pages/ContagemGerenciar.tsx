@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
+import { usernameFromSession } from '../lib/authUser'
 import {
   atualizarContagemDiariaMeta,
   criarContagemDiaria,
@@ -11,9 +13,16 @@ import {
 
 type Props = {
   onAbrirContagem: (contagemId: string) => void
+  session?: Session | null
 }
 
 type ListaTab = 'todos' | 'abertos' | 'finalizados'
+
+const SUGESTOES_NOME_CONTAGEM = [
+  'Contagem Turno da Manhã',
+  'Contagem Turno da Tarde',
+  'Contagem Turno da Noite',
+] as const
 
 function formatData(iso: string | null) {
   if (!iso) return '—'
@@ -34,7 +43,8 @@ function todayYmdLocal(): string {
   return `${y}-${mo}-${da}`
 }
 
-export default function ContagemGerenciar({ onAbrirContagem }: Props) {
+export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
+  const conferenteLogado = usernameFromSession(session)
   const [rows, setRows] = useState<ContagemDiariaSessao[]>(() => listContagensDiarias())
   const [listaTab, setListaTab] = useState<ListaTab>('todos')
   const [criarOpen, setCriarOpen] = useState(false)
@@ -72,7 +82,12 @@ export default function ContagemGerenciar({ onAbrirContagem }: Props) {
       alert('Informe o nome da contagem.')
       return
     }
-    criarContagemDiaria({ titulo, local: criarLocal, dataContagem: criarData })
+    criarContagemDiaria({
+      titulo,
+      local: criarLocal,
+      dataContagem: criarData,
+      conferenteNome: conferenteLogado,
+    })
     setCriarOpen(false)
     setListaTab('abertos')
     refresh()
@@ -304,14 +319,24 @@ export default function ContagemGerenciar({ onAbrirContagem }: Props) {
               <label className="page-form-grid__full">
                 Nome da contagem *
                 <input
+                  list="contagem-nome-sugestoes"
                   value={criarTitulo}
                   onChange={(e) => setCriarTitulo(e.target.value)}
-                  placeholder="ex.: Contagem câmara 21 — turno manhã"
+                  placeholder="Selecione na lista ou digite o nome"
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleCriar()
                   }}
                 />
+                <datalist id="contagem-nome-sugestoes">
+                  {SUGESTOES_NOME_CONTAGEM.map((nome) => (
+                    <option key={nome} value={nome} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="page-form-grid__full">
+                Conferente
+                <input value={conferenteLogado} readOnly aria-readonly="true" />
               </label>
               <label className="page-form-grid__full">
                 Local / unidade

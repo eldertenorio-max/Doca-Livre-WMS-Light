@@ -5,6 +5,8 @@ export type ContagemDiariaSessao = {
   local: string
   /** Dia civil da contagem (YYYY-MM-DD). */
   dataContagem: string
+  /** Nome do conferente (usuário logado na criação). */
+  conferenteNome?: string
   dataInicio: string
   dataFim: string | null
   status: 'aberto' | 'fechado'
@@ -56,6 +58,7 @@ export function criarContagemDiaria(opts?: {
   titulo?: string
   local?: string
   dataContagem?: string
+  conferenteNome?: string
 }): ContagemDiariaSessao {
   const all = readAll()
   const numero = nextNumero()
@@ -67,6 +70,7 @@ export function criarContagemDiaria(opts?: {
     titulo: opts?.titulo?.trim() || `Contagem diária #${numero}`,
     local: opts?.local?.trim() || 'ULTRAPAO GUARULHOS DISTRI',
     dataContagem,
+    conferenteNome: opts?.conferenteNome?.trim() || undefined,
     dataInicio: now,
     dataFim: null,
     status: 'aberto',

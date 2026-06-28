@@ -1464,6 +1464,43 @@ export default function ContagemEstoque({
     })()
   }, [])
 
+  useEffect(() => {
+    if (inventario || conferentesLoading || conferenteId) return
+    const alvo = contagemSessaoMeta?.conferenteNome?.trim()
+    if (!alvo) return
+
+    const hit = conferentes.find((c) => c.nome.trim().toLowerCase() === alvo.toLowerCase())
+    if (hit) {
+      setConferenteId(hit.id)
+      return
+    }
+
+    if (!isAppOnline()) return
+
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await supabase.from('conferentes').insert({ nome: alvo }).select('id,nome').maybeSingle()
+      if (cancelled || error || !data?.id) return
+      const novo = data as Conferente
+      setConferentes((prev) => {
+        const next = [...prev, novo].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+        saveConferentesCache(next)
+        return next
+      })
+      setConferenteId(novo.id)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    inventario,
+    conferentesLoading,
+    conferenteId,
+    contagemSessaoMeta?.conferenteNome,
+    conferentes,
+  ])
+
   const loadProductOptions = useCallback(async (): Promise<ProductOption[]> => {
     setProductOptionsLoading(true)
     setProdutoError('')
