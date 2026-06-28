@@ -1470,14 +1470,13 @@
 
 /* ——— Tela captura inventário (coletor) ——— */
 .inventario-captura-wrap {
-  display: flex;
-  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 0 24px;
 }
 
 .inventario-captura {
   width: 100%;
-  max-width: 420px;
   background: linear-gradient(180deg, #1a4a4a 0%, #143838 100%);
   border-radius: 4px;
   padding: 0 0 12px;
@@ -1761,6 +1760,89 @@
   opacity: 0.45;
   cursor: not-allowed;
   filter: none;
+}
+
+@media (min-width: 768px) {
+  .inventario-captura-wrap {
+    padding: 16px 0 32px;
+  }
+
+  .inventario-captura {
+    max-width: min(960px, 100%);
+    margin: 0 auto;
+    border-radius: 12px;
+    padding-bottom: 20px;
+  }
+
+  .inventario-captura__header {
+    padding: 18px 24px;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .inventario-captura__title {
+    font-size: 20px;
+    text-align: left;
+    padding-right: 0;
+  }
+
+  .inventario-captura__info {
+    margin: 16px 24px;
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 32px;
+  }
+
+  .inventario-captura__alert {
+    margin: 0 24px 12px;
+  }
+
+  .inventario-captura__form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 20px;
+    padding: 0 24px;
+  }
+
+  .inventario-captura__field--full,
+  .inventario-captura__row-2 {
+    grid-column: 1 / -1;
+  }
+
+  .inventario-captura__form .inventario-captura__field {
+    margin: 0;
+  }
+
+  .inventario-captura__row-2 {
+    margin: 0;
+  }
+
+  .inventario-captura__field label {
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .inventario-captura__sugestoes {
+    max-height: 280px;
+  }
+
+  .inventario-captura__footer {
+    margin: 20px 24px 0;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .inventario-captura__sku {
+    flex: 1;
+    min-height: 48px;
+  }
+
+  .inventario-captura__save {
+    width: auto;
+    min-width: 200px;
+    flex-shrink: 0;
+  }
 }
 
 @media (max-width: 768px) {

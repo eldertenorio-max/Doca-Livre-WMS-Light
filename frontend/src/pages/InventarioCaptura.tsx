@@ -283,7 +283,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
         {err ? <div className="inventario-captura__alert inventario-captura__alert--err">{err}</div> : null}
         {msg ? <div className="inventario-captura__alert inventario-captura__alert--ok">{msg}</div> : null}
 
-        <div className="inventario-captura__field">
+        <div className="inventario-captura__form">
+        <div className="inventario-captura__field inventario-captura__field--full">
           <label htmlFor="inv-endereco">Endereço</label>
           <div className="inventario-captura__input-row">
             <input
@@ -313,7 +314,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           </div>
         </div>
 
-        <div className="inventario-captura__field" ref={comboRef}>
+        <div className="inventario-captura__field inventario-captura__field--full" ref={comboRef}>
           <label htmlFor="inv-barcode">Código / barras / descrição</label>
           <div className="inventario-captura__input-row">
             <input
@@ -431,7 +432,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           </div>
         </div>
 
-        <div className="inventario-captura__field">
+        <div className="inventario-captura__field inventario-captura__field--full">
           <label htmlFor="inv-lote">Lote</label>
           <input
             id="inv-lote"
@@ -508,7 +509,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           </div>
         </div>
 
-        <div className="inventario-captura__field">
+        <div className="inventario-captura__field inventario-captura__field--full">
           <label htmlFor="inv-produto">Produto</label>
           <input
             id="inv-produto"
@@ -517,6 +518,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             className="inventario-captura__readonly"
             placeholder="Selecione na lista ou bipe/digite acima"
           />
+        </div>
         </div>
 
         <div className="inventario-captura__footer">
