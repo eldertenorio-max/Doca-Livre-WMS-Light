@@ -5,7 +5,7 @@ import {
   buscarProdutoUnicoLocal,
   filtrarSugestoesProduto,
 } from '../lib/buscaProdutoInventario'
-import { findEnderecoByCodigo } from '../lib/enderecamentoStore'
+import { findEnderecoByCodigo, formatEnderecoCodigoInput, normalizeEnderecoCodigo } from '../lib/enderecamentoStore'
 import {
   fetchProductOptionByCodigoFromDb,
   fetchProductOptionByDescricaoFromDb,
@@ -34,6 +34,19 @@ function formatDateTimeBR(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('pt-BR')
+}
+
+function formatYmdBR(isoYmd: string) {
+  if (!isoYmd?.trim()) return '—'
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(isoYmd.slice(0, 10))
+  if (!m) return isoYmd
+  return `${m[3]}/${m[2]}/${m[1]}`
+}
+
+function formatHora(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
@@ -67,6 +80,11 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const sugestoes = useMemo(
     () => filtrarSugestoesProduto(codigoBarras, produtos, productMaps, SUGESTOES_MAX),
     [codigoBarras, produtos, productMaps],
+  )
+
+  const linhasSalvas = useMemo(
+    () => [...(sessao?.linhas ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [sessao?.linhas],
   )
 
   const loadProdutos = useCallback(async () => {
@@ -152,7 +170,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   }
 
   function handleEnderecoBlur() {
-    const cod = endereco.trim()
+    const cod = normalizeEnderecoCodigo(endereco.trim())
+    if (cod !== endereco) setEndereco(cod)
     if (!cod) return
     const found = findEnderecoByCodigo(cod)
     if (found) {
@@ -200,7 +219,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
       setErr('Inventário fechado — somente leitura.')
       return
     }
-    const end = endereco.trim()
+    const end = normalizeEnderecoCodigo(endereco.trim())
     const bar = codigoBarras.trim()
     const q = Number(String(quantidade).replace(',', '.'))
     const upStr = up.trim()
@@ -302,7 +321,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               id="inv-endereco"
               ref={enderecoRef}
               value={endereco}
-              onChange={(e) => setEndereco(e.target.value)}
+              onChange={(e) => setEndereco(formatEnderecoCodigoInput(e.target.value))}
               onBlur={handleEnderecoBlur}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -312,7 +331,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               }}
               disabled={readonly}
               autoComplete="off"
-              placeholder="ex.: 21-A-03-02"
+              placeholder="Digite ou bipe: 21A0302"
             />
             <button
               type="button"
@@ -536,24 +555,18 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
 
         <div className="inventario-captura__field inventario-captura__field--full">
           <label htmlFor="inv-produto">Produto</label>
-          <input
+          <textarea
             id="inv-produto"
             value={produtoLabel}
             readOnly
-            className="inventario-captura__readonly"
+            rows={3}
+            className="inventario-captura__readonly inventario-captura__produto"
             placeholder="Selecione na lista ou bipe/digite acima"
           />
         </div>
         </div>
 
         <div className="inventario-captura__footer">
-          <input
-            readOnly
-            value={codigoInterno ? `SKU ${codigoInterno}` : ''}
-            placeholder="ex.: SKU 01.01.0001"
-            className="inventario-captura__readonly inventario-captura__sku"
-            aria-label="Código interno do produto"
-          />
           <button
             type="button"
             className="inventario-captura__save"
@@ -563,6 +576,51 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             Salvar linha
           </button>
         </div>
+
+        {linhasSalvas.length > 0 ? (
+          <section className="inventario-captura__linhas" aria-label="Linhas salvas">
+            <h2 className="inventario-captura__linhas-title">
+              Linhas salvas ({linhasSalvas.length})
+            </h2>
+            <div className="inventario-captura__linhas-wrap">
+              <table className="inventario-captura__linhas-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Hora</th>
+                    <th>Endereço</th>
+                    <th>Código</th>
+                    <th>Produto</th>
+                    <th>Qtd</th>
+                    <th>UP</th>
+                    <th>Lote</th>
+                    <th>Fab.</th>
+                    <th>Val.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linhasSalvas.map((linha, idx) => (
+                    <tr key={linha.id}>
+                      <td>{linhasSalvas.length - idx}</td>
+                      <td>{formatHora(linha.createdAt)}</td>
+                      <td>{linha.endereco}</td>
+                      <td className="inventario-captura__linhas-cod">{linha.codigoInterno}</td>
+                      <td className="inventario-captura__linhas-desc">{linha.descricao}</td>
+                      <td>
+                        {linha.quantidade}
+                        {linha.unidade ? ` ${linha.unidade}` : ''}
+                      </td>
+                      <td>{linha.up?.trim() ? linha.up : '—'}</td>
+                      <td>{linha.lote?.trim() ? linha.lote : '—'}</td>
+                      <td>{formatYmdBR(linha.fabricacao ?? '')}</td>
+                      <td>{formatYmdBR(linha.validade ?? '')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   )

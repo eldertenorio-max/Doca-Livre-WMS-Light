@@ -134,6 +134,51 @@ export function buildCodigoEndereco(
   return `${camara}-${r}-${String(pos).padStart(2, '0')}-${niv}`
 }
 
+/** Formata digitação/bipagem sem hífens: 21A0302 → 21-A-03-02 */
+export function formatEnderecoCodigoInput(raw: string): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[^\dA-Za-z]/g, '')
+    .toUpperCase()
+  if (!cleaned) return ''
+
+  let i = 0
+  let camara = ''
+  while (i < cleaned.length && /\d/u.test(cleaned[i]!)) {
+    camara += cleaned[i++]
+  }
+
+  let rua = ''
+  while (i < cleaned.length && /[A-Z]/u.test(cleaned[i]!)) {
+    rua += cleaned[i++]
+  }
+
+  let posicao = ''
+  while (i < cleaned.length && /\d/u.test(cleaned[i]!) && posicao.length < 2) {
+    posicao += cleaned[i++]
+  }
+
+  let nivel = ''
+  while (i < cleaned.length && /\d/u.test(cleaned[i]!)) {
+    nivel += cleaned[i++]
+  }
+
+  const parts: string[] = []
+  if (camara) parts.push(camara)
+  if (rua) parts.push(rua)
+  if (posicao) parts.push(posicao)
+  if (nivel) parts.push(nivel)
+  return parts.join('-')
+}
+
+/** Normaliza posição com 2 dígitos ao sair do campo (21-A-3-2 → 21-A-03-2). */
+export function normalizeEnderecoCodigo(raw: string): string {
+  const parts = formatEnderecoCodigoInput(raw).split('-')
+  if (parts.length < 3) return parts.join('-')
+  const [camara, rua, posicao, ...rest] = parts
+  const out = [camara, rua, posicao!.padStart(2, '0'), ...rest]
+  return out.filter(Boolean).join('-')
+}
+
 export type EnderecoLoteInput = {
   camara: number
   rua: string
