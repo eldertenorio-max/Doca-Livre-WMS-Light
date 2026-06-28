@@ -6,6 +6,12 @@ import { supabase } from '../lib/supabaseClient'
 import './BaseProdutos.css'
 
 const TABELA_PRODUTOS = 'Todos os Produtos'
+const PAGE_SIZE = 25
+
+function grupoProdutoTab(codigo: string): string {
+  const p = codigo.trim().split('.')[0]
+  return p && /^\d+$/u.test(p) ? p : 'Outros'
+}
 
 type ProdutoDbRow = {
   id: string
@@ -46,68 +52,6 @@ function todayYmdLocal(): string {
   const mo = String(d.getMonth() + 1).padStart(2, '0')
   const da = String(d.getDate()).padStart(2, '0')
   return `${y}-${mo}-${da}`
-}
-
-function formatDateBRFromYmd(ymd: string | null | undefined): string {
-  if (!ymd || String(ymd).trim() === '') return '—'
-  const s = String(ymd).slice(0, 10)
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(s)
-  if (!m) return s
-  return `${m[3]}/${m[2]}/${m[1]}`
-}
-
-function formatHoraRegistroAlteracao(iso: string | null | undefined): string {
-  if (!iso?.trim()) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-function formatDataAlteracaoFromIso(iso: string | null | undefined): string {
-  if (!iso?.trim()) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-function CelulaAlteracaoCodigo(props: {
-  dataYmd: string | null | undefined
-  emHora: string | null | undefined
-  conferente: string | null | undefined
-}) {
-  const data =
-    props.emHora && formatDataAlteracaoFromIso(props.emHora)
-      ? formatDataAlteracaoFromIso(props.emHora)
-      : formatDateBRFromYmd(props.dataYmd)
-  const hora = formatHoraRegistroAlteracao(props.emHora)
-  const conf = String(props.conferente ?? '').trim()
-  if (data === '—' && !hora && !conf) return <>—</>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.35 }}>
-      <span>{data}</span>
-      {hora ? (
-        <span style={{ fontSize: 11, color: 'var(--chart-caption, #94a3b8)', fontVariantNumeric: 'tabular-nums' }}>
-          {hora}
-        </span>
-      ) : null}
-      {conf ? (
-        <span
-          style={{
-            fontSize: 11,
-            color: conf.startsWith('Selecione o conferente') ? '#fca5a5' : 'var(--text, #cbd5e1)',
-            fontStyle: conf.startsWith('Selecione o conferente') ? 'italic' : 'normal',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: 160,
-          }}
-          title={conf}
-        >
-          {conf}
-        </span>
-      ) : null}
-    </div>
-  )
 }
 
 function nowIsoLocal(): string {
@@ -163,50 +107,13 @@ function patchUnidadeField(field: UnidadeDbField, unidade: string | null): Recor
   return field === 'unidade_medida' ? { unidade_medida: unidade } : { unidade }
 }
 
-function propsAlteracaoCodigo(
-  r: ProdutoDbRow,
-  edit: boolean,
-  snap: ProdutoDbRow | null,
-  tipo: 'ean' | 'dun',
-  conferenteNome: string,
-): {
-  dataYmd: string | null | undefined
-  emHora: string | null | undefined
-  conferente: string | null | undefined
-} {
-  const changed =
-    edit &&
-    snap != null &&
-    (tipo === 'ean' ? normEanDun(r.ean) !== normEanDun(snap.ean) : normEanDun(r.dun) !== normEanDun(snap.dun))
-  if (changed) {
-    const conf = conferenteNome.trim()
-    return {
-      dataYmd: todayYmdLocal(),
-      emHora: nowIsoLocal(),
-      conferente: conf || 'Selecione o conferente acima',
-    }
-  }
-  if (tipo === 'ean') {
-    return {
-      dataYmd: r.ean_alterado_em,
-      emHora: r.ean_alterado_em_hora,
-      conferente: r.ean_alterado_conferente,
-    }
-  }
-  return {
-    dataYmd: r.dun_alterado_em,
-    emHora: r.dun_alterado_em_hora,
-    conferente: r.dun_alterado_conferente,
-  }
-}
-
 export default function BaseProdutos() {
   const [rows, setRows] = useState<ProdutoDbRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [matchKeys, setMatchKeys] = useState<string[]>([])
-  const [matchIndex, setMatchIndex] = useState(0)
+  const [listaTab, setListaTab] = useState('todos')
+  const [page, setPage] = useState(1)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
 
@@ -225,8 +132,6 @@ export default function BaseProdutos() {
   const [cadastroSaving, setCadastroSaving] = useState(false)
 
   const [bipCodigoBarras, setBipCodigoBarras] = useState('')
-  /** Quando definido, a tabela mostra só esta linha (produto encontrado pelo bip). */
-  const [bipSoloKey, setBipSoloKey] = useState<string | null>(null)
 
   const [conferentes, setConferentes] = useState<Array<{ id: string; nome: string }>>([])
   const [conferentesLoading, setConferentesLoading] = useState(false)
@@ -353,9 +258,7 @@ export default function BaseProdutos() {
       setRows(list)
       setEditingKey(null)
       setEditSnapshot(null)
-      setBipSoloKey((prev) => (prev && list.some((r) => rowKey(r) === prev) ? prev : null))
       setBipCodigoBarras('')
-      setSuccess(`${list.length} produto(s) na base.`)
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao carregar a base.')
       setRows([])
@@ -367,6 +270,49 @@ export default function BaseProdutos() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const abasProduto = useMemo(() => {
+    const grupos = new Set<string>()
+    for (const r of rows) grupos.add(grupoProdutoTab(r.codigo_interno))
+    return ['todos', ...[...grupos].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }))]
+  }, [rows])
+
+  const listaFiltrada = useMemo(() => {
+    let list = rows
+    if (listaTab !== 'todos') {
+      list = list.filter((r) => grupoProdutoTab(r.codigo_interno) === listaTab)
+    }
+    const q = bipCodigoBarras.trim().toLowerCase()
+    if (q) {
+      list = list.filter(
+        (r) =>
+          r.codigo_interno.toLowerCase().includes(q) ||
+          r.descricao.toLowerCase().includes(q) ||
+          matchesBarcode(r.ean, bipCodigoBarras) ||
+          matchesBarcode(r.dun, bipCodigoBarras),
+      )
+    }
+    return list
+  }, [rows, listaTab, bipCodigoBarras])
+
+  const totalPages = Math.max(1, Math.ceil(listaFiltrada.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, totalPages)
+  const sliceLista = useMemo(() => {
+    const start = (pageSafe - 1) * PAGE_SIZE
+    return listaFiltrada.slice(start, start + PAGE_SIZE)
+  }, [listaFiltrada, pageSafe])
+
+  const rangeFrom = listaFiltrada.length === 0 ? 0 : (pageSafe - 1) * PAGE_SIZE + 1
+  const rangeTo =
+    listaFiltrada.length === 0 ? 0 : Math.min(pageSafe * PAGE_SIZE, listaFiltrada.length)
+
+  useEffect(() => {
+    setPage(1)
+  }, [listaTab, bipCodigoBarras])
+
+  useEffect(() => {
+    if (!abasProduto.includes(listaTab)) setListaTab('todos')
+  }, [abasProduto, listaTab])
 
   function patchRow(key: string, patch: Partial<ProdutoDbRow>) {
     setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, ...patch } : r)))
@@ -384,31 +330,11 @@ export default function BaseProdutos() {
     setSuccess('')
   }
 
-  function limparBipEFiltroSolo() {
-    setBipSoloKey(null)
-    setMatchKeys([])
-    setMatchIndex(0)
+  function limparBusca() {
     setBipCodigoBarras('')
     setEditingKey(null)
     setEditSnapshot(null)
     setError('')
-  }
-
-  function selecionarProduto(found: ProdutoDbRow, matches: ProdutoDbRow[]) {
-    const keys = matches.map((r) => rowKey(r))
-    const soloK = rowKey(found)
-    setMatchKeys(keys)
-    setMatchIndex(keys.indexOf(soloK))
-    setBipSoloKey(soloK)
-    setError('')
-    startEdit(found)
-    setSuccess(
-      keys.length > 1
-        ? `Produto ${found.codigo_interno} — ${keys.length} encontrado(s). Use ◀ ▶ para navegar.`
-        : `Produto ${found.codigo_interno} aberto.`,
-    )
-    setBipCodigoBarras('')
-    window.setTimeout(() => bipInputRef.current?.focus(), 0)
   }
 
   function buscarPorBipEanDun() {
@@ -419,7 +345,7 @@ export default function BaseProdutos() {
       return
     }
     if (rows.length === 0) {
-      setError('Aguarde o carregamento da base ou clique em recarregar.')
+      setError('Aguarde o carregamento da base.')
       setSuccess('')
       return
     }
@@ -436,24 +362,20 @@ export default function BaseProdutos() {
       setSuccess('')
       return
     }
-    selecionarProduto(matches[0], matches)
-  }
-
-  function navegarMatch(delta: number) {
-    if (matchKeys.length <= 1) return
-    const next = (matchIndex + delta + matchKeys.length) % matchKeys.length
-    const key = matchKeys[next]
-    const found = rows.find((r) => rowKey(r) === key)
-    if (!found) return
-    setMatchIndex(next)
-    setBipSoloKey(key)
+    const found = matches[0]
+    const tab = grupoProdutoTab(found.codigo_interno)
+    setListaTab(matches.every((m) => grupoProdutoTab(m.codigo_interno) === tab) ? tab : 'todos')
+    setError('')
+    setSuccess(
+      matches.length > 1
+        ? `${matches.length} produto(s) na lista filtrada.`
+        : `Produto ${found.codigo_interno} selecionado para edição.`,
+    )
     startEdit(found)
+    window.setTimeout(() => {
+      rowRefs.current.get(rowKey(found))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 100)
   }
-
-  const produtoVisivel = useMemo(() => {
-    if (!bipSoloKey) return null
-    return rows.find((r) => rowKey(r) === bipSoloKey) ?? null
-  }, [rows, bipSoloKey])
 
   useEffect(() => {
     if (!editingKey) return
@@ -462,7 +384,7 @@ export default function BaseProdutos() {
       el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }, 80)
     return () => window.clearTimeout(t)
-  }, [editingKey, bipSoloKey])
+  }, [editingKey])
 
   function cancelEditInternal() {
     if (editingKey && editSnapshot) {
@@ -805,19 +727,19 @@ export default function BaseProdutos() {
   }
 
   const canEditRow = (k: string) => editingKey === k
-  const r = produtoVisivel
-  const k = r ? rowKey(r) : ''
-  const edit = r ? canEditRow(k) : false
-  const saving = r ? savingKey === k : false
-  const deleting = r ? deletingKey === k : false
+
+  function contagemAba(tab: string) {
+    if (tab === 'todos') return rows.length
+    return rows.filter((r) => grupoProdutoTab(r.codigo_interno) === tab).length
+  }
 
   return (
-    <div className="produtos-page">
+    <div className="produtos-page produtos-page--lista">
       <header className="produtos-page__header">
         <div>
           <h1>Produtos</h1>
           <p>
-            Base oficial no Supabase ({TABELA_PRODUTOS}). Busque ou bipe um produto para visualizar e editar.
+            Base oficial no Supabase ({TABELA_PRODUTOS}). {rows.length} produto(s) — edite ou exclua na tabela abaixo.
           </p>
         </div>
         <button
@@ -834,7 +756,7 @@ export default function BaseProdutos() {
 
       <section className="produtos-page__search">
         <label className="produtos-page__search-label" htmlFor="produto-busca">
-          Buscar produto
+          Filtrar / buscar produto
         </label>
         <div className="produtos-page__search-row">
           <input
@@ -866,19 +788,18 @@ export default function BaseProdutos() {
             >
               Buscar
             </button>
-            {produtoVisivel ? (
-              <button type="button" className="produtos-page__btn-limpar" onClick={limparBipEFiltroSolo}>
+            {bipCodigoBarras.trim() ? (
+              <button type="button" className="produtos-page__btn-limpar" onClick={limparBusca}>
                 Limpar
               </button>
             ) : null}
           </div>
         </div>
         <p className="produtos-page__hint">
-          Use o leitor de código de barras ou digite e pressione Enter.{' '}
-          {rows.length > 0 ? `${rows.length} produto(s) na base.` : ''}
+          A lista abaixo filtra enquanto você digita. Use o leitor e Enter para ir direto ao produto e editar.
         </p>
 
-        {(edit || cadastroOpen) && (precisaConferenteNaEdicao || cadastroOpen) ? (
+        {editingKey && precisaConferenteNaEdicao ? (
           <div className="produtos-page__conferente">
             <label className="produtos-page__search-label" htmlFor="produto-conferente">
               Conferente (obrigatório ao alterar EAN/DUN)
@@ -907,163 +828,184 @@ export default function BaseProdutos() {
       {error ? <div className="produtos-page__msg produtos-page__msg--error">{error}</div> : null}
       {success ? <div className="produtos-page__msg produtos-page__msg--ok">{success}</div> : null}
 
-      {loading && !produtoVisivel ? (
-        <div className="produtos-page__empty">Carregando produtos…</div>
-      ) : produtoVisivel && r ? (
-        <>
-          {matchKeys.length > 1 ? (
-            <div className="produtos-page__meta">
-              <span>
-                {matchIndex + 1} de {matchKeys.length} encontrados
-              </span>
-              <div className="produtos-page__nav">
-                <button type="button" onClick={() => navegarMatch(-1)}>
-                  ◀ Anterior
-                </button>
-                <button type="button" onClick={() => navegarMatch(1)}>
-                  Próximo ▶
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <article
-            className="produtos-page__card"
-            ref={(el) => {
-              if (el && k) rowRefs.current.set(k, el)
-              else if (k) rowRefs.current.delete(k)
-            }}
-          >
-            <div className="produtos-page__card-head">
-              <p className="produtos-page__codigo">{r.codigo_interno}</p>
-              {edit ? (
-                <textarea
-                  value={r.descricao}
-                  onChange={(e) => patchRow(k, { descricao: e.target.value })}
-                  rows={2}
-                  style={{ width: '100%', margin: 0, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border, #4b5563)', background: 'var(--input-bg, #0f172a)', color: 'var(--text-h, #f9fafb)', fontSize: 14 }}
-                />
-              ) : (
-                <p className="produtos-page__descricao">{r.descricao}</p>
-              )}
-            </div>
-
-            <div className="produtos-page__card-body">
-              <div className="produtos-page__grid2">
-                <div className={`produtos-page__field${edit ? '' : ' produtos-page__field--readonly'}`}>
-                  <label>Unidade</label>
-                  {edit ? (
-                    <input
-                      value={r.unidade ?? ''}
-                      onChange={(e) =>
-                        patchRow(k, { unidade: e.target.value.trim() === '' ? null : e.target.value })
-                      }
-                    />
-                  ) : (
-                    <div className="produtos-page__value">{r.unidade ?? '—'}</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="produtos-page__grid2">
-                <div className="produtos-page__field">
-                  <label>EAN</label>
-                  <input
-                    value={r.ean ?? ''}
-                    onChange={(e) => patchRow(k, { ean: e.target.value === '' ? null : e.target.value })}
-                    disabled={!edit || saving || deleting}
-                    readOnly={!edit}
-                    inputMode="numeric"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="produtos-page__field">
-                  <label>DUN</label>
-                  <input
-                    value={r.dun ?? ''}
-                    onChange={(e) => patchRow(k, { dun: e.target.value === '' ? null : e.target.value })}
-                    disabled={!edit || saving || deleting}
-                    readOnly={!edit}
-                    inputMode="numeric"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-
-              <div className="produtos-page__meta-row">
-                <div className="produtos-page__meta-box">
-                  <strong>Alteração EAN</strong>
-                  <CelulaAlteracaoCodigo
-                    {...propsAlteracaoCodigo(r, edit, editSnapshot, 'ean', alteracaoConferenteNome)}
-                  />
-                </div>
-                <div className="produtos-page__meta-box">
-                  <strong>Alteração DUN</strong>
-                  <CelulaAlteracaoCodigo
-                    {...propsAlteracaoCodigo(r, edit, editSnapshot, 'dun', alteracaoConferenteNome)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="produtos-page__card-foot">
-              {!edit ? (
-                <>
-                  <button type="button" className="produtos-page__btn-primary" onClick={() => startEdit(r)}>
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    className="produtos-page__btn-danger"
-                    disabled={deleting}
-                    onClick={() => void deleteRow(r)}
-                  >
-                    {deleting ? 'Excluindo…' : 'Excluir'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="produtos-page__btn-primary"
-                    disabled={saving || deleting}
-                    onClick={() => void saveRow(r)}
-                  >
-                    {saving ? 'Salvando…' : 'Salvar'}
-                  </button>
-                  <button
-                    type="button"
-                    className="produtos-page__btn-muted"
-                    disabled={saving || deleting}
-                    onClick={() => cancelEdit()}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    className="produtos-page__btn-danger"
-                    disabled={saving || deleting}
-                    onClick={() => void deleteRow(r)}
-                  >
-                    Excluir
-                  </button>
-                </>
-              )}
-            </div>
-          </article>
-        </>
-      ) : (
-        <div className="produtos-page__empty">
-          <div className="produtos-page__empty-icon" aria-hidden>
-            🏷️
-          </div>
-          <p style={{ margin: 0, fontSize: 15 }}>
-            Nenhum produto selecionado.
-            <br />
-            Bipe ou busque acima para exibir um item.
-          </p>
+      <section className="produtos-page__lista">
+        <div className="page-tabs" role="tablist" aria-label="Famílias de produtos">
+          {abasProduto.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={listaTab === tab}
+              className={`page-tabs__btn${listaTab === tab ? ' page-tabs__btn--active' : ''}`}
+              onClick={() => setListaTab(tab)}
+            >
+              {tab === 'todos' ? `Todos (${contagemAba(tab)})` : `Fam. ${tab} (${contagemAba(tab)})`}
+            </button>
+          ))}
         </div>
-      )}
+
+        {loading ? (
+          <p className="page-panel__meta">Carregando produtos…</p>
+        ) : (
+          <p className="page-panel__meta">
+            Mostrando {rangeFrom}–{rangeTo} de {listaFiltrada.length} produto(s)
+            {bipCodigoBarras.trim() ? ' (filtrado)' : ''} · Página {pageSafe} de {totalPages}
+          </p>
+        )}
+
+        <div className="page-table-wrap produtos-page__table-wrap">
+          <table className="page-table page-table--compact produtos-page__table">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Descrição</th>
+                <th>Un.</th>
+                <th>EAN</th>
+                <th>DUN</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6}>Carregando…</td>
+                </tr>
+              ) : sliceLista.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>Nenhum produto nesta aba ou filtro.</td>
+                </tr>
+              ) : (
+                sliceLista.map((row) => {
+                  const k = rowKey(row)
+                  const edit = canEditRow(k)
+                  const saving = savingKey === k
+                  const deleting = deletingKey === k
+                  return (
+                    <tr
+                      key={k}
+                      ref={(el) => {
+                        if (el) rowRefs.current.set(k, el)
+                        else rowRefs.current.delete(k)
+                      }}
+                      className={edit ? 'produtos-page__row--edit' : undefined}
+                    >
+                      <td>
+                        <span className="produtos-page__codigo-cell">{row.codigo_interno}</span>
+                      </td>
+                      <td>
+                        {edit ? (
+                          <textarea
+                            className="produtos-page__cell-input produtos-page__cell-input--desc"
+                            value={row.descricao}
+                            onChange={(e) => patchRow(k, { descricao: e.target.value })}
+                            rows={2}
+                          />
+                        ) : (
+                          row.descricao
+                        )}
+                      </td>
+                      <td>
+                        {edit ? (
+                          <input
+                            className="produtos-page__cell-input"
+                            value={row.unidade ?? ''}
+                            onChange={(e) =>
+                              patchRow(k, {
+                                unidade: e.target.value.trim() === '' ? null : e.target.value,
+                              })
+                            }
+                          />
+                        ) : (
+                          row.unidade ?? '—'
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          className="produtos-page__cell-input"
+                          value={row.ean ?? ''}
+                          onChange={(e) => patchRow(k, { ean: e.target.value === '' ? null : e.target.value })}
+                          disabled={!edit || saving || deleting}
+                          readOnly={!edit}
+                          inputMode="numeric"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="produtos-page__cell-input"
+                          value={row.dun ?? ''}
+                          onChange={(e) => patchRow(k, { dun: e.target.value === '' ? null : e.target.value })}
+                          disabled={!edit || saving || deleting}
+                          readOnly={!edit}
+                          inputMode="numeric"
+                        />
+                      </td>
+                      <td className="produtos-page__actions-cell">
+                        {!edit ? (
+                          <>
+                            <button
+                              type="button"
+                              className="page-btn-ghost"
+                              disabled={!!editingKey || saving || deleting}
+                              onClick={() => startEdit(row)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="page-btn-ghost page-btn-danger"
+                              disabled={!!editingKey || deleting}
+                              onClick={() => void deleteRow(row)}
+                            >
+                              {deleting ? '…' : 'Excluir'}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="produtos-page__btn-primary"
+                              disabled={saving || deleting}
+                              onClick={() => void saveRow(row)}
+                            >
+                              {saving ? 'Salvando…' : 'Salvar'}
+                            </button>
+                            <button
+                              type="button"
+                              className="produtos-page__btn-muted"
+                              disabled={saving || deleting}
+                              onClick={() => cancelEdit()}
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {listaFiltrada.length > PAGE_SIZE ? (
+          <div className="page-pagination">
+            <button type="button" disabled={pageSafe <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              Anterior
+            </button>
+            <span>
+              Página {pageSafe} de {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={pageSafe >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Próxima
+            </button>
+          </div>
+        ) : null}
+      </section>
 
       <div className="produtos-page__reload">
         <button type="button" disabled={loading} onClick={() => void load()}>
