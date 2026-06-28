@@ -1249,6 +1249,118 @@
   margin-left: 4px;
 }
 
+.inv-gerenciar__hint {
+  margin-top: 12px;
+  color: #86efac;
+}
+
+.inv-gerenciar__tabs {
+  margin-top: 20px;
+}
+
+.inv-list-cards {
+  display: none;
+  margin-top: 16px;
+}
+
+.inv-list-empty {
+  margin: 0;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--muted, #94a3b8);
+  border: 1px dashed var(--border, #374151);
+  border-radius: 12px;
+}
+
+.inv-card {
+  background: var(--panel-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, #374151);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.inv-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.inv-card__num {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #94a3b8);
+}
+
+.inv-card__title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: var(--text-h, #f3f4f6);
+}
+
+.inv-card__meta {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted, #94a3b8);
+}
+
+.inv-card__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0 0 14px;
+}
+
+.inv-card__stats div {
+  min-width: 0;
+}
+
+.inv-card__stats dt {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #64748b);
+}
+
+.inv-card__stats dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text, #cbd5e1);
+}
+
+.inv-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inv-card__btn:first-child {
+  flex: 1 1 100%;
+}
+
+.inv-card__btn {
+  flex: 1 1 calc(50% - 4px);
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--dis-accent, #c9a227);
+  background: var(--dis-accent, #c9a227);
+  color: #111;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-card__btn--ghost {
+  background: transparent;
+  color: var(--text-h, #e5e7eb);
+  border-color: var(--border, #4b5563);
+  font-weight: 600;
+}
+
 .page-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1537,7 +1649,124 @@
   filter: none;
 }
 
+@media (max-width: 768px) {
+  .inv-list-table {
+    display: none;
+  }
+
+  .inv-list-cards {
+    display: grid;
+    gap: 12px;
+  }
+
+  .inv-gerenciar__criar .page-form-grid__actions {
+    width: 100%;
+  }
+
+  .inv-gerenciar__criar button {
+    width: 100%;
+    min-height: 48px;
+  }
+}
+
 @media (max-width: 640px) {
+  .app-shell:has(.inventario-captura-wrap) .app-sidebar {
+    display: none;
+  }
+
+  .app-shell:has(.inventario-captura-wrap) .app-shell__main {
+    margin-left: 0;
+  }
+
+  .app-shell:has(.inventario-captura-wrap) .app-shell__header-extra {
+    display: none;
+  }
+
+  .app-shell:has(.inventario-captura-wrap) .app-shell__content {
+    padding: 0;
+  }
+
+  .inventario-captura-wrap {
+    min-height: 100dvh;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .inventario-captura {
+    max-width: none;
+    min-height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .inventario-captura__header {
+    padding: 14px 12px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0));
+  }
+
+  .inventario-captura__title {
+    font-size: 16px;
+    padding-right: 28px;
+  }
+
+  .inventario-captura__back {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 22px;
+  }
+
+  .inventario-captura__info {
+    margin: 12px;
+  }
+
+  .inventario-captura__field {
+    margin: 0 12px 12px;
+  }
+
+  .inventario-captura__field label {
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .inventario-captura__field input {
+    font-size: 16px;
+    min-height: 48px;
+    padding: 12px;
+  }
+
+  .inventario-captura__action-btn {
+    min-width: 64px;
+    min-height: 48px;
+    font-size: 13px;
+  }
+
+  .inventario-captura__row-2 {
+    flex-direction: column;
+    margin: 0 12px 12px;
+    gap: 12px;
+  }
+
+  .inventario-captura__field--short,
+  .inventario-captura__field--long {
+    flex: 1;
+  }
+
+  .inventario-captura__footer {
+    margin-top: auto;
+    position: sticky;
+    bottom: 0;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
+    background: linear-gradient(180deg, rgba(20, 56, 56, 0) 0%, #143838 28%);
+  }
+
+  .inventario-captura__save {
+    min-height: 52px;
+    font-size: 16px;
+  }
+
   .app-shell__main {
     margin-left: 56px;
   }

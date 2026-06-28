@@ -21,6 +21,10 @@ function formatData(iso: string | null) {
   return d.toLocaleString('pt-BR')
 }
 
+function labelColeta(inv: InventarioSessao) {
+  return inv.linhas.length === 0 ? 'Começar inventário' : 'Continuar'
+}
+
 export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const [rows, setRows] = useState<InventarioSessao[]>(() => listInventarios())
   const [listaTab, setListaTab] = useState<ListaTab>('todos')
@@ -50,16 +54,16 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     setCriarOpen(true)
   }
 
-  function handleCriar(iniciarColeta: boolean) {
+  function handleCriar() {
     const titulo = criarTitulo.trim()
     if (!titulo) {
       alert('Informe o nome do inventário.')
       return
     }
-    const inv = criarInventario({ titulo, local: criarLocal })
+    criarInventario({ titulo, local: criarLocal })
     setCriarOpen(false)
+    setListaTab('abertos')
     refresh()
-    if (iniciarColeta) onAbrirCaptura(inv.id)
   }
 
   function abrirModalEditar(inv: InventarioSessao) {
@@ -96,15 +100,59 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     onAbrirCaptura(id)
   }
 
+  function renderAcoes(r: InventarioSessao, layout: 'table' | 'card') {
+    const btnClass = layout === 'card' ? 'inv-card__btn' : undefined
+    const ghostClass = layout === 'card' ? 'inv-card__btn inv-card__btn--ghost' : 'page-btn-ghost'
+
+    if (r.status === 'aberto') {
+      return (
+        <>
+          <button type="button" className={btnClass} onClick={() => continuarInventario(r.id, false)}>
+            {labelColeta(r)}
+          </button>
+          <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
+            Editar
+          </button>
+          <button
+            type="button"
+            className={ghostClass}
+            onClick={() => {
+              if (confirm('Finalizar este inventário?')) {
+                fecharInventario(r.id)
+                refresh()
+              }
+            }}
+          >
+            Finalizar
+          </button>
+        </>
+      )
+    }
+
+    return (
+      <>
+        <button type="button" className={btnClass} onClick={() => continuarInventario(r.id, true)}>
+          Continuar
+        </button>
+        <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
+          Editar
+        </button>
+        <button type="button" className={ghostClass} onClick={() => onAbrirCaptura(r.id)}>
+          Ver
+        </button>
+      </>
+    )
+  }
+
   return (
-    <div className="page-panel">
+    <div className="page-panel inv-gerenciar">
       <h1 className="page-panel__title">Inventários</h1>
       <p className="page-panel__subtitle">
-        Crie um inventário com nome, inicie a coleta (endereço, código de barras, quantidade, lote e validade) e
-        reabra ou edite inventários já finalizados.
+        Crie um inventário com nome — ele aparecerá na lista. Depois clique em <strong>Começar inventário</strong> na
+        linha para abrir a coleta.
       </p>
 
-      <div className="page-form-grid" style={{ maxWidth: 520 }}>
+      <div className="page-form-grid inv-gerenciar__criar">
         <div className="page-form-grid__actions">
           <button type="button" onClick={abrirModalCriar}>
             Criar inventário
@@ -112,7 +160,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
         </div>
       </div>
 
-      <div className="page-tabs" role="tablist" aria-label="Filtro de inventários" style={{ marginTop: 20 }}>
+      <div className="page-tabs inv-gerenciar__tabs" role="tablist" aria-label="Filtro de inventários">
         <button
           type="button"
           role="tab"
@@ -143,10 +191,46 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
       </div>
 
       {abertos.length > 0 ? (
-        <p style={{ marginTop: 12, color: '#86efac' }}>{abertos.length} inventário(s) aberto(s)</p>
+        <p className="inv-gerenciar__hint">{abertos.length} inventário(s) aberto(s)</p>
       ) : null}
 
-      <div className="page-table-wrap" style={{ marginTop: 16 }}>
+      <div className="inv-list-cards">
+        {listaFiltrada.length === 0 ? (
+          <p className="inv-list-empty">Nenhum inventário nesta lista.</p>
+        ) : (
+          listaFiltrada.map((r) => (
+            <article key={r.id} className="inv-card">
+              <div className="inv-card__head">
+                <span className="inv-card__num">#{r.numero}</span>
+                <span className={r.status === 'aberto' ? 'inv-status inv-status--open' : 'inv-status inv-status--closed'}>
+                  {r.status === 'aberto' ? 'Aberto' : 'Finalizado'}
+                </span>
+              </div>
+              <h3 className="inv-card__title">{r.titulo}</h3>
+              <p className="inv-card__meta">{r.local}</p>
+              <dl className="inv-card__stats">
+                <div>
+                  <dt>Linhas</dt>
+                  <dd>{r.linhas.length}</dd>
+                </div>
+                <div>
+                  <dt>Início</dt>
+                  <dd>{formatData(r.dataInicio)}</dd>
+                </div>
+                {r.dataFim ? (
+                  <div>
+                    <dt>Fim</dt>
+                    <dd>{formatData(r.dataFim)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <div className="inv-card__actions">{renderAcoes(r, 'card')}</div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="page-table-wrap inv-list-table">
         <table className="page-table">
           <thead>
             <tr>
@@ -179,42 +263,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
                   <td>{r.linhas.length}</td>
                   <td>{formatData(r.dataInicio)}</td>
                   <td>{formatData(r.dataFim)}</td>
-                  <td className="inv-actions-cell">
-                    {r.status === 'aberto' ? (
-                      <>
-                        <button type="button" onClick={() => continuarInventario(r.id, false)}>
-                          Continuar
-                        </button>
-                        <button type="button" className="page-btn-ghost" onClick={() => abrirModalEditar(r)}>
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="page-btn-ghost"
-                          onClick={() => {
-                            if (confirm('Finalizar este inventário?')) {
-                              fecharInventario(r.id)
-                              refresh()
-                            }
-                          }}
-                        >
-                          Finalizar
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" onClick={() => continuarInventario(r.id, true)}>
-                          Continuar
-                        </button>
-                        <button type="button" className="page-btn-ghost" onClick={() => abrirModalEditar(r)}>
-                          Editar
-                        </button>
-                        <button type="button" className="page-btn-ghost" onClick={() => onAbrirCaptura(r.id)}>
-                          Ver
-                        </button>
-                      </>
-                    )}
-                  </td>
+                  <td className="inv-actions-cell">{renderAcoes(r, 'table')}</td>
                 </tr>
               ))
             )}
@@ -253,7 +302,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
                   placeholder="ex.: Inventário câmara 21 — validade"
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCriar(true)
+                    if (e.key === 'Enter') handleCriar()
                   }}
                 />
               </label>
@@ -266,11 +315,8 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
               <button type="button" className="page-btn-ghost" onClick={() => setCriarOpen(false)}>
                 Cancelar
               </button>
-              <button type="button" className="page-btn-ghost" onClick={() => handleCriar(false)}>
-                Só criar
-              </button>
-              <button type="button" onClick={() => handleCriar(true)}>
-                Criar e iniciar
+              <button type="button" onClick={handleCriar}>
+                Criar
               </button>
             </div>
           </div>
