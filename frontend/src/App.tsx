@@ -13,7 +13,6 @@ import ProdutosImportacaoPlanilha from './pages/ProdutosImportacaoPlanilha'
 import ProdutosSubGrupos from './pages/ProdutosSubGrupos'
 import CadastroEnderecamento from './pages/CadastroEnderecamento'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
-import ContagemDiariaPainel from './components/contagem/ContagemDiariaPainel'
 import ContagemEstoque from './pages/ContagemEstoque'
 import EstoqueConsulta from './pages/EstoqueConsulta'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
@@ -219,7 +218,6 @@ export default function App() {
       ) : null}
       {view === 'contagem' ? (
         <PanelErrorBoundary>
-          <ContagemDiariaPainel />
           <ContagemEstoque />
         </PanelErrorBoundary>
       ) : null}
