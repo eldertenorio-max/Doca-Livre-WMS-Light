@@ -45,6 +45,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const [quantidade, setQuantidade] = useState('')
   const [unidade, setUnidade] = useState('')
   const [lote, setLote] = useState('')
+  const [fabricacao, setFabricacao] = useState('')
   const [validade, setValidade] = useState('')
   const [produtoLabel, setProdutoLabel] = useState('')
   const [codigoInterno, setCodigoInterno] = useState('')
@@ -182,6 +183,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     setQuantidade('')
     setUnidade('')
     setLote('')
+    setFabricacao('')
     setValidade('')
     setProdutoLabel('')
     setCodigoInterno('')
@@ -219,6 +221,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
       quantidade: q,
       unidade: unidade.trim(),
       lote: lote.trim(),
+      fabricacao: fabricacao.trim(),
       validade: validade.trim(),
     })
     setSessao(getInventario(inventarioId) ?? null)
@@ -428,19 +431,51 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           </div>
         </div>
 
+        <div className="inventario-captura__field">
+          <label htmlFor="inv-lote">Lote</label>
+          <input
+            id="inv-lote"
+            value={lote}
+            onChange={(e) => setLote(e.target.value)}
+            disabled={readonly}
+            placeholder="ex.: L240628"
+            autoComplete="off"
+          />
+        </div>
+
         <div className="inventario-captura__row-2">
-          <div className="inventario-captura__field inventario-captura__field--short">
-            <label htmlFor="inv-lote">Lote</label>
-            <input
-              id="inv-lote"
-              value={lote}
-              onChange={(e) => setLote(e.target.value)}
-              disabled={readonly}
-              placeholder="ex.: L240628"
-              autoComplete="off"
-            />
+          <div className="inventario-captura__field">
+            <label htmlFor="inv-fabricacao">Fabricação</label>
+            <div className="inventario-captura__input-row">
+              <input
+                id="inv-fabricacao"
+                type="date"
+                value={fabricacao}
+                onChange={(e) => setFabricacao(e.target.value)}
+                disabled={readonly}
+                title="dd/mm/aaaa"
+              />
+              <button
+                type="button"
+                className="inventario-captura__action-btn inventario-captura__action-btn--icon"
+                disabled={readonly}
+                title="Abrir calendário"
+                aria-label="Abrir calendário de fabricação"
+                onClick={() => {
+                  const el = document.getElementById('inv-fabricacao') as HTMLInputElement | null
+                  el?.focus()
+                  try {
+                    el?.showPicker?.()
+                  } catch {
+                    /* showPicker indisponível */
+                  }
+                }}
+              >
+                📅
+              </button>
+            </div>
           </div>
-          <div className="inventario-captura__field inventario-captura__field--long">
+          <div className="inventario-captura__field">
             <label htmlFor="inv-validade">Validade</label>
             <div className="inventario-captura__input-row">
               <input
@@ -456,7 +491,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
                 className="inventario-captura__action-btn inventario-captura__action-btn--icon"
                 disabled={readonly}
                 title="Abrir calendário"
-                aria-label="Abrir calendário"
+                aria-label="Abrir calendário de validade"
                 onClick={() => {
                   const el = document.getElementById('inv-validade') as HTMLInputElement | null
                   el?.focus()
