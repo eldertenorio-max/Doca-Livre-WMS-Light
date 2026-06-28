@@ -44,6 +44,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const [codigoBarras, setCodigoBarras] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [unidade, setUnidade] = useState('')
+  const [up, setUp] = useState('')
   const [lote, setLote] = useState('')
   const [fabricacao, setFabricacao] = useState('')
   const [validade, setValidade] = useState('')
@@ -182,6 +183,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     setCodigoBarras('')
     setQuantidade('')
     setUnidade('')
+    setUp('')
     setLote('')
     setFabricacao('')
     setValidade('')
@@ -201,6 +203,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     const end = endereco.trim()
     const bar = codigoBarras.trim()
     const q = Number(String(quantidade).replace(',', '.'))
+    const upStr = up.trim()
     if (!end) {
       setErr('Informe o endereço.')
       return
@@ -213,6 +216,13 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
       setErr('Quantidade inválida.')
       return
     }
+    if (upStr !== '') {
+      const upNum = Number(upStr.replace(',', '.'))
+      if (!Number.isFinite(upNum) || upNum < 0) {
+        setErr('UP inválido.')
+        return
+      }
+    }
     addLinhaInventario(sessao.id, {
       endereco: end,
       codigoBarras: bar,
@@ -220,6 +230,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
       descricao: produtoLabel,
       quantidade: q,
       unidade: unidade.trim(),
+      up: upStr,
       lote: lote.trim(),
       fabricacao: fabricacao.trim(),
       validade: validade.trim(),
@@ -432,16 +443,30 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           </div>
         </div>
 
-        <div className="inventario-captura__field inventario-captura__field--full">
-          <label htmlFor="inv-lote">Lote</label>
-          <input
-            id="inv-lote"
-            value={lote}
-            onChange={(e) => setLote(e.target.value)}
-            disabled={readonly}
-            placeholder="ex.: L240628"
-            autoComplete="off"
-          />
+        <div className="inventario-captura__row-2">
+          <div className="inventario-captura__field">
+            <label htmlFor="inv-up">UP</label>
+            <input
+              id="inv-up"
+              value={up}
+              onChange={(e) => setUp(e.target.value)}
+              disabled={readonly}
+              inputMode="decimal"
+              placeholder="ex.: 6"
+              autoComplete="off"
+            />
+          </div>
+          <div className="inventario-captura__field">
+            <label htmlFor="inv-lote">Lote</label>
+            <input
+              id="inv-lote"
+              value={lote}
+              onChange={(e) => setLote(e.target.value)}
+              disabled={readonly}
+              placeholder="ex.: L240628"
+              autoComplete="off"
+            />
+          </div>
         </div>
 
         <div className="inventario-captura__row-2">

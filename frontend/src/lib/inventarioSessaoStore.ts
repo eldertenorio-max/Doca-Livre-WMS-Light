@@ -6,6 +6,7 @@ export type InventarioLinhaCaptura = {
   descricao: string
   quantidade: number
   unidade: string
+  up: string
   lote: string
   fabricacao: string
   validade: string
