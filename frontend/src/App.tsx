@@ -8,7 +8,6 @@ import OpeningSplash from './components/OpeningSplash'
 import LoginScreen from './pages/LoginScreen'
 import BaseProdutos from './pages/BaseProdutos'
 import CadastroEnderecamento from './pages/CadastroEnderecamento'
-import CadastroProdutos from './pages/CadastroProdutos'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
 import ContagemEstoque from './pages/ContagemEstoque'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
@@ -18,7 +17,6 @@ import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 
 export type AppView =
   | 'produtos'
-  | 'baseDados'
   | 'temperatura'
   | 'ocupacao'
   | 'seguranca'
@@ -102,7 +100,6 @@ export default function App() {
   const sidebarItems: SidebarItem[] = useMemo(
     () => [
       { id: 'produtos', label: 'Produtos', icon: <NavEmoji>🏷️</NavEmoji>, accent: '#fbbf24' },
-      { id: 'baseDados', label: 'Base de dados', icon: <NavEmoji>🗄️</NavEmoji>, accent: '#ffb74d' },
       { id: 'temperatura', label: 'Temperatura', icon: <NavEmoji>🌡️</NavEmoji>, accent: '#22c55e' },
       { id: 'ocupacao', label: 'Ocupação', icon: <NavEmoji>📊</NavEmoji>, accent: '#38bdf8' },
       { id: 'seguranca', label: 'Estoque de segurança', icon: <NavEmoji>🛡️</NavEmoji>, accent: '#2dd4bf' },
@@ -164,8 +161,7 @@ export default function App() {
         </div>
       }
     >
-      {view === 'produtos' ? <CadastroProdutos /> : null}
-      {view === 'baseDados' ? <BaseProdutos /> : null}
+      {view === 'produtos' ? <BaseProdutos /> : null}
       {view === 'temperatura' ? (
         <PanelErrorBoundary>
           <ContagemDiariaAmbiental initialTab="temperatura" lockTab />

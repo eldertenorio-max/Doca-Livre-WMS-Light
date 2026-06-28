@@ -878,7 +878,11 @@ export default function BaseProdutos() {
 
   return (
     <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
-      <h2 style={{ margin: '0 0 8px' }}>Base de dados — Todos os Produtos</h2>
+      <h2 style={{ margin: '0 0 8px' }}>Produtos</h2>
+      <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: 'var(--text, #94a3b8)' }}>
+        Cadastro oficial no banco (<strong>Todos os Produtos</strong>). Tudo que você cadastrar, editar ou excluir
+        aqui é gravado no Supabase e usado na contagem e no inventário.
+      </p>
 
       <section style={{ ...basePanelStyle, marginTop: 0 }}>
         <h3 style={{ margin: '0 0 10px', fontSize: 18 }}>Consulta, filtros e bip</h3>
