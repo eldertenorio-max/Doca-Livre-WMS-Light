@@ -4,7 +4,6 @@ import {
   criarInventario,
   fecharInventario,
   listInventarios,
-  reabrirInventario,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
 
@@ -84,19 +83,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     refresh()
   }
 
-  function getInventarioSeguro(id: string) {
-    return rows.find((r) => r.id === id)
-  }
-
-  function continuarInventario(id: string, reabrir: boolean) {
-    if (reabrir) {
-      const inv = getInventarioSeguro(id)
-      if (inv?.status === 'fechado') {
-        if (!confirm('Reabrir este inventário finalizado para continuar a coleta?')) return
-        reabrirInventario(id)
-        refresh()
-      }
-    }
+  function continuarInventario(id: string) {
     onAbrirCaptura(id)
   }
 
@@ -107,7 +94,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     if (r.status === 'aberto') {
       return (
         <>
-          <button type="button" className={btnClass} onClick={() => continuarInventario(r.id, false)}>
+          <button type="button" className={btnClass} onClick={() => continuarInventario(r.id)}>
             {labelColeta(r)}
           </button>
           <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
@@ -131,9 +118,6 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
 
     return (
       <>
-        <button type="button" className={btnClass} onClick={() => continuarInventario(r.id, true)}>
-          Continuar
-        </button>
         <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
           Editar
         </button>
@@ -149,7 +133,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
       <h1 className="page-panel__title">Inventários</h1>
       <p className="page-panel__subtitle">
         Crie um inventário com nome — ele aparecerá na lista. Depois clique em <strong>Começar inventário</strong> na
-        linha para abrir a coleta.
+        linha para abrir a coleta. Inventários finalizados podem ser editados ou visualizados.
       </p>
 
       <div className="page-form-grid inv-gerenciar__criar">
