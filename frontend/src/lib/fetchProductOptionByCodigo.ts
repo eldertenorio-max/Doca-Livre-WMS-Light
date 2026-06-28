@@ -73,3 +73,28 @@ export async function fetchProductOptionByCodigoFromDb(codigo: string): Promise<
 
   return null
 }
+
+/** Busca por trecho da descrição (quando código/EAN não batem no cache local). */
+export async function fetchProductOptionByDescricaoFromDb(desc: string): Promise<ProductOption | null> {
+  const q = String(desc ?? '').trim()
+  if (q.length < 2) return null
+  try {
+    const { data, error } = await supabase
+      .from(TABELA_PRODUTOS)
+      .select('*')
+      .ilike('descricao', `%${q}%`)
+      .limit(8)
+    if (error || !data?.length) return null
+    const ql = q.toLowerCase()
+    const mapped = data
+      .map((row) => mapRowToProductOption(row as Record<string, unknown>))
+      .filter(Boolean) as ProductOption[]
+    const exact = mapped.find((p) => p.descricao.toLowerCase() === ql)
+    if (exact) return exact
+    const starts = mapped.find((p) => p.descricao.toLowerCase().startsWith(ql))
+    if (starts) return starts
+    return mapped[0] ?? null
+  } catch {
+    return null
+  }
+}

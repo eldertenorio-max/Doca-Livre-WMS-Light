@@ -1,20 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isAppOnline } from '../lib/appConnectivity'
+import {
+  buildProductLookupMaps,
+  buscarProdutoUnicoLocal,
+  filtrarSugestoesProduto,
+} from '../lib/buscaProdutoInventario'
 import { findEnderecoByCodigo } from '../lib/enderecamentoStore'
-import { fetchProductOptionByCodigoFromDb } from '../lib/fetchProductOptionByCodigo'
+import {
+  fetchProductOptionByCodigoFromDb,
+  fetchProductOptionByDescricaoFromDb,
+} from '../lib/fetchProductOptionByCodigo'
 import {
   addLinhaInventario,
   getInventario,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
-import { buildProductByBarcodeMap, lookupProductByBarcode } from '../lib/barcodeProductLookup'
 import { mapRowToProductOption, TABELA_PRODUTOS, type ProductOption } from '../lib/productOptionMapper'
+import { subscribeTodosOsProdutosRealtime } from '../lib/subscribeTodosOsProdutosRealtime'
 import { supabase } from '../lib/supabaseClient'
 
 type Props = {
   inventarioId: string
   onVoltar: () => void
 }
+
+const SUGESTOES_MAX = 15
 
 function formatDateBR(d: Date) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
@@ -29,6 +39,7 @@ function formatDateTimeBR(iso: string) {
 export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const [sessao, setSessao] = useState<InventarioSessao | null>(() => getInventario(inventarioId) ?? null)
   const [produtos, setProdutos] = useState<ProductOption[]>([])
+  const [produtosCarregando, setProdutosCarregando] = useState(false)
   const [endereco, setEndereco] = useState('')
   const [codigoBarras, setCodigoBarras] = useState('')
   const [quantidade, setQuantidade] = useState('')
@@ -39,37 +50,34 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const [codigoInterno, setCodigoInterno] = useState('')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [sugestoesOpen, setSugestoesOpen] = useState(false)
+  const [sugestaoIdx, setSugestaoIdx] = useState(0)
 
   const enderecoRef = useRef<HTMLInputElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
+  const comboRef = useRef<HTMLDivElement>(null)
+  const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const online = isAppOnline()
 
-  const productMaps = useMemo(() => {
-    const byCode = new Map<string, ProductOption>()
-    const byCodeNoDots = new Map<string, ProductOption>()
-    for (const p of produtos) {
-      byCode.set(p.codigo, p)
-      byCode.set(p.codigo.replace(/\./g, ''), p)
-      byCodeNoDots.set(p.codigo.replace(/\./g, ''), p)
-    }
-    return {
-      byEan: buildProductByBarcodeMap(produtos, 'ean'),
-      byDun: buildProductByBarcodeMap(produtos, 'dun'),
-      byCode,
-      byCodeNoDots,
-    }
-  }, [produtos])
+  const productMaps = useMemo(() => buildProductLookupMaps(produtos), [produtos])
+
+  const sugestoes = useMemo(
+    () => filtrarSugestoesProduto(codigoBarras, produtos, productMaps, SUGESTOES_MAX),
+    [codigoBarras, produtos, productMaps],
+  )
 
   const loadProdutos = useCallback(async () => {
-    const { data } = await supabase
-      .from(TABELA_PRODUTOS)
-      .select('*')
-      .limit(3000)
-    const list = (data ?? [])
-      .map((r) => mapRowToProductOption(r as Record<string, unknown>))
-      .filter(Boolean) as ProductOption[]
-    setProdutos(list)
+    setProdutosCarregando(true)
+    try {
+      const { data } = await supabase.from(TABELA_PRODUTOS).select('*').order('codigo_interno').limit(5000)
+      const list = (data ?? [])
+        .map((r) => mapRowToProductOption(r as Record<string, unknown>))
+        .filter(Boolean) as ProductOption[]
+      setProdutos(list)
+    } finally {
+      setProdutosCarregando(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -77,8 +85,40 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   }, [loadProdutos])
 
   useEffect(() => {
+    const unsub = subscribeTodosOsProdutosRealtime(() => {
+      void loadProdutos()
+    })
+    return unsub
+  }, [loadProdutos])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadProdutos()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [loadProdutos])
+
+  useEffect(() => {
     setSessao(getInventario(inventarioId) ?? null)
   }, [inventarioId])
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!comboRef.current?.contains(e.target as Node)) setSugestoesOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  function aplicarProduto(p: ProductOption, textoBusca?: string) {
+    setCodigoInterno(p.codigo)
+    setProdutoLabel(p.descricao)
+    setUnidade(p.unidade_medida ?? '')
+    if (textoBusca !== undefined) setCodigoBarras(textoBusca)
+    setErr('')
+    setSugestoesOpen(false)
+  }
 
   async function resolverProduto(scanned: string) {
     const q = scanned.trim()
@@ -88,16 +128,20 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
       setUnidade('')
       return
     }
-    let hit =
-      lookupProductByBarcode(q, produtos, productMaps.byDun, productMaps.byEan, productMaps.byCode, productMaps.byCodeNoDots)
-        ?.product ?? null
+
+    let hit = buscarProdutoUnicoLocal(q, produtos, productMaps)
     if (!hit) {
       hit = await fetchProductOptionByCodigoFromDb(q)
     }
+    if (!hit && q.length >= 2) {
+      hit = await fetchProductOptionByDescricaoFromDb(q)
+    }
+
     if (hit) {
-      setCodigoInterno(hit.codigo)
-      setProdutoLabel(hit.descricao)
-      setUnidade(hit.unidade ?? '')
+      aplicarProduto(hit, q)
+      if (!produtos.some((p) => p.codigo === hit!.codigo)) {
+        setProdutos((prev) => [...prev, hit!].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR')))
+      }
     } else {
       setCodigoInterno('')
       setProdutoLabel('Produto não encontrado — cadastre em Produtos')
@@ -117,9 +161,19 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     barcodeRef.current?.focus()
   }
 
-  async function handleBarcodeChange(v: string) {
+  function handleBuscaChange(v: string) {
     setCodigoBarras(v)
-    await resolverProduto(v)
+    setSugestoesOpen(true)
+    setSugestaoIdx(0)
+    if (resolverTimerRef.current) clearTimeout(resolverTimerRef.current)
+    resolverTimerRef.current = setTimeout(() => {
+      void resolverProduto(v)
+    }, 280)
+  }
+
+  function selecionarSugestao(p: ProductOption) {
+    aplicarProduto(p, p.ean?.trim() || p.codigo)
+    ;(document.getElementById('inv-quantidade') as HTMLInputElement | null)?.focus()
   }
 
   function limparFormulario() {
@@ -132,6 +186,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     setProdutoLabel('')
     setCodigoInterno('')
     setErr('')
+    setSugestoesOpen(false)
     enderecoRef.current?.focus()
   }
 
@@ -149,7 +204,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
       return
     }
     if (!bar || !codigoInterno) {
-      setErr('Bipe ou digite um código de barras válido.')
+      setErr('Informe EAN, código do produto ou descrição válida.')
       return
     }
     if (!Number.isFinite(q) || q < 0) {
@@ -217,6 +272,9 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             <span>{formatDateTimeBR(sessao.dataInicio)}</span>
             <span>{sessao.linhas.length} linha(s)</span>
           </div>
+          <div className="inventario-captura__info-row inventario-captura__info-row--muted">
+            <span>{produtosCarregando ? 'Atualizando produtos…' : `${produtos.length} produto(s) no cadastro`}</span>
+          </div>
         </div>
 
         {err ? <div className="inventario-captura__alert inventario-captura__alert--err">{err}</div> : null}
@@ -252,34 +310,92 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           </div>
         </div>
 
-        <div className="inventario-captura__field">
-          <label htmlFor="inv-barcode">Código de barras</label>
+        <div className="inventario-captura__field" ref={comboRef}>
+          <label htmlFor="inv-barcode">Código / barras / descrição</label>
           <div className="inventario-captura__input-row">
             <input
               id="inv-barcode"
               ref={barcodeRef}
               value={codigoBarras}
-              onChange={(e) => void handleBarcodeChange(e.target.value)}
+              onChange={(e) => handleBuscaChange(e.target.value)}
+              onFocus={() => setSugestoesOpen(true)}
               onKeyDown={(e) => {
+                if (sugestoesOpen && sugestoes.length > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setSugestaoIdx((i) => Math.min(i + 1, sugestoes.length - 1))
+                    return
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setSugestaoIdx((i) => Math.max(i - 1, 0))
+                    return
+                  }
+                  if (e.key === 'Enter' && sugestaoIdx >= 0 && sugestoes[sugestaoIdx]) {
+                    e.preventDefault()
+                    selecionarSugestao(sugestoes[sugestaoIdx])
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    setSugestoesOpen(false)
+                    return
+                  }
+                }
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  ;(document.getElementById('inv-quantidade') as HTMLInputElement | null)?.focus()
+                  void resolverProduto(codigoBarras).then(() => {
+                    ;(document.getElementById('inv-quantidade') as HTMLInputElement | null)?.focus()
+                  })
                 }
               }}
               disabled={readonly}
               autoComplete="off"
-              placeholder="ex.: 7891234567890"
-              inputMode="numeric"
+              placeholder="EAN, 01.01.0001, 01010001 ou descrição"
+              aria-autocomplete="list"
+              aria-expanded={sugestoesOpen}
+              aria-controls="inv-produto-sugestoes"
             />
             <button
               type="button"
               className="inventario-captura__action-btn"
               disabled={readonly}
-              onClick={() => barcodeRef.current?.focus()}
+              title="Ver lista de produtos"
+              onClick={() => {
+                setSugestoesOpen((v) => !v)
+                barcodeRef.current?.focus()
+              }}
             >
-              Focar
+              Lista
             </button>
           </div>
+          {sugestoesOpen && !readonly ? (
+            <ul id="inv-produto-sugestoes" className="inventario-captura__sugestoes" role="listbox">
+              {sugestoes.length === 0 ? (
+                <li className="inventario-captura__sugestao inventario-captura__sugestao--empty">
+                  {produtosCarregando ? 'Carregando…' : 'Nenhum produto encontrado'}
+                </li>
+              ) : (
+                sugestoes.map((p, i) => (
+                  <li key={p.codigo}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={i === sugestaoIdx}
+                      className={`inventario-captura__sugestao${i === sugestaoIdx ? ' inventario-captura__sugestao--active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selecionarSugestao(p)}
+                    >
+                      <span className="inventario-captura__sugestao-cod">{p.codigo}</span>
+                      <span className="inventario-captura__sugestao-desc">{p.descricao}</span>
+                      {p.ean ? (
+                        <span className="inventario-captura__sugestao-ean">EAN {p.ean}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : null}
         </div>
 
         <div className="inventario-captura__row-2">
@@ -364,7 +480,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             value={produtoLabel}
             readOnly
             className="inventario-captura__readonly"
-            placeholder="Bipe o código para preencher automaticamente"
+            placeholder="Selecione na lista ou bipe/digite acima"
           />
         </div>
 

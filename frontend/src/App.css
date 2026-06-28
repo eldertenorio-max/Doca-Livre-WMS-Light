@@ -1567,6 +1567,69 @@
 
 .inventario-captura__field {
   margin: 0 10px 10px;
+  position: relative;
+}
+
+.inventario-captura__sugestoes {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: rgba(15, 40, 40, 0.98);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 20;
+}
+
+.inventario-captura__sugestao {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #e8f4f4;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.inventario-captura__sugestao:last-child {
+  border-bottom: none;
+}
+
+.inventario-captura__sugestao:hover,
+.inventario-captura__sugestao--active {
+  background: rgba(79, 142, 255, 0.18);
+}
+
+.inventario-captura__sugestao--empty {
+  color: rgba(255, 255, 255, 0.65);
+  cursor: default;
+  font-style: italic;
+}
+
+.inventario-captura__sugestao-cod {
+  display: block;
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  color: #93c5fd;
+  font-size: 12px;
+}
+
+.inventario-captura__sugestao-desc {
+  display: block;
+  margin-top: 2px;
+}
+
+.inventario-captura__sugestao-ean {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.75;
 }
 
 .inventario-captura__field label {
