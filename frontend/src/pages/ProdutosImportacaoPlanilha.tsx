@@ -58,6 +58,30 @@ function parseSheet(rows: Record<string, unknown>[]): LinhaImport[] {
   return out
 }
 
+function baixarModeloImportacao() {
+  const exemplo = [
+    {
+      codigo_interno: '01.01.0001',
+      descricao: 'EXEMPLO — MASSA CONGELADA DE PAO FRANCES RAPIDA - 5KG',
+      unidade: 'PT',
+      ean: '7891234567890',
+      dun: '17891234567897',
+    },
+    {
+      codigo_interno: '01.02.0003',
+      descricao: 'EXEMPLO — MASSA CONGELADA DE MINI PAO FRANCES INTEGRAL RAPIDA - 5KG',
+      unidade: 'PT',
+      ean: '',
+      dun: '',
+    },
+  ]
+  const ws = XLSX.utils.json_to_sheet(exemplo)
+  ws['!cols'] = [{ wch: 16 }, { wch: 52 }, { wch: 8 }, { wch: 16 }, { wch: 16 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Produtos')
+  XLSX.writeFile(wb, 'modelo-importacao-produtos.xlsx')
+}
+
 export default function ProdutosImportacaoPlanilha() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [linhas, setLinhas] = useState<LinhaImport[]>([])
@@ -187,9 +211,12 @@ export default function ProdutosImportacaoPlanilha() {
           />
           Atualizar produtos já existentes (mesmo código)
         </label>
-        <div className="page-form-grid__actions">
+        <div className="page-form-grid__actions page-form-grid__actions--wrap">
           <button type="button" disabled={!linhas.length || importando} onClick={() => void handleImportar()}>
             {importando ? 'Importando…' : `Importar ${linhas.length} linha(s)`}
+          </button>
+          <button type="button" className="page-btn-ghost" onClick={baixarModeloImportacao}>
+            Baixar modelo da planilha
           </button>
         </div>
       </div>
