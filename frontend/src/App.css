@@ -1417,6 +1417,57 @@
   flex-wrap: wrap;
 }
 
+/* ——— Contagem diária (sessão aberta pela lista) ——— */
+.contagem-sessao-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(79, 142, 255, 0.08);
+  border: 1px solid rgba(79, 142, 255, 0.25);
+}
+
+.contagem-sessao-header__back {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border, #4b5563);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-h, #f3f4f6);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.contagem-sessao-header__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.contagem-sessao-header__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: var(--text-h, #f3f4f6);
+}
+
+.contagem-sessao-header__meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted, #94a3b8);
+}
+
+@media (max-width: 640px) {
+  .contagem-estoque-wrap--sessao .contagem-sessao-header {
+    margin: 0 0 8px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    padding-top: calc(10px + env(safe-area-inset-top, 0));
+  }
+}
+
 /* ——— Tela captura inventário (coletor) ——— */
 .inventario-captura-wrap {
   display: flex;
@@ -1683,6 +1734,22 @@
   }
 
   .app-shell:has(.inventario-captura-wrap) .app-shell__content {
+    padding: 0;
+  }
+
+  .app-shell:has(.contagem-estoque-wrap--sessao) .app-sidebar {
+    display: none;
+  }
+
+  .app-shell:has(.contagem-estoque-wrap--sessao) .app-shell__main {
+    margin-left: 0;
+  }
+
+  .app-shell:has(.contagem-estoque-wrap--sessao) .app-shell__header-extra {
+    display: none;
+  }
+
+  .app-shell:has(.contagem-estoque-wrap--sessao) .app-shell__content {
     padding: 0;
   }
 

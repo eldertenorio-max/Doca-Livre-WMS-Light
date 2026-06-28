@@ -14,6 +14,7 @@ import ProdutosSubGrupos from './pages/ProdutosSubGrupos'
 import CadastroEnderecamento from './pages/CadastroEnderecamento'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
 import ContagemEstoque from './pages/ContagemEstoque'
+import ContagemGerenciar from './pages/ContagemGerenciar'
 import EstoqueConsulta from './pages/EstoqueConsulta'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
@@ -34,6 +35,7 @@ export type AppView =
   | 'inventarios'
   | 'inventarioCaptura'
   | 'contagem'
+  | 'contagemCaptura'
   | 'estoque'
   | 'relatorio'
 
@@ -76,6 +78,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [view, setView] = useState<AppView>('inventarios')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
+  const [capturaContagemId, setCapturaContagemId] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('ui-theme')
     return saved === 'light' || saved === 'dark' ? saved : 'dark'
@@ -137,16 +140,22 @@ export default function App() {
   )
 
   const activeSidebarId =
-    view === 'inventarioCaptura' ? 'inventarios' : view
+    view === 'inventarioCaptura' ? 'inventarios' : view === 'contagemCaptura' ? 'contagem' : view
 
   function navigate(id: string) {
     if (id === 'inventarios') setCapturaInventarioId(null)
+    if (id === 'contagem') setCapturaContagemId(null)
     setView(id as AppView)
   }
 
   function abrirCaptura(inventarioId: string) {
     setCapturaInventarioId(inventarioId)
     setView('inventarioCaptura')
+  }
+
+  function abrirContagem(contagemId: string) {
+    setCapturaContagemId(contagemId)
+    setView('contagemCaptura')
   }
 
   if (!splashDone) {
@@ -218,7 +227,18 @@ export default function App() {
       ) : null}
       {view === 'contagem' ? (
         <PanelErrorBoundary>
-          <ContagemEstoque />
+          <ContagemGerenciar onAbrirContagem={abrirContagem} />
+        </PanelErrorBoundary>
+      ) : null}
+      {view === 'contagemCaptura' && capturaContagemId ? (
+        <PanelErrorBoundary>
+          <ContagemEstoque
+            contagemSessaoId={capturaContagemId}
+            onVoltarLista={() => {
+              setCapturaContagemId(null)
+              setView('contagem')
+            }}
+          />
         </PanelErrorBoundary>
       ) : null}
       {view === 'estoque' ? (

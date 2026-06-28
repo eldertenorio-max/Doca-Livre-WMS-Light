@@ -136,6 +136,12 @@ import {
   INVENTARIO_CONFERENTES_META_RODADA,
 } from '../lib/inventarioPresenca'
 import {
+  fecharContagemDiaria,
+  formatDataContagemBR,
+  getContagemDiaria,
+  marcarContagemIniciada,
+} from '../lib/contagemDiariaSessaoStore'
+import {
   calcHistoryKeyForCodigo,
   ChecklistCalculatorModal,
   ChecklistQtyCalcButton,
@@ -545,8 +551,20 @@ function newSessionId() {
   return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
 }
 
-export default function ContagemEstoque({ inventario = false }: { inventario?: boolean }) {
+export default function ContagemEstoque({
+  inventario = false,
+  contagemSessaoId,
+  onVoltarLista,
+}: {
+  inventario?: boolean
+  contagemSessaoId?: string
+  onVoltarLista?: () => void
+}) {
   const sessionMode: OfflineSessionMode = inventario ? 'inventario' : 'contagem'
+  const contagemSessaoMeta = useMemo(
+    () => (contagemSessaoId ? getContagemDiaria(contagemSessaoId) : undefined),
+    [contagemSessaoId],
+  )
   const tContagens = tableContagens(inventario)
   const tPlanilhaFk = planilhaFkContagemColumn(inventario)
   const [conferentes, setConferentes] = useState<Conferente[]>([])
@@ -646,6 +664,17 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
   useEffect(() => {
     offlineSessionRef.current = offlineSession
   }, [offlineSession])
+
+  useEffect(() => {
+    if (inventario || !contagemSessaoId) return
+    const meta = getContagemDiaria(contagemSessaoId)
+    if (!meta) return
+    marcarContagemIniciada(contagemSessaoId)
+    if (meta.dataContagem) {
+      setContagemDiaYmd(meta.dataContagem)
+      setPreviewConsultaDiaYmd(meta.dataContagem)
+    }
+  }, [contagemSessaoId, inventario])
 
   useEffect(() => {
     return subscribeAppConnectivity(setAppOnline)
@@ -4092,6 +4121,7 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
           elapsedLabel: formatSessionInterval(sessionStartedAtIso, sessionEndedAtIso),
         })
         setSaveSuccess(`Contagem salva no Supabase.${msgCadastroEanDun}`)
+        if (contagemSessaoId) fecharContagemDiaria(contagemSessaoId)
       }
       if (browserNotificationAllowed) {
         notifyContagemFinalizada({
@@ -5903,17 +5933,34 @@ export default function ContagemEstoque({ inventario = false }: { inventario?: b
 
   return (
     <div
+      className={onVoltarLista ? 'contagem-estoque-wrap contagem-estoque-wrap--sessao' : undefined}
       style={{
-        padding: isMobile ? 10 : 16,
+        padding: onVoltarLista ? (isMobile ? 0 : 12) : isMobile ? 10 : 16,
         width: '100%',
-        maxWidth: isMobile ? 1200 : 1680,
+        maxWidth: onVoltarLista && isMobile ? 'none' : isMobile ? 1200 : 1680,
         margin: '0 auto',
         boxSizing: 'border-box',
         textAlign: 'left',
         color: '#ffd95c',
       }}
     >
-      <h2>{inventario ? 'Inventário físico' : 'Contagem de Estoque'}</h2>
+      {onVoltarLista ? (
+        <header className="contagem-sessao-header">
+          <button type="button" className="contagem-sessao-header__back" onClick={onVoltarLista} aria-label="Voltar">
+            ←
+          </button>
+          <div className="contagem-sessao-header__text">
+            <h2 className="contagem-sessao-header__title">{contagemSessaoMeta?.titulo ?? 'Contagem diária'}</h2>
+            {contagemSessaoMeta ? (
+              <p className="contagem-sessao-header__meta">
+                {contagemSessaoMeta.local} · Dia {formatDataContagemBR(contagemSessaoMeta.dataContagem)}
+              </p>
+            ) : null}
+          </div>
+        </header>
+      ) : null}
+
+      {!onVoltarLista ? <h2>{inventario ? 'Inventário físico' : 'Contagem de Estoque'}</h2> : null}
 
       {!appOnline ? (
         <div
