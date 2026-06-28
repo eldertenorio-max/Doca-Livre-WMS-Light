@@ -196,6 +196,12 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
           <h1 className="inventario-captura__title">{sessao.titulo}</h1>
         </header>
 
+        {readonly ? (
+          <div className="inventario-captura__alert inventario-captura__alert--readonly">
+            Inventário finalizado — somente visualização. Use «Continuar» na lista para reabrir e coletar novamente.
+          </div>
+        ) : null}
+
         <div className="inventario-captura__info">
           <div className="inventario-captura__info-row">
             <span>{sessao.local}</span>

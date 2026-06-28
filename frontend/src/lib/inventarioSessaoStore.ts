@@ -102,3 +102,30 @@ export function fecharInventario(id: string) {
   sessao.dataFim = new Date().toISOString()
   saveInventario(sessao)
 }
+
+export function reabrirInventario(id: string): InventarioSessao | null {
+  const sessao = getInventario(id)
+  if (!sessao) return null
+  sessao.status = 'aberto'
+  sessao.dataFim = null
+  saveInventario(sessao)
+  return sessao
+}
+
+export function atualizarInventarioMeta(
+  id: string,
+  patch: { titulo?: string; local?: string },
+): InventarioSessao | null {
+  const sessao = getInventario(id)
+  if (!sessao) return null
+  if (patch.titulo !== undefined) {
+    const t = patch.titulo.trim()
+    if (t) sessao.titulo = t
+  }
+  if (patch.local !== undefined) {
+    const l = patch.local.trim()
+    if (l) sessao.local = l
+  }
+  saveInventario(sessao)
+  return sessao
+}
