@@ -3724,9 +3724,20 @@ function OcupacaoCamaras111213Secao({
   )
 }
 
-export default function ContagemDiariaAmbiental() {
+export default function ContagemDiariaAmbiental({
+  initialTab = 'temperatura',
+  lockTab = false,
+}: {
+  /** Aba inicial (temperatura ou ocupação). */
+  initialTab?: TabKey
+  /** Oculta o seletor de abas — usado quando cada módulo tem item próprio no menu. */
+  lockTab?: boolean
+} = {}) {
   const [tempHistPage, setTempHistPage] = useState(1)
-  const [tab, setTab] = useState<TabKey>('temperatura')
+  const [tab, setTab] = useState<TabKey>(initialTab)
+  useEffect(() => {
+    if (lockTab) setTab(initialTab)
+  }, [initialTab, lockTab])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
@@ -3990,6 +4001,7 @@ export default function ContagemDiariaAmbiental() {
     <>
       <style dangerouslySetInnerHTML={{ __html: CHART_ANIM_CSS }} />
       <div style={{ maxWidth: 1360, margin: '0 auto', padding: '0 16px 22px', width: '100%', boxSizing: 'border-box' }}>
+      {!lockTab ? (
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <button
           type="button"
@@ -4022,6 +4034,7 @@ export default function ContagemDiariaAmbiental() {
           Ocupação
         </button>
       </div>
+      ) : null}
 
       {ok ? (
         <div style={{ marginBottom: 10, border: '1px solid #15803d', background: 'rgba(21,128,61,.2)', color: '#bbf7d0', borderRadius: 8, padding: '8px 10px' }}>
