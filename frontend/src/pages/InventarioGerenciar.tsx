@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import InventarioPainel from '../components/inventario/InventarioPainel'
 import {
   criarInventario,
   fecharInventario,
@@ -19,12 +20,14 @@ function formatData(iso: string | null) {
 
 export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const [rows, setRows] = useState<InventarioSessao[]>(() => listInventarios())
+  const [painelKey, setPainelKey] = useState(0)
   const [local, setLocal] = useState('ULTRAPAO GUARULHOS DISTRI')
 
   const abertos = useMemo(() => rows.filter((r) => r.status === 'aberto'), [rows])
 
   function refresh() {
     setRows(listInventarios())
+    setPainelKey((k) => k + 1)
   }
 
   function handleCriar() {
@@ -35,6 +38,8 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
 
   return (
     <div className="page-panel">
+      <InventarioPainel refreshKey={painelKey} />
+
       <h1 className="page-panel__title">Inventários</h1>
       <p className="page-panel__subtitle">
         Crie um inventário e abra a tela de captura (estilo coletor) para bipar endereço, código de barras, quantidade,

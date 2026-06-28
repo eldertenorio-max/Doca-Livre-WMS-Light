@@ -1,14 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getRuasPorCamara, INVENTARIO_CAMARAS } from '../components/inventario/inventarioPlanilhaModel'
 import {
   buildCodigoEndereco,
+  contarEnderecosPorFiltro,
   deleteEndereco,
+  deleteEnderecosPorFiltro,
+  deleteTodosEnderecos,
   listEnderecosTodos,
   planejarEnderecosEmLote,
   saveEndereco,
   saveEnderecosEmLote,
   type EnderecoCadastro,
 } from '../lib/enderecamentoStore'
+
+const PAGE_SIZE = 30
 
 const emptyForm = () => ({
   id: '',
@@ -31,12 +36,22 @@ const emptyLote = () => ({
   substituirExistentes: false,
 })
 
+const emptyExclusao = () => ({
+  camara: '11',
+  rua: 'A',
+  nivel: '',
+})
+
 export default function CadastroEnderecamento() {
   const [rows, setRows] = useState<EnderecoCadastro[]>(() => listEnderecosTodos())
   const [form, setForm] = useState(emptyForm)
   const [lote, setLote] = useState(emptyLote)
   const [loteAberto, setLoteAberto] = useState(true)
+  const [exclusaoAberta, setExclusaoAberta] = useState(false)
+  const [exclusao, setExclusao] = useState(emptyExclusao)
+  const [exclusaoMsg, setExclusaoMsg] = useState('')
   const [busca, setBusca] = useState('')
+  const [page, setPage] = useState(1)
   const [loteMsg, setLoteMsg] = useState('')
 
   const ruasLote = useMemo(() => {
@@ -75,8 +90,129 @@ export default function CadastroEnderecamento() {
     )
   }, [rows, busca])
 
+  const totalPages = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, totalPages)
+  const slice = useMemo(() => {
+    const start = (pageSafe - 1) * PAGE_SIZE
+    return filtrados.slice(start, start + PAGE_SIZE)
+  }, [filtrados, pageSafe])
+
+  const rangeFrom = filtrados.length === 0 ? 0 : (pageSafe - 1) * PAGE_SIZE + 1
+  const rangeTo = filtrados.length === 0 ? 0 : Math.min(pageSafe * PAGE_SIZE, filtrados.length)
+
+  useEffect(() => {
+    setPage(1)
+  }, [busca])
+
+  const ruasExclusao = useMemo(() => {
+    const c = Number(exclusao.camara)
+    if (!Number.isFinite(c)) return []
+    return getRuasPorCamara(c)
+  }, [exclusao.camara])
+
+  const previewExclusaoNivel = useMemo(() => {
+    const camara = Number(exclusao.camara)
+    const nivel = Number(exclusao.nivel)
+    if (!Number.isFinite(camara) || !exclusao.rua.trim() || !Number.isFinite(nivel)) return 0
+    return contarEnderecosPorFiltro({ camara, rua: exclusao.rua, nivel })
+  }, [exclusao])
+
+  const previewExclusaoRua = useMemo(() => {
+    const camara = Number(exclusao.camara)
+    if (!Number.isFinite(camara) || !exclusao.rua.trim()) return 0
+    return contarEnderecosPorFiltro({ camara, rua: exclusao.rua })
+  }, [exclusao.camara, exclusao.rua])
+
+  const previewExclusaoCamara = useMemo(() => {
+    const camara = Number(exclusao.camara)
+    if (!Number.isFinite(camara)) return 0
+    return contarEnderecosPorFiltro({ camara })
+  }, [exclusao.camara])
+
   function refresh() {
     setRows(listEnderecosTodos())
+  }
+
+  function executarExclusao(tipo: 'nivel' | 'rua' | 'camara' | 'todos') {
+    setExclusaoMsg('')
+    const camara = Number(exclusao.camara)
+
+    if (tipo === 'todos') {
+      const n = rows.length
+      if (n === 0) {
+        setExclusaoMsg('Não há endereços para excluir.')
+        return
+      }
+      if (!confirm(`Excluir TODOS os ${n} endereços? Esta ação não pode ser desfeita.`)) return
+      if (!confirm('Confirme novamente: apagar toda a base de endereços?')) return
+      const removidos = deleteTodosEnderecos()
+      refresh()
+      setPage(1)
+      setExclusaoMsg(`${removidos} endereço(s) excluído(s).`)
+      return
+    }
+
+    if (!Number.isFinite(camara)) {
+      setExclusaoMsg('Selecione a câmara.')
+      return
+    }
+
+    if (tipo === 'camara') {
+      const n = previewExclusaoCamara
+      if (n === 0) {
+        setExclusaoMsg('Nenhum endereço nesta câmara.')
+        return
+      }
+      if (!confirm(`Excluir ${n} endereço(s) da câmara ${camara}?`)) return
+      const removidos = deleteEnderecosPorFiltro({ camara })
+      refresh()
+      setPage(1)
+      setExclusaoMsg(`${removidos} endereço(s) da câmara ${camara} excluído(s).`)
+      return
+    }
+
+    if (!exclusao.rua.trim()) {
+      setExclusaoMsg('Selecione a rua.')
+      return
+    }
+
+    if (tipo === 'rua') {
+      const n = previewExclusaoRua
+      if (n === 0) {
+        setExclusaoMsg('Nenhum endereço nesta rua.')
+        return
+      }
+      if (!confirm(`Excluir ${n} endereço(s) da câmara ${camara}, rua ${exclusao.rua}?`)) return
+      const removidos = deleteEnderecosPorFiltro({ camara, rua: exclusao.rua })
+      refresh()
+      setPage(1)
+      setExclusaoMsg(`${removidos} endereço(s) da rua ${exclusao.rua} (câm. ${camara}) excluído(s).`)
+      return
+    }
+
+    const nivel = Number(exclusao.nivel)
+    if (!Number.isFinite(nivel)) {
+      setExclusaoMsg('Informe o nível a excluir.')
+      return
+    }
+    const n = previewExclusaoNivel
+    if (n === 0) {
+      setExclusaoMsg('Nenhum endereço neste nível.')
+      return
+    }
+    if (
+      !confirm(
+        `Excluir ${n} endereço(s) — câmara ${camara}, rua ${exclusao.rua}, nível ${nivel}?`,
+      )
+    ) {
+      return
+    }
+    const removidos = deleteEnderecosPorFiltro({ camara, rua: exclusao.rua, nivel })
+    refresh()
+    setPage(1)
+    setExclusaoMsg(
+      `${removidos} endereço(s) do nível ${nivel} (câm. ${camara}, rua ${exclusao.rua}) excluído(s).`,
+    )
   }
 
   function editar(r: EnderecoCadastro) {
@@ -286,6 +422,109 @@ export default function CadastroEnderecamento() {
         ) : null}
       </section>
 
+      <section className="endereco-lote-panel endereco-exclusao-panel">
+        <button
+          type="button"
+          className="endereco-lote-panel__toggle endereco-exclusao-panel__toggle"
+          onClick={() => setExclusaoAberta((v) => !v)}
+        >
+          {exclusaoAberta ? '▼' : '▶'} Excluir endereços em lote
+        </button>
+
+        {exclusaoAberta ? (
+          <div className="endereco-exclusao-form">
+            <p className="endereco-exclusao-form__hint">
+              Escolha o alcance da exclusão. Endereço individual continua disponível na tabela abaixo.
+            </p>
+            <div className="page-form-grid">
+              <label>
+                Câmara
+                <select
+                  value={exclusao.camara}
+                  onChange={(e) => {
+                    const cam = e.target.value
+                    const ruas = getRuasPorCamara(Number(cam))
+                    setExclusao((f) => ({
+                      ...f,
+                      camara: cam,
+                      rua: ruas.includes(f.rua) ? f.rua : (ruas[0] ?? ''),
+                    }))
+                  }}
+                >
+                  {INVENTARIO_CAMARAS.map((c) => (
+                    <option key={c} value={String(c)}>
+                      Câmara {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Rua
+                <select
+                  value={exclusao.rua}
+                  onChange={(e) => setExclusao((f) => ({ ...f, rua: e.target.value }))}
+                >
+                  {ruasExclusao.length === 0 ? (
+                    <option value="">—</option>
+                  ) : (
+                    ruasExclusao.map((r) => (
+                      <option key={r} value={r}>
+                        Rua {r}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <label>
+                Nível (só para excluir um nível)
+                <input
+                  value={exclusao.nivel}
+                  onChange={(e) => setExclusao((f) => ({ ...f, nivel: e.target.value }))}
+                  inputMode="numeric"
+                  placeholder="Ex.: 3"
+                />
+              </label>
+            </div>
+
+            <div className="endereco-exclusao-form__actions">
+              <button
+                type="button"
+                className="page-btn-ghost page-btn-danger"
+                disabled={previewExclusaoNivel === 0}
+                onClick={() => executarExclusao('nivel')}
+              >
+                Excluir nível ({previewExclusaoNivel})
+              </button>
+              <button
+                type="button"
+                className="page-btn-ghost page-btn-danger"
+                disabled={previewExclusaoRua === 0}
+                onClick={() => executarExclusao('rua')}
+              >
+                Excluir rua inteira ({previewExclusaoRua})
+              </button>
+              <button
+                type="button"
+                className="page-btn-ghost page-btn-danger"
+                disabled={previewExclusaoCamara === 0}
+                onClick={() => executarExclusao('camara')}
+              >
+                Excluir câmara inteira ({previewExclusaoCamara})
+              </button>
+              <button
+                type="button"
+                className="page-btn-ghost page-btn-danger endereco-exclusao-form__btn-todos"
+                disabled={rows.length === 0}
+                onClick={() => executarExclusao('todos')}
+              >
+                Excluir tudo ({rows.length})
+              </button>
+            </div>
+            {exclusaoMsg ? <p className="endereco-exclusao-form__msg">{exclusaoMsg}</p> : null}
+          </div>
+        ) : null}
+      </section>
+
       <h2 className="page-panel__section-title">Cadastro individual</h2>
 
       <form className="page-form-grid" onSubmit={handleSubmit}>
@@ -350,6 +589,16 @@ export default function CadastroEnderecamento() {
           placeholder="Filtrar endereços…"
           style={{ marginBottom: 12, maxWidth: 320 }}
         />
+
+        {filtrados.length > 0 ? (
+          <p className="page-panel__meta">
+            Mostrando {rangeFrom}–{rangeTo} de {filtrados.length} endereço(s)
+            {busca.trim() ? ' (filtrado)' : ''} · Página {pageSafe} de {totalPages}
+          </p>
+        ) : (
+          <p className="page-panel__meta">Nenhum endereço{busca.trim() ? ' com este filtro' : ''}.</p>
+        )}
+
         <div className="page-table-wrap">
           <table className="page-table">
             <thead>
@@ -363,35 +612,60 @@ export default function CadastroEnderecamento() {
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.codigo}</td>
-                  <td>{r.camara ?? '—'}</td>
-                  <td>{r.rua || '—'}</td>
-                  <td>{r.posicao ?? '—'}</td>
-                  <td>{r.nivel ?? '—'}</td>
-                  <td>
-                    <button type="button" className="page-btn-ghost" onClick={() => editar(r)}>
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="page-btn-ghost page-btn-danger"
-                      onClick={() => {
-                        if (confirm('Excluir este endereço?')) {
-                          deleteEndereco(r.id)
-                          refresh()
-                        }
-                      }}
-                    >
-                      Excluir
-                    </button>
-                  </td>
+              {slice.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>Nenhum endereço nesta página.</td>
                 </tr>
-              ))}
+              ) : (
+                slice.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.codigo}</td>
+                    <td>{r.camara ?? '—'}</td>
+                    <td>{r.rua || '—'}</td>
+                    <td>{r.posicao ?? '—'}</td>
+                    <td>{r.nivel ?? '—'}</td>
+                    <td>
+                      <button type="button" className="page-btn-ghost" onClick={() => editar(r)}>
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="page-btn-ghost page-btn-danger"
+                        onClick={() => {
+                          if (confirm(`Excluir o endereço ${r.codigo}?`)) {
+                            deleteEndereco(r.id)
+                            if (form.id === r.id) limpar()
+                            refresh()
+                          }
+                        }}
+                      >
+                        Excluir
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        {filtrados.length > PAGE_SIZE ? (
+          <div className="page-pagination">
+            <button type="button" disabled={pageSafe <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              Anterior
+            </button>
+            <span>
+              Página {pageSafe} de {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={pageSafe >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Próxima
+            </button>
+          </div>
+        ) : null}
       </section>
     </div>
   )

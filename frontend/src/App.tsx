@@ -1,22 +1,33 @@
 import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import './App.css'
-import logoDis from './assets/logo-dis-logistica-inteligente.png'
+import AppHeader from './components/layout/AppHeader'
 import AppShell from './components/layout/AppShell'
 import type { SidebarItem } from './components/layout/ExpandableSidebar'
 import OpeningSplash from './components/OpeningSplash'
 import LoginScreen from './pages/LoginScreen'
 import BaseProdutos from './pages/BaseProdutos'
+import ProdutosFamilia from './pages/ProdutosFamilia'
+import ProdutosGrupos from './pages/ProdutosGrupos'
+import ProdutosImportacaoPlanilha from './pages/ProdutosImportacaoPlanilha'
+import ProdutosSubGrupos from './pages/ProdutosSubGrupos'
 import CadastroEnderecamento from './pages/CadastroEnderecamento'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
+import ContagemDiariaPainel from './components/contagem/ContagemDiariaPainel'
 import ContagemEstoque from './pages/ContagemEstoque'
+import EstoqueConsulta from './pages/EstoqueConsulta'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
+import RelatorioHub from './pages/RelatorioHub'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 
 export type AppView =
   | 'produtos'
+  | 'produtosFamilia'
+  | 'produtosGrupos'
+  | 'produtosImportacao'
+  | 'produtosSubGrupos'
   | 'temperatura'
   | 'ocupacao'
   | 'seguranca'
@@ -24,6 +35,8 @@ export type AppView =
   | 'inventarios'
   | 'inventarioCaptura'
   | 'contagem'
+  | 'estoque'
+  | 'relatorio'
 
 type Theme = 'dark' | 'light'
 
@@ -99,13 +112,27 @@ export default function App() {
 
   const sidebarItems: SidebarItem[] = useMemo(
     () => [
-      { id: 'produtos', label: 'Produtos', icon: <NavEmoji>🏷️</NavEmoji>, accent: '#fbbf24' },
+      {
+        id: 'produtos',
+        label: 'Produtos',
+        icon: <NavEmoji>📦</NavEmoji>,
+        accent: '#fbbf24',
+        children: [
+          { id: 'produtosFamilia', label: 'Família' },
+          { id: 'produtosGrupos', label: 'Grupos' },
+          { id: 'produtosImportacao', label: 'Importação de Planilha de Produtos' },
+          { id: 'produtos', label: 'Produtos' },
+          { id: 'produtosSubGrupos', label: 'SubGrupos' },
+        ],
+      },
       { id: 'temperatura', label: 'Temperatura', icon: <NavEmoji>🌡️</NavEmoji>, accent: '#22c55e' },
       { id: 'ocupacao', label: 'Ocupação', icon: <NavEmoji>📊</NavEmoji>, accent: '#38bdf8' },
       { id: 'seguranca', label: 'Estoque de segurança', icon: <NavEmoji>🛡️</NavEmoji>, accent: '#2dd4bf' },
       { id: 'enderecamento', label: 'Endereçamento', icon: <NavEmoji>📍</NavEmoji>, accent: '#a78bfa' },
       { id: 'inventarios', label: 'Inventários', icon: <NavEmoji>📦</NavEmoji>, accent: '#26c6da' },
       { id: 'contagem', label: 'Contagem diária', icon: <NavEmoji>📋</NavEmoji>, accent: '#4f8eff' },
+      { id: 'estoque', label: 'Estoque', icon: <NavEmoji>📊</NavEmoji>, accent: '#a855f7' },
+      { id: 'relatorio', label: 'Relatório', icon: <NavEmoji>📄</NavEmoji>, accent: '#f97316' },
     ],
     [],
   )
@@ -132,20 +159,13 @@ export default function App() {
   }
 
   const sidebarFooter = (
-    <>
-      <button
-        type="button"
-        className="app-sidebar__footer-btn"
-        onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-      >
-        {theme === 'dark' ? '☀️ Tema claro' : '🌙 Tema escuro'}
-      </button>
-      {authEnabled && session ? (
-        <button type="button" className="app-sidebar__footer-btn" onClick={() => void supabase.auth.signOut()}>
-          Sair
-        </button>
-      ) : null}
-    </>
+    <button
+      type="button"
+      className="app-sidebar__footer-btn"
+      onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+    >
+      {theme === 'dark' ? '☀️ Tema claro' : '🌙 Tema escuro'}
+    </button>
   )
 
   return (
@@ -155,13 +175,20 @@ export default function App() {
       onNavigate={navigate}
       footer={sidebarFooter}
       headerExtra={
-        <div className="app-topbar">
-          <img src={logoDis} alt="" className="app-topbar__logo" />
-          <span className="app-topbar__title">DIS Logística Inteligente</span>
-        </div>
+        <AppHeader
+          session={session}
+          authEnabled={authEnabled}
+          theme={theme}
+          onThemeToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          onSignOut={() => void supabase.auth.signOut()}
+        />
       }
     >
       {view === 'produtos' ? <BaseProdutos /> : null}
+      {view === 'produtosFamilia' ? <ProdutosFamilia /> : null}
+      {view === 'produtosGrupos' ? <ProdutosGrupos /> : null}
+      {view === 'produtosImportacao' ? <ProdutosImportacaoPlanilha /> : null}
+      {view === 'produtosSubGrupos' ? <ProdutosSubGrupos /> : null}
       {view === 'temperatura' ? (
         <PanelErrorBoundary>
           <ContagemDiariaAmbiental initialTab="temperatura" lockTab />
@@ -192,7 +219,18 @@ export default function App() {
       ) : null}
       {view === 'contagem' ? (
         <PanelErrorBoundary>
+          <ContagemDiariaPainel />
           <ContagemEstoque />
+        </PanelErrorBoundary>
+      ) : null}
+      {view === 'estoque' ? (
+        <PanelErrorBoundary>
+          <EstoqueConsulta />
+        </PanelErrorBoundary>
+      ) : null}
+      {view === 'relatorio' ? (
+        <PanelErrorBoundary>
+          <RelatorioHub />
         </PanelErrorBoundary>
       ) : null}
     </AppShell>

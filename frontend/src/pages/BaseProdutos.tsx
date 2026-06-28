@@ -3,9 +3,9 @@ import type React from 'react'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
+import './BaseProdutos.css'
 
 const TABELA_PRODUTOS = 'Todos os Produtos'
-const PAGE_SIZE = 25
 
 type ProdutoDbRow = {
   id: string
@@ -128,67 +128,8 @@ function matchesBarcode(stored: string | null | undefined, scanned: string): boo
   return false
 }
 
-const basePanelStyle: React.CSSProperties = {
-  marginTop: 16,
-  padding: 16,
-  border: '1px solid var(--border, #ccc)',
-  borderRadius: 10,
-  background: 'var(--panel-bg, rgba(0,0,0,.04))',
-}
-
-const baseToolbarLabelStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-  fontSize: 13,
-}
-
-const baseToolbarInputStyle: React.CSSProperties = {
-  padding: '10px 10px',
-  border: '1px solid #ccc',
-  borderRadius: 8,
-  width: '100%',
-  boxSizing: 'border-box',
-}
-
-const baseToolbarBtnRow: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 8,
-}
-
-const baseBtnCarregar: React.CSSProperties = {
-  ...baseToolbarBtnRow,
-  background: 'linear-gradient(180deg, #4f8eff 0%, #2f6fdf 100%)',
-  border: '1px solid #7fb0ff',
-  color: '#f4f9ff',
-  fontWeight: 700,
-}
-
-const baseBtnCadastrar: React.CSSProperties = {
-  ...baseToolbarBtnRow,
-  background: 'linear-gradient(180deg, #66bb6a 0%, #2e7d32 100%)',
-  border: '1px solid #a5d6a7',
-  color: '#fff',
-  fontWeight: 700,
-}
-
-const baseBtnBuscar: React.CSSProperties = {
-  ...baseToolbarBtnRow,
-  background: 'linear-gradient(180deg, #42a5f5 0%, #1976d2 100%)',
-  border: '1px solid #90caf9',
-  color: '#fff',
-  fontWeight: 700,
-}
-
-const baseBtnLimparBip: React.CSSProperties = {
-  ...baseToolbarBtnRow,
-  background: 'linear-gradient(180deg, #ffb74d 0%, #ef6c00 100%)',
-  border: '1px solid #ffcc80',
-  color: '#1f1200',
-  fontWeight: 700,
-}
+const MSG_CONFERENTE_OBRIGATORIO =
+  'Selecione o conferente no campo «Conferente (ao alterar EAN/DUN)» antes de salvar alteração de EAN ou DUN.'
 
 type UnidadeDbField = 'unidade' | 'unidade_medida'
 
@@ -221,9 +162,6 @@ function payloadTemMetaHoraConferente(p: Record<string, unknown>): boolean {
 function patchUnidadeField(field: UnidadeDbField, unidade: string | null): Record<string, string | null> {
   return field === 'unidade_medida' ? { unidade_medida: unidade } : { unidade }
 }
-
-const MSG_CONFERENTE_OBRIGATORIO =
-  'Selecione o conferente no campo «Conferente (ao alterar EAN/DUN)» antes de salvar alteração de EAN ou DUN.'
 
 function propsAlteracaoCodigo(
   r: ProdutoDbRow,
@@ -267,10 +205,8 @@ export default function BaseProdutos() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [filterCodigo, setFilterCodigo] = useState('')
-  const [filterDescricao, setFilterDescricao] = useState('')
-  const [page, setPage] = useState(1)
-  const [showAll, setShowAll] = useState(false)
+  const [matchKeys, setMatchKeys] = useState<string[]>([])
+  const [matchIndex, setMatchIndex] = useState(0)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
 
@@ -298,14 +234,7 @@ export default function BaseProdutos() {
   const bipInputRef = useRef<HTMLInputElement | null>(null)
   const rowRefs = useRef<Map<string, HTMLElement | null>>(new Map())
 
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth <= 900,
-  )
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 900)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  const conferenteSelectRef = useRef<HTMLSelectElement | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -326,8 +255,6 @@ export default function BaseProdutos() {
     const n = conferentes.find((c) => c.id === alteracaoConferenteId)?.nome?.trim()
     return n || ''
   }, [conferentes, alteracaoConferenteId])
-
-  const conferenteSelectRef = useRef<HTMLSelectElement | null>(null)
 
   const precisaConferenteNaEdicao = useMemo(() => {
     if (!editingKey || !editSnapshot) return false
@@ -426,11 +353,9 @@ export default function BaseProdutos() {
       setRows(list)
       setEditingKey(null)
       setEditSnapshot(null)
-      setPage(1)
-      setShowAll(false)
-      setBipSoloKey(null)
+      setBipSoloKey((prev) => (prev && list.some((r) => rowKey(r) === prev) ? prev : null))
       setBipCodigoBarras('')
-      setSuccess(`${list.length} produto(s) carregado(s).`)
+      setSuccess(`${list.length} produto(s) na base.`)
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao carregar a base.')
       setRows([])
@@ -442,33 +367,6 @@ export default function BaseProdutos() {
   useEffect(() => {
     void load()
   }, [load])
-
-  const filtered = useMemo(() => {
-    const c = filterCodigo.trim().toLowerCase()
-    const d = filterDescricao.trim().toLowerCase()
-    let list = rows.filter((r) => {
-      const okC = !c || r.codigo_interno.toLowerCase().includes(c)
-      const okD = !d || r.descricao.toLowerCase().includes(d)
-      return okC && okD
-    })
-    if (bipSoloKey) {
-      list = list.filter((r) => rowKey(r) === bipSoloKey)
-    }
-    return list
-  }, [rows, filterCodigo, filterDescricao, bipSoloKey])
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageSafe = Math.min(page, totalPages)
-  const slice = useMemo(() => {
-    if (showAll) return filtered
-    const start = (pageSafe - 1) * PAGE_SIZE
-    return filtered.slice(start, start + PAGE_SIZE)
-  }, [filtered, pageSafe, showAll])
-
-  const rangeFrom =
-    filtered.length === 0 ? 0 : showAll ? 1 : (pageSafe - 1) * PAGE_SIZE + 1
-  const rangeTo =
-    filtered.length === 0 ? 0 : showAll ? filtered.length : Math.min(pageSafe * PAGE_SIZE, filtered.length)
 
   function patchRow(key: string, patch: Partial<ProdutoDbRow>) {
     setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, ...patch } : r)))
@@ -488,42 +386,74 @@ export default function BaseProdutos() {
 
   function limparBipEFiltroSolo() {
     setBipSoloKey(null)
+    setMatchKeys([])
+    setMatchIndex(0)
     setBipCodigoBarras('')
-    setPage(1)
-    setShowAll(false)
+    setEditingKey(null)
+    setEditSnapshot(null)
     setError('')
+  }
+
+  function selecionarProduto(found: ProdutoDbRow, matches: ProdutoDbRow[]) {
+    const keys = matches.map((r) => rowKey(r))
+    const soloK = rowKey(found)
+    setMatchKeys(keys)
+    setMatchIndex(keys.indexOf(soloK))
+    setBipSoloKey(soloK)
+    setError('')
+    startEdit(found)
+    setSuccess(
+      keys.length > 1
+        ? `Produto ${found.codigo_interno} — ${keys.length} encontrado(s). Use ◀ ▶ para navegar.`
+        : `Produto ${found.codigo_interno} aberto.`,
+    )
+    setBipCodigoBarras('')
+    window.setTimeout(() => bipInputRef.current?.focus(), 0)
   }
 
   function buscarPorBipEanDun() {
     const q = bipCodigoBarras.trim()
     if (!q) {
-      setError('Informe o código EAN ou DUN (ou use o leitor e pressione Enter).')
+      setError('Informe código, EAN, DUN ou parte da descrição.')
       setSuccess('')
       return
     }
     if (rows.length === 0) {
-      setError('Carregue a lista primeiro.')
+      setError('Aguarde o carregamento da base ou clique em recarregar.')
       setSuccess('')
       return
     }
-    const found = rows.find((r) => matchesBarcode(r.ean, q) || matchesBarcode(r.dun, q))
-    if (!found) {
-      setError(`Nenhum produto com EAN ou DUN: ${q}`)
+    const ql = q.toLowerCase()
+    const matches = rows.filter(
+      (r) =>
+        matchesBarcode(r.ean, q) ||
+        matchesBarcode(r.dun, q) ||
+        r.codigo_interno.toLowerCase().includes(ql) ||
+        r.descricao.toLowerCase().includes(ql),
+    )
+    if (!matches.length) {
+      setError(`Nenhum produto encontrado para: ${q}`)
       setSuccess('')
       return
     }
-    const soloK = rowKey(found)
-    setBipSoloKey(soloK)
-    setError('')
-    setFilterCodigo('')
-    setFilterDescricao('')
-    setShowAll(false)
-    setPage(1)
-    startEdit(found)
-    setSuccess(`Produto ${found.codigo_interno} — aberto para edição.`)
-    setBipCodigoBarras('')
-    window.setTimeout(() => bipInputRef.current?.focus(), 0)
+    selecionarProduto(matches[0], matches)
   }
+
+  function navegarMatch(delta: number) {
+    if (matchKeys.length <= 1) return
+    const next = (matchIndex + delta + matchKeys.length) % matchKeys.length
+    const key = matchKeys[next]
+    const found = rows.find((r) => rowKey(r) === key)
+    if (!found) return
+    setMatchIndex(next)
+    setBipSoloKey(key)
+    startEdit(found)
+  }
+
+  const produtoVisivel = useMemo(() => {
+    if (!bipSoloKey) return null
+    return rows.find((r) => rowKey(r) === bipSoloKey) ?? null
+  }, [rows, bipSoloKey])
 
   useEffect(() => {
     if (!editingKey) return
@@ -532,7 +462,7 @@ export default function BaseProdutos() {
       el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }, 80)
     return () => window.clearTimeout(t)
-  }, [editingKey, pageSafe, showAll])
+  }, [editingKey, bipSoloKey])
 
   function cancelEditInternal() {
     if (editingKey && editSnapshot) {
@@ -875,58 +805,86 @@ export default function BaseProdutos() {
   }
 
   const canEditRow = (k: string) => editingKey === k
+  const r = produtoVisivel
+  const k = r ? rowKey(r) : ''
+  const edit = r ? canEditRow(k) : false
+  const saving = r ? savingKey === k : false
+  const deleting = r ? deletingKey === k : false
 
   return (
-    <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
-      <h2 style={{ margin: '0 0 8px' }}>Produtos</h2>
-      <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: 'var(--text, #94a3b8)' }}>
-        Cadastro oficial no banco (<strong>Todos os Produtos</strong>). Tudo que você cadastrar, editar ou excluir
-        aqui é gravado no Supabase e usado na contagem e no inventário.
-      </p>
-
-      <section style={{ ...basePanelStyle, marginTop: 0 }}>
-        <h3 style={{ margin: '0 0 10px', fontSize: 18 }}>Consulta, filtros e bip</h3>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(12, minmax(0, 1fr))',
-            gap: 12,
-            alignItems: 'end',
-            marginBottom: 12,
+    <div className="produtos-page">
+      <header className="produtos-page__header">
+        <div>
+          <h1>Produtos</h1>
+          <p>
+            Base oficial no Supabase ({TABELA_PRODUTOS}). Busque ou bipe um produto para visualizar e editar.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="produtos-page__btn-cadastrar"
+          onClick={() => {
+            setCadastroOpen(true)
+            setError('')
           }}
         >
-          <label style={{ ...baseToolbarLabelStyle, gridColumn: isMobile ? 'auto' : 'span 4' }}>
-            Filtrar código
-            <input
-              value={filterCodigo}
-              onChange={(e) => {
-                setFilterCodigo(e.target.value)
-                setBipSoloKey(null)
-                setPage(1)
-                setShowAll(false)
-              }}
-              style={{ ...baseToolbarInputStyle, minWidth: 0 }}
-              placeholder="código"
-            />
-          </label>
-          <label style={{ ...baseToolbarLabelStyle, gridColumn: isMobile ? 'auto' : 'span 8' }}>
-            Filtrar descrição
-            <input
-              value={filterDescricao}
-              onChange={(e) => {
-                setFilterDescricao(e.target.value)
-                setBipSoloKey(null)
-                setPage(1)
-                setShowAll(false)
-              }}
-              style={baseToolbarInputStyle}
-              placeholder="descrição"
-            />
-          </label>
-          <label style={{ ...baseToolbarLabelStyle, gridColumn: isMobile ? 'auto' : 'span 12' }}>
-            Conferente (ao alterar EAN/DUN) *
+          + Cadastrar
+        </button>
+      </header>
+
+      <section className="produtos-page__search">
+        <label className="produtos-page__search-label" htmlFor="produto-busca">
+          Buscar produto
+        </label>
+        <div className="produtos-page__search-row">
+          <input
+            id="produto-busca"
+            ref={bipInputRef}
+            className="produtos-page__search-input"
+            value={bipCodigoBarras}
+            onChange={(e) => {
+              const v = e.target.value
+              setBipCodigoBarras(v)
+              if (v.trim() === '') setError('')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                buscarPorBipEanDun()
+              }
+            }}
+            autoComplete="off"
+            placeholder="Código, EAN, DUN ou descrição…"
+            aria-label="Buscar produto"
+          />
+          <div className="produtos-page__search-actions">
+            <button
+              type="button"
+              className="produtos-page__btn-buscar"
+              onClick={() => buscarPorBipEanDun()}
+              disabled={loading}
+            >
+              Buscar
+            </button>
+            {produtoVisivel ? (
+              <button type="button" className="produtos-page__btn-limpar" onClick={limparBipEFiltroSolo}>
+                Limpar
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <p className="produtos-page__hint">
+          Use o leitor de código de barras ou digite e pressione Enter.{' '}
+          {rows.length > 0 ? `${rows.length} produto(s) na base.` : ''}
+        </p>
+
+        {(edit || cadastroOpen) && (precisaConferenteNaEdicao || cadastroOpen) ? (
+          <div className="produtos-page__conferente">
+            <label className="produtos-page__search-label" htmlFor="produto-conferente">
+              Conferente (obrigatório ao alterar EAN/DUN)
+            </label>
             <select
+              id="produto-conferente"
               ref={conferenteSelectRef}
               value={alteracaoConferenteId}
               onChange={(e) => {
@@ -934,730 +892,268 @@ export default function BaseProdutos() {
                 if (e.target.value.trim()) setError('')
               }}
               disabled={conferentesLoading}
-              required={precisaConferenteNaEdicao || cadastroOpen}
-              style={{
-                ...baseToolbarInputStyle,
-                ...(precisaConferenteNaEdicao && !alteracaoConferenteId.trim()
-                  ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px rgba(220,38,38,.35)' }
-                  : {}),
-              }}
-              title="Obrigatório ao alterar ou cadastrar EAN/DUN — nome gravado em Alteração EAN/DUN"
             >
-              <option value="">{conferentesLoading ? 'Carregando…' : 'Selecione um conferente…'}</option>
+              <option value="">{conferentesLoading ? 'Carregando…' : 'Selecione…'}</option>
               {conferentes.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nome}
                 </option>
               ))}
             </select>
-          </label>
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ ...baseToolbarLabelStyle, marginBottom: 6 }}>
-            Bipar EAN ou DUN
-            <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted, #888)' }}>
-              {' '}
-              — mostra só esse produto e abre para edição; limpar volta à lista completa.
-            </span>
-          </label>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) auto auto',
-              gap: 10,
-              alignItems: 'stretch',
-            }}
-          >
-            <input
-              ref={bipInputRef}
-              value={bipCodigoBarras}
-              onChange={(e) => {
-                const v = e.target.value
-                setBipCodigoBarras(v)
-                if (v.trim() === '') {
-                  setBipSoloKey(null)
-                  setError('')
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  buscarPorBipEanDun()
-                }
-              }}
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="Aponte o leitor aqui e bip — ou digite e Enter"
-              style={{
-                ...baseToolbarInputStyle,
-                padding: '10px 12px',
-                border: '1px solid var(--border, #555)',
-                fontSize: 15,
-                fontFamily: 'monospace',
-                background: 'var(--input-bg, #1a1a1a)',
-                color: 'var(--text, #eee)',
-                minHeight: 44,
-              }}
-              aria-label="Buscar produto por código EAN ou DUN"
-            />
-            <button
-              type="button"
-              onClick={() => buscarPorBipEanDun()}
-              disabled={loading}
-              style={{
-                ...baseBtnBuscar,
-                minHeight: 44,
-                cursor: loading ? 'wait' : 'pointer',
-                opacity: loading ? 0.85 : 1,
-                padding: '0 14px',
-              }}
-            >
-              Buscar
-            </button>
-            <button
-              type="button"
-              onClick={() => limparBipEFiltroSolo()}
-              disabled={loading}
-              style={{
-                ...baseBtnLimparBip,
-                minHeight: 44,
-                cursor: loading ? 'wait' : 'pointer',
-                opacity: loading ? 0.85 : 1,
-                padding: '0 14px',
-              }}
-              title="Mostrar todos os produtos de novo"
-            >
-              Limpar
-            </button>
           </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: 10,
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(150px, 1fr))',
-            gap: 10,
-            alignItems: 'stretch',
-            padding: isMobile ? 0 : '10px 12px',
-            borderRadius: 10,
-            border: isMobile ? 'none' : '1px solid var(--border, #4b4b4b)',
-            background: isMobile ? 'transparent' : 'rgba(255,255,255,0.03)',
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => void load()}
-            disabled={loading}
-            style={{
-              ...baseBtnCarregar,
-              width: '100%',
-              minHeight: 44,
-              cursor: loading ? 'wait' : 'pointer',
-              opacity: loading ? 0.85 : 1,
-            }}
-          >
-            <span className="app-nav-icon app-nav-icon--bounce" aria-hidden>
-              📥
-            </span>
-            {loading ? 'Carregando…' : 'Carregar / atualizar lista'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCadastroOpen((v) => !v)
-              setError('')
-            }}
-            style={{
-              ...baseBtnCadastrar,
-              width: '100%',
-              minHeight: 44,
-            }}
-          >
-            <span className="app-nav-icon app-nav-icon--pulse" aria-hidden>
-              ➕
-            </span>
-            {cadastroOpen ? 'Fechar cadastro' : 'Cadastrar produtos'}
-          </button>
-        </div>
+        ) : null}
       </section>
+
+      {error ? <div className="produtos-page__msg produtos-page__msg--error">{error}</div> : null}
+      {success ? <div className="produtos-page__msg produtos-page__msg--ok">{success}</div> : null}
+
+      {loading && !produtoVisivel ? (
+        <div className="produtos-page__empty">Carregando produtos…</div>
+      ) : produtoVisivel && r ? (
+        <>
+          {matchKeys.length > 1 ? (
+            <div className="produtos-page__meta">
+              <span>
+                {matchIndex + 1} de {matchKeys.length} encontrados
+              </span>
+              <div className="produtos-page__nav">
+                <button type="button" onClick={() => navegarMatch(-1)}>
+                  ◀ Anterior
+                </button>
+                <button type="button" onClick={() => navegarMatch(1)}>
+                  Próximo ▶
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <article
+            className="produtos-page__card"
+            ref={(el) => {
+              if (el && k) rowRefs.current.set(k, el)
+              else if (k) rowRefs.current.delete(k)
+            }}
+          >
+            <div className="produtos-page__card-head">
+              <p className="produtos-page__codigo">{r.codigo_interno}</p>
+              {edit ? (
+                <textarea
+                  value={r.descricao}
+                  onChange={(e) => patchRow(k, { descricao: e.target.value })}
+                  rows={2}
+                  style={{ width: '100%', margin: 0, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border, #4b5563)', background: 'var(--input-bg, #0f172a)', color: 'var(--text-h, #f9fafb)', fontSize: 14 }}
+                />
+              ) : (
+                <p className="produtos-page__descricao">{r.descricao}</p>
+              )}
+            </div>
+
+            <div className="produtos-page__card-body">
+              <div className="produtos-page__grid2">
+                <div className={`produtos-page__field${edit ? '' : ' produtos-page__field--readonly'}`}>
+                  <label>Unidade</label>
+                  {edit ? (
+                    <input
+                      value={r.unidade ?? ''}
+                      onChange={(e) =>
+                        patchRow(k, { unidade: e.target.value.trim() === '' ? null : e.target.value })
+                      }
+                    />
+                  ) : (
+                    <div className="produtos-page__value">{r.unidade ?? '—'}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="produtos-page__grid2">
+                <div className="produtos-page__field">
+                  <label>EAN</label>
+                  <input
+                    value={r.ean ?? ''}
+                    onChange={(e) => patchRow(k, { ean: e.target.value === '' ? null : e.target.value })}
+                    disabled={!edit || saving || deleting}
+                    readOnly={!edit}
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="produtos-page__field">
+                  <label>DUN</label>
+                  <input
+                    value={r.dun ?? ''}
+                    onChange={(e) => patchRow(k, { dun: e.target.value === '' ? null : e.target.value })}
+                    disabled={!edit || saving || deleting}
+                    readOnly={!edit}
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+
+              <div className="produtos-page__meta-row">
+                <div className="produtos-page__meta-box">
+                  <strong>Alteração EAN</strong>
+                  <CelulaAlteracaoCodigo
+                    {...propsAlteracaoCodigo(r, edit, editSnapshot, 'ean', alteracaoConferenteNome)}
+                  />
+                </div>
+                <div className="produtos-page__meta-box">
+                  <strong>Alteração DUN</strong>
+                  <CelulaAlteracaoCodigo
+                    {...propsAlteracaoCodigo(r, edit, editSnapshot, 'dun', alteracaoConferenteNome)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="produtos-page__card-foot">
+              {!edit ? (
+                <>
+                  <button type="button" className="produtos-page__btn-primary" onClick={() => startEdit(r)}>
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="produtos-page__btn-danger"
+                    disabled={deleting}
+                    onClick={() => void deleteRow(r)}
+                  >
+                    {deleting ? 'Excluindo…' : 'Excluir'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="produtos-page__btn-primary"
+                    disabled={saving || deleting}
+                    onClick={() => void saveRow(r)}
+                  >
+                    {saving ? 'Salvando…' : 'Salvar'}
+                  </button>
+                  <button
+                    type="button"
+                    className="produtos-page__btn-muted"
+                    disabled={saving || deleting}
+                    onClick={() => cancelEdit()}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="produtos-page__btn-danger"
+                    disabled={saving || deleting}
+                    onClick={() => void deleteRow(r)}
+                  >
+                    Excluir
+                  </button>
+                </>
+              )}
+            </div>
+          </article>
+        </>
+      ) : (
+        <div className="produtos-page__empty">
+          <div className="produtos-page__empty-icon" aria-hidden>
+            🏷️
+          </div>
+          <p style={{ margin: 0, fontSize: 15 }}>
+            Nenhum produto selecionado.
+            <br />
+            Bipe ou busque acima para exibir um item.
+          </p>
+        </div>
+      )}
+
+      <div className="produtos-page__reload">
+        <button type="button" disabled={loading} onClick={() => void load()}>
+          {loading ? 'Atualizando…' : 'Recarregar base do Supabase'}
+        </button>
+      </div>
 
       {cadastroOpen ? (
         <div
-          style={{
-            marginBottom: 16,
-            padding: 14,
-            borderRadius: 10,
-            border: '1px solid var(--border, #ccc)',
-            background: 'var(--panel-bg, rgba(0,0,0,.04))',
-            maxWidth: 560,
+          className="produtos-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="produtos-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !cadastroSaving) setCadastroOpen(false)
           }}
         >
-          <h3 style={{ margin: '0 0 10px', fontSize: 16 }}>Novo produto</h3>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <label style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              Código do produto *
-              <input
-                value={cadastroCodigo}
-                onChange={(e) => setCadastroCodigo(e.target.value)}
-                style={{ ...inputStyle, padding: '8px 10px' }}
-                placeholder="ex.: 01.01.0099"
-                autoComplete="off"
-              />
-            </label>
-            <label style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              Descrição *
-              <textarea
-                value={cadastroDescricao}
-                onChange={(e) => setCadastroDescricao(e.target.value)}
-                style={{ ...inputStyle, padding: '8px 10px', minHeight: 72, resize: 'vertical' }}
-                placeholder="Descrição do produto"
-                rows={3}
-              />
-            </label>
-            <label style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              Unidade de medida
-              <input
-                value={cadastroUnidade}
-                onChange={(e) => setCadastroUnidade(e.target.value)}
-                style={{ ...inputStyle, padding: '8px 10px' }}
-                placeholder="ex.: PT, CX"
-                autoComplete="off"
-              />
-            </label>
-            <label style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              EAN
-              <input
-                value={cadastroEan}
-                onChange={(e) => setCadastroEan(e.target.value)}
-                style={{ ...inputStyle, padding: '8px 10px' }}
-                autoComplete="off"
-              />
-            </label>
-            <label style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              DUN
-              <input
-                value={cadastroDun}
-                onChange={(e) => setCadastroDun(e.target.value)}
-                style={{ ...inputStyle, padding: '8px 10px' }}
-                autoComplete="off"
-              />
-            </label>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div className="produtos-modal">
+            <div className="produtos-modal__head">
+              <h2 id="produtos-modal-title">Novo produto</h2>
               <button
                 type="button"
+                className="produtos-modal__close"
+                aria-label="Fechar"
+                disabled={cadastroSaving}
+                onClick={() => setCadastroOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="produtos-modal__body">
+              <div className="produtos-page__field">
+                <label>Código do produto *</label>
+                <input
+                  value={cadastroCodigo}
+                  onChange={(e) => setCadastroCodigo(e.target.value)}
+                  placeholder="ex.: 01.01.0099"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="produtos-page__field">
+                <label>Descrição *</label>
+                <textarea
+                  value={cadastroDescricao}
+                  onChange={(e) => setCadastroDescricao(e.target.value)}
+                  placeholder="Descrição do produto"
+                  rows={3}
+                />
+              </div>
+              <div className="produtos-page__field">
+                <label>Unidade</label>
+                <input
+                  value={cadastroUnidade}
+                  onChange={(e) => setCadastroUnidade(e.target.value)}
+                  placeholder="PT, CX…"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="produtos-page__grid2">
+                <div className="produtos-page__field">
+                  <label>EAN</label>
+                  <input value={cadastroEan} onChange={(e) => setCadastroEan(e.target.value)} autoComplete="off" />
+                </div>
+                <div className="produtos-page__field">
+                  <label>DUN</label>
+                  <input value={cadastroDun} onChange={(e) => setCadastroDun(e.target.value)} autoComplete="off" />
+                </div>
+              </div>
+            </div>
+            <div className="produtos-modal__foot">
+              <button
+                type="button"
+                className="produtos-page__btn-primary"
                 disabled={cadastroSaving}
                 onClick={() => void cadastrarProduto()}
-                style={btnPrimary}
               >
-                {cadastroSaving ? 'Salvando…' : 'Salvar novo produto'}
+                {cadastroSaving ? 'Salvando…' : 'Salvar produto'}
+              </button>
+              <button
+                type="button"
+                className="produtos-page__btn-muted"
+                disabled={cadastroSaving}
+                onClick={() => setCadastroOpen(false)}
+              >
+                Cancelar
               </button>
             </div>
           </div>
         </div>
       ) : null}
-
-      {error ? <div style={{ color: '#b00020', marginBottom: 10 }}>{error}</div> : null}
-      {success ? <div style={{ color: '#0f7a0f', marginBottom: 10 }}>{success}</div> : null}
-
-      {filtered.length > 0 ? (
-        <>
-          <div style={{ fontSize: 13, color: 'var(--text, #888)', marginBottom: 8 }}>
-            {showAll
-              ? `Exibindo todos os ${filtered.length} produto(s) filtrado(s) (total no cadastro: ${rows.length})`
-              : `Mostrando ${rangeFrom}–${rangeTo} de ${filtered.length} · Página ${pageSafe} de ${totalPages} · ${PAGE_SIZE} por página (total no cadastro: ${rows.length})`}
-          </div>
-          {isMobile ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {slice.map((r) => {
-                const k = rowKey(r)
-                const saving = savingKey === k
-                const deleting = deletingKey === k
-                const edit = canEditRow(k)
-                return (
-                  <div
-                    key={k}
-                    ref={(el) => {
-                      if (el) rowRefs.current.set(k, el)
-                      else rowRefs.current.delete(k)
-                    }}
-                    style={{
-                      border: '1px solid var(--border, #444)',
-                      borderRadius: 12,
-                      padding: 12,
-                      background: 'var(--panel-bg, rgba(255,255,255,.04))',
-                      boxSizing: 'border-box',
-                      width: '100%',
-                      maxWidth: '100%',
-                      minWidth: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontFamily: 'monospace',
-                        fontWeight: 800,
-                        fontSize: 15,
-                        color: 'var(--text, #eee)',
-                        wordBreak: 'break-all',
-                      }}
-                    >
-                      {r.codigo_interno}
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text, #888)', marginBottom: 4 }}>Descrição</div>
-                      {edit ? (
-                        <textarea
-                          value={r.descricao}
-                          onChange={(e) => patchRow(k, { descricao: e.target.value })}
-                          style={{
-                            ...inputStyle,
-                            width: '100%',
-                            minHeight: 64,
-                            resize: 'vertical',
-                            boxSizing: 'border-box',
-                          }}
-                          rows={3}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            fontSize: 14,
-                            lineHeight: 1.45,
-                            color: 'var(--text, #eee)',
-                            wordBreak: 'break-word',
-                            overflowWrap: 'anywhere',
-                          }}
-                        >
-                          {r.descricao}
-                        </div>
-                      )}
-                    </div>
-                    <div
-                      style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted, #888)' }}
-                      title="Não armazenado no cadastro; use Relatório completo ou Todas as contagens para ver o conferente por lançamento."
-                    >
-                      Conferente: —
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text, #888)', marginBottom: 4 }}>Unidade de medida</div>
-                      {edit ? (
-                        <input
-                          value={r.unidade ?? ''}
-                          onChange={(e) =>
-                            patchRow(k, {
-                              unidade: e.target.value.trim() === '' ? null : e.target.value,
-                            })
-                          }
-                          style={{ ...inputStyle, width: '100%', maxWidth: 320, boxSizing: 'border-box' }}
-                        />
-                      ) : (
-                        <span style={{ fontSize: 14, color: 'var(--text, #eee)' }}>{r.unidade ?? '—'}</span>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text, #888)', marginBottom: 4 }}>EAN</div>
-                      <input
-                        value={r.ean ?? ''}
-                        onChange={(e) => patchRow(k, { ean: e.target.value === '' ? null : e.target.value })}
-                        style={{
-                          ...inputStyle,
-                          width: '100%',
-                          boxSizing: 'border-box',
-                          opacity: edit ? 1 : 0.65,
-                        }}
-                        placeholder="EAN"
-                        disabled={!edit || saving || deleting}
-                        readOnly={!edit}
-                        autoComplete="off"
-                      />
-                    </div>
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text, #888)', marginBottom: 4 }}>DUN</div>
-                      <input
-                        value={r.dun ?? ''}
-                        onChange={(e) => patchRow(k, { dun: e.target.value === '' ? null : e.target.value })}
-                        style={{
-                          ...inputStyle,
-                          width: '100%',
-                          boxSizing: 'border-box',
-                          opacity: edit ? 1 : 0.65,
-                        }}
-                        placeholder="DUN"
-                        disabled={!edit || saving || deleting}
-                        readOnly={!edit}
-                        autoComplete="off"
-                      />
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 10,
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: 12,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: 'var(--text, #bbb)',
-                      }}
-                    >
-                      <span title="Última alteração do EAN no cadastro">
-                        Alt. EAN:{' '}
-                        <CelulaAlteracaoCodigo
-                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'ean', alteracaoConferenteNome)}
-                        />
-                      </span>
-                      <span title="Última alteração do DUN no cadastro">
-                        Alt. DUN:{' '}
-                        <CelulaAlteracaoCodigo
-                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'dun', alteracaoConferenteNome)}
-                        />
-                      </span>
-                    </div>
-                    {saving ? (
-                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text, #888)' }}>Salvando…</div>
-                    ) : null}
-                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                      {!edit ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={saving || deleting || !!editingKey}
-                            onClick={() => startEdit(r)}
-                            style={btnPrimary}
-                            title={editingKey ? 'Termine ou cancele a outra edição' : undefined}
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={saving || deleting || !!editingKey}
-                            onClick={() => void deleteRow(r)}
-                            style={btnDanger}
-                          >
-                            {deleting ? 'Excluindo…' : 'Excluir'}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            disabled={saving || deleting}
-                            onClick={() => void saveRow(r)}
-                            style={btnPrimary}
-                          >
-                            {saving ? 'Salvando…' : 'Salvar'}
-                          </button>
-                          <button type="button" disabled={saving || deleting} onClick={() => cancelEdit()} style={btnMuted}>
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={saving || deleting}
-                            onClick={() => void deleteRow(r)}
-                            style={btnDanger}
-                          >
-                            Excluir
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 1260 }}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Código do produto</th>
-                    <th style={thStyle}>Descrição</th>
-                    <th style={thStyle}>Unidade de medida</th>
-                    <th style={thStyle}>EAN</th>
-                    <th style={thStyle}>DUN</th>
-                    <th style={{ ...thStyle, minWidth: 140 }}>Alteração EAN</th>
-                    <th style={{ ...thStyle, minWidth: 140 }}>Alteração DUN</th>
-                    <th style={thStyle}>Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slice.map((r) => {
-                    const k = rowKey(r)
-                    const saving = savingKey === k
-                    const deleting = deletingKey === k
-                    const edit = canEditRow(k)
-                    return (
-                      <tr
-                        key={k}
-                        ref={(el) => {
-                          if (el) rowRefs.current.set(k, el)
-                          else rowRefs.current.delete(k)
-                        }}
-                      >
-                      <td style={tdStyle}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{r.codigo_interno}</span>
-                      </td>
-                      <td style={{ ...tdStyle, whiteSpace: 'normal', maxWidth: 320 }}>
-                        {edit ? (
-                          <textarea
-                            value={r.descricao}
-                            onChange={(e) => patchRow(k, { descricao: e.target.value })}
-                            style={{ ...inputStyle, width: '100%', minHeight: 56, resize: 'vertical' }}
-                            rows={2}
-                          />
-                        ) : (
-                          r.descricao
-                        )}
-                      </td>
-                      <td style={tdStyle}>
-                        {edit ? (
-                          <input
-                            value={r.unidade ?? ''}
-                            onChange={(e) =>
-                              patchRow(k, {
-                                unidade: e.target.value.trim() === '' ? null : e.target.value,
-                              })
-                            }
-                            style={{ ...inputStyle, width: 96 }}
-                          />
-                        ) : (
-                          r.unidade ?? '—'
-                        )}
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={r.ean ?? ''}
-                          onChange={(e) => patchRow(k, { ean: e.target.value === '' ? null : e.target.value })}
-                          style={{
-                            ...inputStyle,
-                            width: '100%',
-                            minWidth: 120,
-                            maxWidth: 200,
-                            opacity: edit ? 1 : 0.65,
-                          }}
-                          placeholder="EAN"
-                          disabled={!edit || saving || deleting}
-                          readOnly={!edit}
-                          autoComplete="off"
-                        />
-                        {saving ? (
-                          <span style={{ display: 'block', fontSize: 11, color: 'var(--text, #888)', marginTop: 4 }}>
-                            Salvando…
-                          </span>
-                        ) : null}
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={r.dun ?? ''}
-                          onChange={(e) => patchRow(k, { dun: e.target.value === '' ? null : e.target.value })}
-                          style={{
-                            ...inputStyle,
-                            width: '100%',
-                            minWidth: 120,
-                            maxWidth: 200,
-                            opacity: edit ? 1 : 0.65,
-                          }}
-                          placeholder="DUN"
-                          disabled={!edit || saving || deleting}
-                          readOnly={!edit}
-                          autoComplete="off"
-                        />
-                      </td>
-                      <td
-                        style={{
-                          ...tdStyle,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: 'var(--text, #bbb)',
-                          verticalAlign: 'top',
-                        }}
-                        title="Última alteração do EAN no cadastro"
-                      >
-                        <CelulaAlteracaoCodigo
-                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'ean', alteracaoConferenteNome)}
-                        />
-                      </td>
-                      <td
-                        style={{
-                          ...tdStyle,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: 'var(--text, #bbb)',
-                          verticalAlign: 'top',
-                        }}
-                        title="Última alteração do DUN no cadastro"
-                      >
-                        <CelulaAlteracaoCodigo
-                          {...propsAlteracaoCodigo(r, edit, editSnapshot, 'dun', alteracaoConferenteNome)}
-                        />
-                      </td>
-                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                          {!edit ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={saving || deleting || !!editingKey}
-                                onClick={() => startEdit(r)}
-                                style={btnPrimary}
-                                title={editingKey ? 'Termine ou cancele a outra edição' : undefined}
-                              >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                disabled={saving || deleting || !!editingKey}
-                                onClick={() => void deleteRow(r)}
-                                style={btnDanger}
-                              >
-                                {deleting ? 'Excluindo…' : 'Excluir'}
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                disabled={saving || deleting}
-                                onClick={() => void saveRow(r)}
-                                style={btnPrimary}
-                              >
-                                {saving ? 'Salvando…' : 'Salvar'}
-                              </button>
-                              <button type="button" disabled={saving || deleting} onClick={() => cancelEdit()} style={btnMuted}>
-                                Cancelar
-                              </button>
-                              <button
-                                type="button"
-                                disabled={saving || deleting}
-                                onClick={() => void deleteRow(r)}
-                                style={btnDanger}
-                              >
-                                Excluir
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          )}
-          {filtered.length > PAGE_SIZE || (filtered.length > 0 && showAll) ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                disabled={showAll || pageSafe <= 1 || filtered.length === 0}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                style={navBtnStyle(showAll || pageSafe <= 1 || filtered.length === 0)}
-              >
-                Anterior
-              </button>
-              <button
-                type="button"
-                disabled={showAll || pageSafe >= totalPages || filtered.length === 0}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                style={navBtnStyle(showAll || pageSafe >= totalPages || filtered.length === 0)}
-              >
-                Próxima
-              </button>
-              {filtered.length > PAGE_SIZE ? (
-                showAll ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAll(false)
-                      setPage(1)
-                    }}
-                    style={navBtnStyle(false)}
-                  >
-                    Paginar ({PAGE_SIZE} por página)
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => setShowAll(true)} style={navBtnStyle(false)}>
-                    Mostrar tudo
-                  </button>
-                )
-              ) : null}
-            </div>
-          ) : null}
-        </>
-      ) : !loading && rows.length === 0 ? (
-        <p style={{ fontSize: 14, color: 'var(--text, #888)' }}>Clique em &quot;Carregar / atualizar lista&quot; para buscar os produtos.</p>
-      ) : !loading && filtered.length === 0 && rows.length > 0 ? (
-        <p style={{ fontSize: 14, color: 'var(--text, #888)' }}>Nenhum produto com os filtros atuais.</p>
-      ) : null}
     </div>
   )
-}
-
-const btnPrimary: React.CSSProperties = {
-  padding: '6px 12px',
-  borderRadius: 6,
-  border: '1px solid #222',
-  background: '#111',
-  color: '#fff',
-  cursor: 'pointer',
-  fontSize: 12,
-}
-
-const btnMuted: React.CSSProperties = {
-  padding: '6px 12px',
-  borderRadius: 6,
-  border: '1px solid #666',
-  background: 'transparent',
-  color: 'var(--text, #ccc)',
-  cursor: 'pointer',
-  fontSize: 12,
-}
-
-const btnDanger: React.CSSProperties = {
-  padding: '6px 12px',
-  borderRadius: 6,
-  border: '1px solid #8a0000',
-  background: '#a30000',
-  color: '#fff',
-  cursor: 'pointer',
-  fontSize: 12,
-}
-
-function navBtnStyle(disabled: boolean): React.CSSProperties {
-  return {
-    padding: '8px 14px',
-    borderRadius: 8,
-    border: '1px solid var(--border, #ccc)',
-    background: disabled ? 'transparent' : '#111',
-    color: disabled ? '#888' : '#fff',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    fontSize: 13,
-  }
-}
-
-const thStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border, #444)',
-  textAlign: 'left',
-  padding: 8,
-  fontWeight: 700,
-  fontSize: 13,
-  background: 'var(--table-head-bg, rgba(255,255,255,.08))',
-  color: 'var(--text, #eee)',
-  whiteSpace: 'nowrap',
-}
-
-const tdStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border, #333)',
-  padding: 8,
-  fontSize: 13,
-  verticalAlign: 'middle',
-  color: 'var(--text, #eee)',
-}
-
-const inputStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  borderRadius: 6,
-  border: '1px solid #ccc',
-  fontSize: 13,
-  boxSizing: 'border-box',
 }

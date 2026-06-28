@@ -84,6 +84,43 @@ export function deleteEndereco(id: string) {
   writeAll(readAll().filter((r) => r.id !== id))
 }
 
+export type EnderecoDeleteFiltro = {
+  camara?: number
+  rua?: string
+  nivel?: number
+}
+
+function matchEnderecoFiltro(r: EnderecoCadastro, filtro: EnderecoDeleteFiltro): boolean {
+  if (filtro.camara != null && r.camara !== filtro.camara) return false
+  if (filtro.rua != null && filtro.rua.trim() !== '') {
+    const ru = String(r.rua ?? '').trim().toUpperCase()
+    if (ru !== filtro.rua.trim().toUpperCase()) return false
+  }
+  if (filtro.nivel != null && r.nivel !== filtro.nivel) return false
+  return true
+}
+
+/** Quantos endereços seriam removidos pelo filtro. */
+export function contarEnderecosPorFiltro(filtro: EnderecoDeleteFiltro): number {
+  return readAll().filter((r) => matchEnderecoFiltro(r, filtro)).length
+}
+
+/** Remove endereços que batem com o filtro. Retorna quantidade excluída. */
+export function deleteEnderecosPorFiltro(filtro: EnderecoDeleteFiltro): number {
+  const all = readAll()
+  const keep = all.filter((r) => !matchEnderecoFiltro(r, filtro))
+  const removed = all.length - keep.length
+  if (removed > 0) writeAll(keep)
+  return removed
+}
+
+/** Remove todos os endereços cadastrados. Retorna quantidade excluída. */
+export function deleteTodosEnderecos(): number {
+  const n = readAll().length
+  if (n > 0) writeAll([])
+  return n
+}
+
 /** Código legível para bipagem: ex. 11-A-05-03 (câmara, rua, posição, nível). */
 export function buildCodigoEndereco(
   camara: number,
