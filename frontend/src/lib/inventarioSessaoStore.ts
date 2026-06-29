@@ -18,6 +18,12 @@ export type InventarioSessao = {
   numero: number
   titulo: string
   local: string
+  /** Nome do conjunto de posições deste inventário (ex.: Câmara 11 — Rua A). */
+  posicoesNome?: string
+  /** Códigos de endereço selecionados para este inventário; vazio = qualquer endereço. */
+  posicoesCodigos?: string[]
+  /** Catálogo de produtos (sempre Ultrapao = Todos os Produtos). */
+  catalogoProdutos?: 'ultrapao'
   dataInicio: string
   dataFim: string | null
   status: 'aberto' | 'fechado'
@@ -56,7 +62,12 @@ export function nextInventarioNumero(): number {
   return Math.max(...all.map((r) => r.numero)) + 1
 }
 
-export function criarInventario(opts?: { titulo?: string; local?: string }): InventarioSessao {
+export function criarInventario(opts?: {
+  titulo?: string
+  local?: string
+  posicoesNome?: string
+  posicoesCodigos?: string[]
+}): InventarioSessao {
   const all = readAll()
   const numero = nextInventarioNumero()
   const now = new Date().toISOString()
@@ -65,6 +76,9 @@ export function criarInventario(opts?: { titulo?: string; local?: string }): Inv
     numero,
     titulo: opts?.titulo?.trim() || `Inventário (Validade) #${numero}`,
     local: opts?.local?.trim() || 'ULTRAPAO GUARULHOS DISTRI',
+    posicoesNome: opts?.posicoesNome?.trim() || undefined,
+    posicoesCodigos: opts?.posicoesCodigos?.length ? [...opts.posicoesCodigos] : undefined,
+    catalogoProdutos: 'ultrapao',
     dataInicio: now,
     dataFim: null,
     status: 'aberto',
@@ -130,4 +144,36 @@ export function atualizarInventarioMeta(
   }
   saveInventario(sessao)
   return sessao
+}
+
+export function atualizarInventarioPosicoes(
+  id: string,
+  patch: { posicoesNome?: string; posicoesCodigos?: string[] },
+): InventarioSessao | null {
+  const sessao = getInventario(id)
+  if (!sessao) return null
+  if (patch.posicoesNome !== undefined) {
+    const n = patch.posicoesNome.trim()
+    sessao.posicoesNome = n || undefined
+  }
+  if (patch.posicoesCodigos !== undefined) {
+    const codigos = patch.posicoesCodigos.map((c) => c.trim().toUpperCase()).filter(Boolean)
+    sessao.posicoesCodigos = codigos.length ? codigos : undefined
+  }
+  if (!sessao.catalogoProdutos) sessao.catalogoProdutos = 'ultrapao'
+  saveInventario(sessao)
+  return sessao
+}
+
+/** Códigos de posição permitidos na sessão (normalizados). Vazio = sem restrição. */
+export function posicoesPermitidas(sessao: InventarioSessao): Set<string> | null {
+  const list = sessao.posicoesCodigos
+  if (!list?.length) return null
+  return new Set(list.map((c) => c.trim().toUpperCase()))
+}
+
+export function enderecoPermitidoNaSessao(sessao: InventarioSessao, codigo: string): boolean {
+  const permitidos = posicoesPermitidas(sessao)
+  if (!permitidos) return true
+  return permitidos.has(codigo.trim().toUpperCase())
 }

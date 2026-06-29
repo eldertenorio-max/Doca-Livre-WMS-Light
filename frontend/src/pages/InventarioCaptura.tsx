@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { isAppOnline } from '../lib/appConnectivity'
+import { usernameFromSession } from '../lib/authUser'
 import {
   buildProductLookupMaps,
   buscarProdutoUnicoLocal,
   filtrarSugestoesProduto,
 } from '../lib/buscaProdutoInventario'
+import {
+  fetchInventarioCapturaPresenca,
+  nomesContadoresAtivos,
+  PRESENCA_PING_INTERVAL_MS,
+  PRESENCA_POLL_INTERVAL_MS,
+  upsertInventarioCapturaPresenca,
+  type InventarioCapturaPresencaRow,
+} from '../lib/inventarioCapturaPresenca'
 import { findEnderecoByCodigo, formatEnderecoCodigoInput, normalizeEnderecoCodigo } from '../lib/enderecamentoStore'
 import {
   fetchProductOptionByCodigoFromDb,
@@ -12,16 +22,23 @@ import {
 } from '../lib/fetchProductOptionByCodigo'
 import {
   addLinhaInventario,
+  enderecoPermitidoNaSessao,
   getInventario,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
-import { mapRowToProductOption, TABELA_PRODUTOS, type ProductOption } from '../lib/productOptionMapper'
+import {
+  CATALOGO_INVENTARIO_NOME,
+  mapRowToProductOption,
+  TABELA_PRODUTOS,
+  type ProductOption,
+} from '../lib/productOptionMapper'
 import { subscribeTodosOsProdutosRealtime } from '../lib/subscribeTodosOsProdutosRealtime'
 import { supabase } from '../lib/supabaseClient'
 
 type Props = {
   inventarioId: string
   onVoltar: () => void
+  session?: Session | null
 }
 
 const SUGESTOES_MAX = 15
@@ -49,7 +66,31 @@ function formatHora(iso: string) {
   return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
+function IconFlash() {
+  return (
+    <svg className="inventario-captura__btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M7 2v11h3v9l7-12h-4l4-8z" />
+    </svg>
+  )
+}
+
+function IconBarcode() {
+  return (
+    <svg className="inventario-captura__btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M2 6h2v12H2V6zm3 0h1v12H5V6zm2 0h3v12H7V6zm4 0h1v12h-1V6zm2 0h2v12h-2V6zm3 0h1v12h-1V6zm2 0h3v12h-3V6z" />
+    </svg>
+  )
+}
+
+function IconSave() {
+  return (
+    <svg className="inventario-captura__btn-icon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z" />
+    </svg>
+  )
+}
+
+export default function InventarioCaptura({ inventarioId, onVoltar, session }: Props) {
   const [sessao, setSessao] = useState<InventarioSessao | null>(() => getInventario(inventarioId) ?? null)
   const [produtos, setProdutos] = useState<ProductOption[]>([])
   const [produtosCarregando, setProdutosCarregando] = useState(false)
@@ -67,6 +108,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const [err, setErr] = useState('')
   const [sugestoesOpen, setSugestoesOpen] = useState(false)
   const [sugestaoIdx, setSugestaoIdx] = useState(0)
+  const [presencaRows, setPresencaRows] = useState<InventarioCapturaPresencaRow[]>([])
 
   const enderecoRef = useRef<HTMLInputElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
@@ -74,6 +116,12 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const online = isAppOnline()
+  const usuarioLogado = usernameFromSession(session)
+
+  const contadoresOnline = useMemo(
+    () => nomesContadoresAtivos(presencaRows, usuarioLogado),
+    [presencaRows, usuarioLogado],
+  )
 
   const productMaps = useMemo(() => buildProductLookupMaps(produtos), [produtos])
 
@@ -86,6 +134,11 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     () => [...(sessao?.linhas ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [sessao?.linhas],
   )
+
+  const posicoesInventario = useMemo(() => {
+    const list = sessao?.posicoesCodigos ?? []
+    return [...list].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [sessao?.posicoesCodigos])
 
   const loadProdutos = useCallback(async () => {
     setProdutosCarregando(true)
@@ -122,6 +175,32 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
   useEffect(() => {
     setSessao(getInventario(inventarioId) ?? null)
   }, [inventarioId])
+
+  useEffect(() => {
+    if (!inventarioId || sessao?.status === 'fechado' || !online) return
+    const nome = usuarioLogado.trim()
+    if (!nome || nome === 'usuário') return
+
+    const ping = () => void upsertInventarioCapturaPresenca(inventarioId, nome)
+    void ping()
+    const id = window.setInterval(ping, PRESENCA_PING_INTERVAL_MS)
+    return () => window.clearInterval(id)
+  }, [inventarioId, sessao?.status, online, usuarioLogado])
+
+  useEffect(() => {
+    if (!inventarioId || !online) return
+    let cancelled = false
+    const load = async () => {
+      const rows = await fetchInventarioCapturaPresenca(inventarioId)
+      if (!cancelled) setPresencaRows(rows)
+    }
+    void load()
+    const id = window.setInterval(() => void load(), PRESENCA_POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [inventarioId, online])
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -173,6 +252,11 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     const cod = normalizeEnderecoCodigo(endereco.trim())
     if (cod !== endereco) setEndereco(cod)
     if (!cod) return
+    if (sessao && !enderecoPermitidoNaSessao(sessao, cod)) {
+      setErr('Endereço fora das posições deste inventário.')
+      setMsg('')
+      return
+    }
     const found = findEnderecoByCodigo(cod)
     if (found) {
       setMsg(`Endereço: Câm. ${found.camara ?? '—'} · Rua ${found.rua || '—'} · Pos. ${found.posicao ?? '—'}`)
@@ -225,6 +309,10 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
     const upStr = up.trim()
     if (!end) {
       setErr('Informe o endereço.')
+      return
+    }
+    if (!enderecoPermitidoNaSessao(sessao, end)) {
+      setErr('Endereço fora das posições selecionadas para este inventário.')
       return
     }
     if (!bar || !codigoInterno) {
@@ -296,17 +384,29 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             <span>{hoje}</span>
           </div>
           <div className="inventario-captura__info-row">
-            <span>Coletor 1</span>
+            <span className="inventario-captura__contadores" title={contadoresOnline}>
+              {contadoresOnline}
+            </span>
             <span className={online ? 'inventario-captura__online' : 'inventario-captura__offline'}>
               {online ? 'Online' : 'Offline'}
             </span>
           </div>
           <div className="inventario-captura__info-row inventario-captura__info-row--muted">
-            <span>{formatDateTimeBR(sessao.dataInicio)}</span>
+            <span>
+              {sessao.posicoesNome?.trim()
+                ? `Posições: ${sessao.posicoesNome}`
+                : posicoesInventario.length > 0
+                  ? `${posicoesInventario.length} posição(ões) definida(s)`
+                  : 'Posições: qualquer endereço'}
+            </span>
             <span>{sessao.linhas.length} linha(s)</span>
           </div>
           <div className="inventario-captura__info-row inventario-captura__info-row--muted">
-            <span>{produtosCarregando ? 'Atualizando produtos…' : `${produtos.length} produto(s) no cadastro`}</span>
+            <span>
+              {produtosCarregando
+                ? 'Atualizando produtos Ultrapao…'
+                : `Produtos ${CATALOGO_INVENTARIO_NOME} — ${produtos.length} item(ns)`}
+            </span>
           </div>
         </div>
 
@@ -320,6 +420,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             <input
               id="inv-endereco"
               ref={enderecoRef}
+              list={posicoesInventario.length > 0 ? 'inv-posicoes-list' : undefined}
               value={endereco}
               onChange={(e) => setEndereco(formatEnderecoCodigoInput(e.target.value))}
               onBlur={handleEnderecoBlur}
@@ -331,17 +432,35 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               }}
               disabled={readonly}
               autoComplete="off"
-              placeholder="Digite ou bipe: 21A0302"
+              placeholder="Endereço"
             />
             <button
               type="button"
-              className="inventario-captura__action-btn"
+              className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
               disabled={readonly}
+              aria-label="Focar endereço"
               onClick={() => enderecoRef.current?.focus()}
             >
-              Focar
+              <IconFlash />
+              <span className="inventario-captura__btn-text">Focar</span>
+            </button>
+            <button
+              type="button"
+              className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
+              disabled={readonly}
+              aria-label="Bipar endereço"
+              onClick={() => enderecoRef.current?.focus()}
+            >
+              <IconBarcode />
             </button>
           </div>
+          {posicoesInventario.length > 0 ? (
+            <datalist id="inv-posicoes-list">
+              {posicoesInventario.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          ) : null}
         </div>
 
         <div className="inventario-captura__field inventario-captura__field--full" ref={comboRef}>
@@ -384,22 +503,33 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               }}
               disabled={readonly}
               autoComplete="off"
-              placeholder="EAN, 01.01.0001, 01010001 ou descrição"
+              placeholder="Código de barras"
               aria-autocomplete="list"
               aria-expanded={sugestoesOpen}
               aria-controls="inv-produto-sugestoes"
             />
             <button
               type="button"
-              className="inventario-captura__action-btn"
+              className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
+              disabled={readonly}
+              aria-label="Focar código"
+              onClick={() => barcodeRef.current?.focus()}
+            >
+              <IconFlash />
+            </button>
+            <button
+              type="button"
+              className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
               disabled={readonly}
               title="Ver lista de produtos"
+              aria-label="Lista de produtos"
               onClick={() => {
                 setSugestoesOpen((v) => !v)
                 barcodeRef.current?.focus()
               }}
             >
-              Lista
+              <IconBarcode />
+              <span className="inventario-captura__btn-text">Lista</span>
             </button>
           </div>
           {sugestoesOpen && !readonly ? (
@@ -447,7 +577,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               }}
               disabled={readonly}
               inputMode="decimal"
-              placeholder="ex.: 12"
+              placeholder="Quantidade"
             />
           </div>
           <div className="inventario-captura__field">
@@ -457,57 +587,43 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               value={unidade}
               readOnly
               className="inventario-captura__readonly"
-              placeholder="PT, CX…"
+              placeholder="Unidade"
             />
           </div>
         </div>
 
-        <div className="inventario-captura__row-2">
-          <div className="inventario-captura__field">
-            <label htmlFor="inv-up">UP</label>
-            <input
-              id="inv-up"
-              value={up}
-              onChange={(e) => setUp(e.target.value)}
-              disabled={readonly}
-              inputMode="decimal"
-              placeholder="ex.: 6"
-              autoComplete="off"
-            />
-          </div>
-          <div className="inventario-captura__field">
+        <div className="inventario-captura__row-2 inventario-captura__row-2--lote-val">
+          <div className="inventario-captura__field inventario-captura__field--short">
             <label htmlFor="inv-lote">Lote</label>
             <input
               id="inv-lote"
               value={lote}
               onChange={(e) => setLote(e.target.value)}
               disabled={readonly}
-              placeholder="ex.: L240628"
+              placeholder="Lote"
               autoComplete="off"
             />
           </div>
-        </div>
-
-        <div className="inventario-captura__row-2">
-          <div className="inventario-captura__field">
-            <label htmlFor="inv-fabricacao">Fabricação</label>
+          <div className="inventario-captura__field inventario-captura__field--long">
+            <label htmlFor="inv-validade">Validade</label>
             <div className="inventario-captura__input-row">
               <input
-                id="inv-fabricacao"
+                id="inv-validade"
                 type="date"
-                value={fabricacao}
-                onChange={(e) => setFabricacao(e.target.value)}
+                value={validade}
+                onChange={(e) => setValidade(e.target.value)}
                 disabled={readonly}
-                title="dd/mm/aaaa"
+                title="Validade"
+                placeholder="Validade"
               />
               <button
                 type="button"
-                className="inventario-captura__action-btn inventario-captura__action-btn--icon"
+                className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only"
                 disabled={readonly}
                 title="Abrir calendário"
-                aria-label="Abrir calendário de fabricação"
+                aria-label="Abrir calendário de validade"
                 onClick={() => {
-                  const el = document.getElementById('inv-fabricacao') as HTMLInputElement | null
+                  const el = document.getElementById('inv-validade') as HTMLInputElement | null
                   el?.focus()
                   try {
                     el?.showPicker?.()
@@ -520,25 +636,40 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
               </button>
             </div>
           </div>
+        </div>
+
+        <div className="inventario-captura__row-2 inventario-captura__row-2--up-fab">
           <div className="inventario-captura__field">
-            <label htmlFor="inv-validade">Validade</label>
+            <label htmlFor="inv-up">UP</label>
+            <input
+              id="inv-up"
+              value={up}
+              onChange={(e) => setUp(e.target.value)}
+              disabled={readonly}
+              inputMode="decimal"
+              placeholder="UP"
+              autoComplete="off"
+            />
+          </div>
+          <div className="inventario-captura__field">
+            <label htmlFor="inv-fabricacao">Fabricação</label>
             <div className="inventario-captura__input-row">
               <input
-                id="inv-validade"
+                id="inv-fabricacao"
                 type="date"
-                value={validade}
-                onChange={(e) => setValidade(e.target.value)}
+                value={fabricacao}
+                onChange={(e) => setFabricacao(e.target.value)}
                 disabled={readonly}
-                title="dd/mm/aaaa"
+                title="Fabricação"
               />
               <button
                 type="button"
-                className="inventario-captura__action-btn inventario-captura__action-btn--icon"
+                className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only"
                 disabled={readonly}
                 title="Abrir calendário"
-                aria-label="Abrir calendário de validade"
+                aria-label="Abrir calendário de fabricação"
                 onClick={() => {
-                  const el = document.getElementById('inv-validade') as HTMLInputElement | null
+                  const el = document.getElementById('inv-fabricacao') as HTMLInputElement | null
                   el?.focus()
                   try {
                     el?.showPicker?.()
@@ -559,17 +690,34 @@ export default function InventarioCaptura({ inventarioId, onVoltar }: Props) {
             id="inv-produto"
             value={produtoLabel}
             readOnly
-            rows={3}
+            rows={2}
             className="inventario-captura__readonly inventario-captura__produto"
-            placeholder="Selecione na lista ou bipe/digite acima"
+            placeholder="Produto"
           />
         </div>
         </div>
 
         <div className="inventario-captura__footer">
+          <div className="inventario-captura__footer-mobile">
+            <input
+              readOnly
+              value={codigoInterno || produtoLabel ? codigoInterno || '—' : '—'}
+              className="inventario-captura__readonly inventario-captura__footer-status"
+              aria-label="Código do produto"
+            />
+            <button
+              type="button"
+              className="inventario-captura__save-icon"
+              onClick={handleSalvar}
+              disabled={readonly}
+              aria-label="Salvar linha"
+            >
+              <IconSave />
+            </button>
+          </div>
           <button
             type="button"
-            className="inventario-captura__save"
+            className="inventario-captura__save inventario-captura__save--desktop"
             onClick={handleSalvar}
             disabled={readonly}
           >

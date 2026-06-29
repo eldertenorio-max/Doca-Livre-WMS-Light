@@ -1,6 +1,9 @@
 /** Cadastro canônico no Supabase. */
 export const TABELA_PRODUTOS = 'Todos os Produtos'
 
+/** Rótulo da lista de produtos usada no inventário (aba Produtos → Todos). */
+export const CATALOGO_INVENTARIO_NOME = 'Ultrapao'
+
 export type ProductOption = {
   id: string
   codigo: string

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import InventarioPosicoesModal from '../components/inventario/InventarioPosicoesModal'
 import {
   atualizarInventarioMeta,
   criarInventario,
@@ -24,6 +25,13 @@ function labelColeta(inv: InventarioSessao) {
   return inv.linhas.length === 0 ? 'Começar inventário' : 'Continuar'
 }
 
+function labelPosicoes(inv: InventarioSessao) {
+  const n = inv.posicoesCodigos?.length ?? 0
+  if (n === 0) return 'Todas (livre)'
+  const nome = inv.posicoesNome?.trim()
+  return nome ? `${nome} (${n})` : `${n} posição(ões)`
+}
+
 export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const [rows, setRows] = useState<InventarioSessao[]>(() => listInventarios())
   const [listaTab, setListaTab] = useState<ListaTab>('todos')
@@ -33,6 +41,12 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const [editarId, setEditarId] = useState<string | null>(null)
   const [editarTitulo, setEditarTitulo] = useState('')
   const [editarLocal, setEditarLocal] = useState('')
+  const [posicoesInvId, setPosicoesInvId] = useState<string | null>(null)
+
+  const inventarioPosicoes = useMemo(
+    () => (posicoesInvId ? rows.find((r) => r.id === posicoesInvId) : undefined),
+    [posicoesInvId, rows],
+  )
 
   const abertos = useMemo(() => rows.filter((r) => r.status === 'aberto'), [rows])
   const finalizados = useMemo(() => rows.filter((r) => r.status === 'fechado'), [rows])
@@ -100,6 +114,9 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
           <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
             Editar
           </button>
+          <button type="button" className={ghostClass} onClick={() => setPosicoesInvId(r.id)}>
+            Posições
+          </button>
           <button
             type="button"
             className={ghostClass}
@@ -121,6 +138,9 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
         <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
           Editar
         </button>
+        <button type="button" className={ghostClass} onClick={() => setPosicoesInvId(r.id)}>
+          Posições
+        </button>
         <button type="button" className={ghostClass} onClick={() => onAbrirCaptura(r.id)}>
           Ver
         </button>
@@ -132,8 +152,9 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     <div className="page-panel inv-gerenciar">
       <h1 className="page-panel__title">Inventários</h1>
       <p className="page-panel__subtitle">
-        Crie um inventário com nome — ele aparecerá na lista. Depois clique em <strong>Começar inventário</strong> na
-        linha para abrir a coleta. Inventários finalizados podem ser editados ou visualizados.
+        Crie um inventário com nome — configure as <strong>posições</strong> (endereços) e use a lista de produtos{' '}
+        <strong>Ultrapao</strong> (aba Produtos → Todos os Produtos). Depois clique em <strong>Começar inventário</strong>{' '}
+        para coletar.
       </p>
 
       <div className="page-form-grid inv-gerenciar__criar">
@@ -192,6 +213,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
               </div>
               <h3 className="inv-card__title">{r.titulo}</h3>
               <p className="inv-card__meta">{r.local}</p>
+              <p className="inv-card__meta inv-card__meta--pos">{labelPosicoes(r)}</p>
               <dl className="inv-card__stats">
                 <div>
                   <dt>Linhas</dt>
@@ -221,6 +243,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
               <th>#</th>
               <th>Nome</th>
               <th>Local</th>
+              <th>Posições</th>
               <th>Status</th>
               <th>Linhas</th>
               <th>Início</th>
@@ -231,7 +254,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
           <tbody>
             {listaFiltrada.length === 0 ? (
               <tr>
-                <td colSpan={8}>Nenhum inventário nesta lista.</td>
+                <td colSpan={9}>Nenhum inventário nesta lista.</td>
               </tr>
             ) : (
               listaFiltrada.map((r) => (
@@ -239,6 +262,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
                   <td>{r.numero}</td>
                   <td>{r.titulo}</td>
                   <td>{r.local}</td>
+                  <td className="inv-posicoes-cell">{labelPosicoes(r)}</td>
                   <td>
                     <span className={r.status === 'aberto' ? 'inv-status inv-status--open' : 'inv-status inv-status--closed'}>
                       {r.status === 'aberto' ? 'Aberto' : 'Finalizado'}
@@ -356,6 +380,14 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {inventarioPosicoes ? (
+        <InventarioPosicoesModal
+          inventario={inventarioPosicoes}
+          onClose={() => setPosicoesInvId(null)}
+          onSaved={refresh}
+        />
       ) : null}
     </div>
   )

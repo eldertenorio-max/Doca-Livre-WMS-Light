@@ -219,6 +219,7 @@ export default function App() {
       {view === 'inventarioCaptura' && capturaInventarioId ? (
         <InventarioCaptura
           inventarioId={capturaInventarioId}
+          session={session}
           onVoltar={() => {
             setCapturaInventarioId(null)
             setView('inventarios')
