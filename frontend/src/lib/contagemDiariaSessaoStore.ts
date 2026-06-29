@@ -114,6 +114,15 @@ export function reabrirContagemDiaria(id: string): ContagemDiariaSessao | null {
   return sessao
 }
 
+export function deleteContagemDiaria(id: string): boolean {
+  const all = readAll()
+  const idx = all.findIndex((r) => r.id === id)
+  if (idx < 0) return false
+  all.splice(idx, 1)
+  writeAll(all)
+  return true
+}
+
 export function atualizarContagemDiariaMeta(
   id: string,
   patch: { titulo?: string; local?: string; dataContagem?: string },

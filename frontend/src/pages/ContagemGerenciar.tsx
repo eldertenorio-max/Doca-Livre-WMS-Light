@@ -4,6 +4,7 @@ import { usernameFromSession } from '../lib/authUser'
 import {
   atualizarContagemDiariaMeta,
   criarContagemDiaria,
+  deleteContagemDiaria,
   fecharContagemDiaria,
   formatDataContagemBR,
   listContagensDiarias,
@@ -124,9 +125,23 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     onAbrirContagem(id)
   }
 
+  function handleExcluir(c: ContagemDiariaSessao) {
+    const msg = c.iniciada
+      ? `Excluir a contagem "${c.titulo}"? Ela já foi iniciada e deixará de aparecer na lista.`
+      : `Excluir a contagem "${c.titulo}"?`
+    if (!confirm(msg)) return
+    deleteContagemDiaria(c.id)
+    if (editarId === c.id) setEditarId(null)
+    refresh()
+  }
+
   function renderAcoes(c: ContagemDiariaSessao, layout: 'table' | 'card') {
     const btnClass = layout === 'card' ? 'inv-card__btn' : undefined
     const ghostClass = layout === 'card' ? 'inv-card__btn inv-card__btn--ghost' : 'page-btn-ghost'
+    const dangerClass =
+      layout === 'card'
+        ? 'inv-card__btn inv-card__btn--ghost inv-card__btn--danger'
+        : 'page-btn-ghost page-btn-danger'
 
     if (c.status === 'aberto') {
       return (
@@ -149,6 +164,9 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
           >
             Finalizar
           </button>
+          <button type="button" className={dangerClass} onClick={() => handleExcluir(c)}>
+            Excluir
+          </button>
         </>
       )
     }
@@ -163,6 +181,9 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
         </button>
         <button type="button" className={ghostClass} onClick={() => onAbrirContagem(c.id)}>
           Ver
+        </button>
+        <button type="button" className={dangerClass} onClick={() => handleExcluir(c)}>
+          Excluir
         </button>
       </>
     )

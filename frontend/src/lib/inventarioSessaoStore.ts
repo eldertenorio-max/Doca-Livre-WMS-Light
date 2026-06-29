@@ -52,6 +52,34 @@ export function listInventarios(): InventarioSessao[] {
   return readAll().sort((a, b) => b.numero - a.numero)
 }
 
+/** Comparação de nome (ignora maiúsculas/minúsculas e espaços nas pontas). */
+export function normalizarTituloInventario(titulo: string): string {
+  return String(titulo ?? '')
+    .trim()
+    .toLowerCase()
+}
+
+/** Inventário aberto com o mesmo nome (opcional: ignorar um id na edição). */
+export function inventarioAbertoComMesmoTitulo(
+  titulo: string,
+  ignorarId?: string,
+): InventarioSessao | undefined {
+  const key = normalizarTituloInventario(titulo)
+  if (!key) return undefined
+  return readAll().find(
+    (r) =>
+      r.status === 'aberto' &&
+      r.id !== ignorarId &&
+      normalizarTituloInventario(r.titulo) === key,
+  )
+}
+
+export function mensagemTituloInventarioEmUso(titulo: string, existente?: InventarioSessao): string {
+  const dup = existente ?? inventarioAbertoComMesmoTitulo(titulo)
+  if (!dup) return ''
+  return `Já existe um inventário aberto com o nome "${dup.titulo}" (#${dup.numero}). Finalize-o antes de usar esse nome.`
+}
+
 export function getInventario(id: string): InventarioSessao | undefined {
   return readAll().find((r) => r.id === id)
 }
@@ -67,14 +95,17 @@ export function criarInventario(opts?: {
   local?: string
   posicoesNome?: string
   posicoesCodigos?: string[]
-}): InventarioSessao {
+}): InventarioSessao | null {
   const all = readAll()
   const numero = nextInventarioNumero()
+  const tituloFinal = opts?.titulo?.trim() || `Inventário (Validade) #${numero}`
+  if (inventarioAbertoComMesmoTitulo(tituloFinal)) return null
+
   const now = new Date().toISOString()
   const row: InventarioSessao = {
     id: crypto.randomUUID(),
     numero,
-    titulo: opts?.titulo?.trim() || `Inventário (Validade) #${numero}`,
+    titulo: tituloFinal,
     local: opts?.local?.trim() || 'ULTRAPAO GUARULHOS DISTRI',
     posicoesNome: opts?.posicoesNome?.trim() || undefined,
     posicoesCodigos: opts?.posicoesCodigos?.length ? [...opts.posicoesCodigos] : undefined,
@@ -122,10 +153,20 @@ export function fecharInventario(id: string) {
 export function reabrirInventario(id: string): InventarioSessao | null {
   const sessao = getInventario(id)
   if (!sessao) return null
+  if (inventarioAbertoComMesmoTitulo(sessao.titulo, id)) return null
   sessao.status = 'aberto'
   sessao.dataFim = null
   saveInventario(sessao)
   return sessao
+}
+
+export function deleteInventario(id: string): boolean {
+  const all = readAll()
+  const idx = all.findIndex((r) => r.id === id)
+  if (idx < 0) return false
+  all.splice(idx, 1)
+  writeAll(all)
+  return true
 }
 
 export function atualizarInventarioMeta(
@@ -136,7 +177,9 @@ export function atualizarInventarioMeta(
   if (!sessao) return null
   if (patch.titulo !== undefined) {
     const t = patch.titulo.trim()
-    if (t) sessao.titulo = t
+    if (!t) return null
+    if (inventarioAbertoComMesmoTitulo(t, id)) return null
+    sessao.titulo = t
   }
   if (patch.local !== undefined) {
     const l = patch.local.trim()

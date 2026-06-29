@@ -3,8 +3,11 @@ import InventarioPosicoesModal from '../components/inventario/InventarioPosicoes
 import {
   atualizarInventarioMeta,
   criarInventario,
+  deleteInventario,
   fecharInventario,
+  inventarioAbertoComMesmoTitulo,
   listInventarios,
+  mensagemTituloInventarioEmUso,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
 
@@ -73,7 +76,16 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
       alert('Informe o nome do inventário.')
       return
     }
-    criarInventario({ titulo, local: criarLocal })
+    const dup = inventarioAbertoComMesmoTitulo(titulo)
+    if (dup) {
+      alert(mensagemTituloInventarioEmUso(titulo, dup))
+      return
+    }
+    const created = criarInventario({ titulo, local: criarLocal })
+    if (!created) {
+      alert(mensagemTituloInventarioEmUso(titulo))
+      return
+    }
     setCriarOpen(false)
     setListaTab('abertos')
     refresh()
@@ -92,8 +104,30 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
       alert('Informe o nome do inventário.')
       return
     }
-    atualizarInventarioMeta(editarId, { titulo, local: editarLocal })
+    const dup = inventarioAbertoComMesmoTitulo(titulo, editarId)
+    if (dup) {
+      alert(mensagemTituloInventarioEmUso(titulo, dup))
+      return
+    }
+    const updated = atualizarInventarioMeta(editarId, { titulo, local: editarLocal })
+    if (!updated) {
+      alert(mensagemTituloInventarioEmUso(titulo))
+      return
+    }
     setEditarId(null)
+    refresh()
+  }
+
+  function handleExcluir(inv: InventarioSessao) {
+    const n = inv.linhas.length
+    const msg =
+      n > 0
+        ? `Excluir o inventário "${inv.titulo}"? As ${n} linha(s) coletadas serão perdidas permanentemente.`
+        : `Excluir o inventário "${inv.titulo}"?`
+    if (!confirm(msg)) return
+    deleteInventario(inv.id)
+    if (editarId === inv.id) setEditarId(null)
+    if (posicoesInvId === inv.id) setPosicoesInvId(null)
     refresh()
   }
 
@@ -104,6 +138,10 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   function renderAcoes(r: InventarioSessao, layout: 'table' | 'card') {
     const btnClass = layout === 'card' ? 'inv-card__btn' : undefined
     const ghostClass = layout === 'card' ? 'inv-card__btn inv-card__btn--ghost' : 'page-btn-ghost'
+    const dangerClass =
+      layout === 'card'
+        ? 'inv-card__btn inv-card__btn--ghost inv-card__btn--danger'
+        : 'page-btn-ghost page-btn-danger'
 
     if (r.status === 'aberto') {
       return (
@@ -129,6 +167,9 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
           >
             Finalizar
           </button>
+          <button type="button" className={dangerClass} onClick={() => handleExcluir(r)}>
+            Excluir
+          </button>
         </>
       )
     }
@@ -143,6 +184,9 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
         </button>
         <button type="button" className={ghostClass} onClick={() => onAbrirCaptura(r.id)}>
           Ver
+        </button>
+        <button type="button" className={dangerClass} onClick={() => handleExcluir(r)}>
+          Excluir
         </button>
       </>
     )

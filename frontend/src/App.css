@@ -1371,6 +1371,11 @@
   font-weight: 600;
 }
 
+.inv-card__btn--danger {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
 .page-modal-overlay {
   position: fixed;
   inset: 0;

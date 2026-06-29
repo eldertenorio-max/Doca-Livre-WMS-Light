@@ -8,8 +8,12 @@ import {
   type EstoqueLinha,
 } from '../lib/estoqueConsultaFetch'
 import { formatUnknownError } from '../lib/supabaseError'
+import RelatorioContagem from './RelatorioContagem'
 
 const PAGE_SIZE = 50
+
+type EstoqueTab = 'consulta' | 'exportar'
+type ExportarTab = 'contagem_diaria' | 'inventario'
 
 function formatDataBR(ymd: string) {
   if (!ymd || ymd.length < 10) return '—'
@@ -29,6 +33,8 @@ function tipoLabel(fonte: EstoqueLinha['fonte']) {
 }
 
 export default function EstoqueConsulta() {
+  const [estoqueTab, setEstoqueTab] = useState<EstoqueTab>('consulta')
+  const [exportarTab, setExportarTab] = useState<ExportarTab>('contagem_diaria')
   const [filtros, setFiltros] = useState<EstoqueConsultaFiltros>(() => estoqueFiltrosPadrao())
   const [draft, setDraft] = useState<EstoqueConsultaFiltros>(() => estoqueFiltrosPadrao())
   const [rows, setRows] = useState<EstoqueLinha[]>([])
@@ -101,8 +107,78 @@ export default function EstoqueConsulta() {
     <div className="page-panel page-panel--wide">
       <h1 className="page-panel__title">Estoque</h1>
       <p className="page-panel__subtitle">
-        Consulte as contagens registradas no banco (contagem diária e inventário). Use os filtros e clique em{' '}
-        <strong>Carregar</strong> para buscar no período; busca, conferente e câmara refinam a lista já carregada.
+        Consulte as contagens registradas no banco ou gere planilhas Excel com o mesmo layout dos relatórios.
+      </p>
+
+      <div className="page-tabs inv-gerenciar__tabs" role="tablist" aria-label="Estoque">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={estoqueTab === 'consulta'}
+          className={`page-tabs__btn${estoqueTab === 'consulta' ? ' page-tabs__btn--active' : ''}`}
+          onClick={() => setEstoqueTab('consulta')}
+        >
+          Consulta
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={estoqueTab === 'exportar'}
+          className={`page-tabs__btn${estoqueTab === 'exportar' ? ' page-tabs__btn--active' : ''}`}
+          onClick={() => setEstoqueTab('exportar')}
+        >
+          Exportar Excel
+        </button>
+      </div>
+
+      {estoqueTab === 'exportar' ? (
+        <div className="page-tabs__panel" role="tabpanel">
+          <p className="page-panel__subtitle" style={{ marginTop: 0 }}>
+            Escolha o tipo de exportação. O arquivo .xlsx usa as mesmas colunas e abas do antigo painel de relatórios.
+          </p>
+          <div className="page-tabs" role="tablist" aria-label="Tipo de exportação">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={exportarTab === 'contagem_diaria'}
+              className={`page-tabs__btn${exportarTab === 'contagem_diaria' ? ' page-tabs__btn--active' : ''}`}
+              onClick={() => setExportarTab('contagem_diaria')}
+            >
+              Contagem diária
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={exportarTab === 'inventario'}
+              className={`page-tabs__btn${exportarTab === 'inventario' ? ' page-tabs__btn--active' : ''}`}
+              onClick={() => setExportarTab('inventario')}
+            >
+              Inventário
+            </button>
+          </div>
+          <div className="page-tabs__panel">
+            {exportarTab === 'contagem_diaria' ? (
+              <RelatorioContagem
+                key="est-export-cd"
+                exportOnly
+                lockListColumnMode
+                listColumnPrefsInventario={false}
+              />
+            ) : (
+              <RelatorioContagem
+                key="est-export-inv"
+                exportOnly
+                lockListColumnMode
+                listColumnPrefsInventario
+              />
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+      <p className="page-panel__subtitle">
+        Use os filtros e clique em <strong>Carregar</strong> para buscar no período; busca, conferente e câmara refinam a
+        lista já carregada.
       </p>
 
       <section className="page-form-grid page-form-grid--filters">
@@ -262,6 +338,8 @@ export default function EstoqueConsulta() {
           </button>
         </div>
       ) : null}
+        </>
+      )}
     </div>
   )
 }

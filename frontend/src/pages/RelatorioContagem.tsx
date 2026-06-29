@@ -343,6 +343,8 @@ type RelatorioContagemProps = {
   listColumnPrefsInventario?: boolean
   /** Quando true, não alterna para contagem diária (painel só Inventário ou só Contagem). */
   lockListColumnMode?: boolean
+  /** Só filtros e exportação Excel (sem tabela de prévia). */
+  exportOnly?: boolean
 }
 
 const relPanelStyle: React.CSSProperties = {
@@ -413,6 +415,7 @@ export default function RelatorioContagem({
   mode = 'periodo',
   listColumnPrefsInventario = false,
   lockListColumnMode = false,
+  exportOnly = false,
 }: RelatorioContagemProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
@@ -2173,8 +2176,10 @@ export default function RelatorioContagem({
   }
 
   return (
-    <div style={{ padding: 16, maxWidth: 1400, margin: '0 auto' }}>
-      <h2>{isDiaMode ? 'Todas as contagens' : 'Relatório completo por data de contagem'}</h2>
+    <div style={{ padding: exportOnly ? 0 : 16, maxWidth: exportOnly ? 'none' : 1400, margin: exportOnly ? 0 : '0 auto' }}>
+      {!exportOnly ? (
+        <h2>{isDiaMode ? 'Todas as contagens' : 'Relatório completo por data de contagem'}</h2>
+      ) : null}
 
       {isDiaMode ? (
         <section style={relPanelStyle}>
@@ -2277,7 +2282,11 @@ export default function RelatorioContagem({
       <div ref={listaRelatorioRef} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
         <section style={{ ...relPanelStyle, marginTop: 0 }}>
           <h3 style={{ margin: '0 0 10px', fontSize: 18 }}>
-            {isDiaMode ? 'Filtros da lista' : 'Relatório — filtros e exportação'}
+            {exportOnly
+              ? 'Exportar Excel — filtros'
+              : isDiaMode
+                ? 'Filtros da lista'
+                : 'Relatório — filtros e exportação'}
           </h3>
 
           {lockListColumnMode ? (
@@ -2464,7 +2473,9 @@ export default function RelatorioContagem({
               gridTemplateColumns: isMobile
                 ? '1fr'
                 : showExportExcel
-                  ? 'repeat(3, minmax(150px, 1fr))'
+                  ? exportOnly
+                    ? 'repeat(2, minmax(150px, 1fr))'
+                    : 'repeat(3, minmax(150px, 1fr))'
                   : 'repeat(1, minmax(200px, 1fr))',
               gap: 10,
               alignItems: 'stretch',
@@ -2474,23 +2485,25 @@ export default function RelatorioContagem({
               background: isMobile ? 'transparent' : 'rgba(255,255,255,0.03)',
             }}
           >
-            <button
-              type="button"
-              onClick={() => void handleCarregarComAvisoPendencia()}
-              disabled={loading}
-              style={{
-                ...relBtnCarregar,
-                width: '100%',
-                minHeight: 44,
-                cursor: loading ? 'wait' : 'pointer',
-                opacity: loading ? 0.85 : 1,
-              }}
-            >
-              <span className="app-nav-icon app-nav-icon--bounce" aria-hidden>
-                📥
-              </span>
-              {loading ? 'Carregando...' : `Carregar (${dateRangeText})`}
-            </button>
+            {!exportOnly ? (
+              <button
+                type="button"
+                onClick={() => void handleCarregarComAvisoPendencia()}
+                disabled={loading}
+                style={{
+                  ...relBtnCarregar,
+                  width: '100%',
+                  minHeight: 44,
+                  cursor: loading ? 'wait' : 'pointer',
+                  opacity: loading ? 0.85 : 1,
+                }}
+              >
+                <span className="app-nav-icon app-nav-icon--bounce" aria-hidden>
+                  📥
+                </span>
+                {loading ? 'Carregando...' : `Carregar (${dateRangeText})`}
+              </button>
+            ) : null}
 
             {showExportExcel ? (
               <>
@@ -2545,7 +2558,7 @@ export default function RelatorioContagem({
 
         {error ? <div style={{ color: '#b00020' }}>{error}</div> : null}
         {success ? <div style={{ color: '#0f7a0f' }}>{success}</div> : null}
-        {conferenteFiltroHistorico ? (
+        {!exportOnly && conferenteFiltroHistorico ? (
           <div
             style={{
               padding: '10px 12px',
@@ -2584,7 +2597,7 @@ export default function RelatorioContagem({
           </div>
         ) : null}
 
-        {rows.length ? (
+        {!exportOnly && rows.length ? (
           <div style={{ overflowX: 'auto' }}>
             {relatorioConferenteGlobalBar}
             {relatorioPagination}

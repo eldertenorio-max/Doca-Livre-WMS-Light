@@ -19,7 +19,6 @@ import EstoqueConsulta from './pages/EstoqueConsulta'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
-import RelatorioHub from './pages/RelatorioHub'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 
 export type AppView =
@@ -37,7 +36,6 @@ export type AppView =
   | 'contagem'
   | 'contagemCaptura'
   | 'estoque'
-  | 'relatorio'
 
 type Theme = 'dark' | 'light'
 
@@ -134,7 +132,6 @@ export default function App() {
       { id: 'inventarios', label: 'Inventários', icon: <NavEmoji>📦</NavEmoji>, accent: '#26c6da' },
       { id: 'contagem', label: 'Contagem diária', icon: <NavEmoji>📋</NavEmoji>, accent: '#4f8eff' },
       { id: 'estoque', label: 'Estoque', icon: <NavEmoji>📊</NavEmoji>, accent: '#a855f7' },
-      { id: 'relatorio', label: 'Relatório', icon: <NavEmoji>📄</NavEmoji>, accent: '#f97316' },
     ],
     [],
   )
@@ -245,11 +242,6 @@ export default function App() {
       {view === 'estoque' ? (
         <PanelErrorBoundary>
           <EstoqueConsulta />
-        </PanelErrorBoundary>
-      ) : null}
-      {view === 'relatorio' ? (
-        <PanelErrorBoundary>
-          <RelatorioHub />
         </PanelErrorBoundary>
       ) : null}
     </AppShell>
