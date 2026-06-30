@@ -27,6 +27,7 @@ import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import { getArmazemContagem, getArmazemPos } from '../lib/armazemInventarioMap'
 import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
+import { ensureInventariosSessaoSincronizados } from '../lib/inventarioSessaoFinalizeSync'
 
 type ContagemRow = {
   id: string
@@ -1551,6 +1552,18 @@ export default function RelatorioContagem({
     setSuccess('')
     setRows([])
     try {
+      if (useInventarioCols) {
+        const sync = await ensureInventariosSessaoSincronizados({
+          allTime,
+          startYmd: startDate,
+          endYmd: endDate,
+        })
+        if (sync.linhas > 0) {
+          setSuccess(
+            `${sync.linhas} linha(s) de ${sync.sessoes} inventário(s) sincronizada(s) para exportação.`,
+          )
+        }
+      }
       const { rows: data, successMessage, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
         includeRascunho: true,
       })
@@ -1565,7 +1578,9 @@ export default function RelatorioContagem({
       }
       const finalRows = await aplicarMesmaRegraDaPreviaAsync(dataForPrevia, origemAusenteNoResultado)
       setRows(finalRows)
-      if (successMessage) setSuccess(successMessage)
+      if (successMessage) {
+        setSuccess((prev) => (prev ? `${prev} ${successMessage}` : successMessage))
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar relatório.')
     } finally {
@@ -1870,6 +1885,13 @@ export default function RelatorioContagem({
     setExportExcelLoading(true)
     setError('')
     try {
+      if (useInventarioCols) {
+        await ensureInventariosSessaoSincronizados({
+          allTime,
+          startYmd: startDate,
+          endYmd: endDate,
+        })
+      }
       if (!opts?.skipPendenciaCheck && !useInventarioCols && isExportUmDiaCivil) {
         const diaAlvo = useSingleDay ? singleDay : startDate
         const {
@@ -2387,6 +2409,13 @@ export default function RelatorioContagem({
               />
             </label>
             <div className="page-form-grid__actions page-form-grid__actions--wrap page-form-grid__full">
+              <button
+                type="button"
+                onClick={() => void handleCarregarComAvisoPendencia()}
+                disabled={loading}
+              >
+                {loading ? 'Carregando…' : 'Carregar'}
+              </button>
               {showExportExcel ? (
                 <>
                   <button

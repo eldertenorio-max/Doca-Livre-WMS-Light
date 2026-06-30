@@ -1,3 +1,4 @@
+import { syncInventarioSessaoParaContagens } from './inventarioSessaoFinalizeSync'
 import {
   deleteInventarioSessaoSupabase,
   fetchInventarioSessaoByIdSupabase,
@@ -295,6 +296,13 @@ export async function fecharInventario(id: string): Promise<void> {
   sessao.status = 'fechado'
   sessao.dataFim = new Date().toISOString()
   await saveInventario(sessao)
+  if (sessao.linhas.length > 0) {
+    try {
+      await syncInventarioSessaoParaContagens(sessao, { force: true })
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[fecharInventario] sync contagens_inventario', e)
+    }
+  }
 }
 
 export async function reabrirInventario(id: string): Promise<InventarioSessao | null> {

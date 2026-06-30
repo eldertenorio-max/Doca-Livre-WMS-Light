@@ -926,20 +926,21 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   />
                   <button
                     type="button"
-                    className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
-                    disabled={readonly || !codigoBarras.trim()}
+                    className="inventario-captura__action-btn inventario-captura__action-btn--limpar"
+                    disabled={readonly || (!codigoBarras.trim() && !codigoInterno.trim() && !produtoLabel.trim())}
                     aria-label="Limpar produto"
                     title="Limpar"
                     onClick={limparCampoProduto}
                   >
-                    <IconClearField className="inventario-captura__btn-icon" />
+                    <span className="inventario-captura__btn-text">Limpar</span>
+                    <IconClearField className="inventario-captura__btn-icon" aria-hidden />
                   </button>
                   <button
                     type="button"
-                    className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
+                    className="inventario-captura__action-btn inventario-captura__action-btn--icon-only inventario-captura__action-btn--scan"
                     disabled={readonly}
                     aria-label="Ler código de barras pela câmera"
-                    title="Câmera"
+                    title="Ler código de barras"
                     onClick={() => abrirCameraBarcode('produto')}
                   >
                     <IconScanBarcode className="inventario-captura__btn-icon" />
