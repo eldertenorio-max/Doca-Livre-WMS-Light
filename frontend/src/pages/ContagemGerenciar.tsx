@@ -345,8 +345,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
       ) : null}
       {loading ? <p className="page-panel__meta">Carregando contagens…</p> : null}
 
-      <div className="page-form-grid inv-gerenciar__criar">
-        <div className="page-form-grid__actions">
+      <div className="gerenciar-toolbar">
           <button type="button" onClick={abrirModalCriar} disabled={loading}>
             Criar contagem
           </button>
@@ -361,7 +360,6 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
           >
             Cadastrar conferente
           </button>
-        </div>
       </div>
 
       <div className="page-tabs inv-gerenciar__tabs" role="tablist" aria-label="Filtro de contagens">

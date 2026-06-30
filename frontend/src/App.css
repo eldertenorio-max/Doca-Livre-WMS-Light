@@ -1503,6 +1503,39 @@
   color: #86efac;
 }
 
+.gerenciar-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.gerenciar-toolbar > button:not(.page-btn-ghost) {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--dis-accent, #c9a227);
+  background: linear-gradient(180deg, #ffd95c 0%, #e6b400 100%);
+  color: #1a1300;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.gerenciar-toolbar > button:not(.page-btn-ghost):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.gerenciar-toolbar > .page-btn-ghost {
+  min-height: 42px;
+  white-space: nowrap;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
 .inv-gerenciar__tabs {
   margin-top: 20px;
 }
@@ -3138,15 +3171,6 @@
   .inv-list-cards {
     display: grid;
     gap: 12px;
-  }
-
-  .inv-gerenciar__criar .page-form-grid__actions {
-    width: 100%;
-  }
-
-  .inv-gerenciar__criar button {
-    width: 100%;
-    min-height: 48px;
   }
 }
 

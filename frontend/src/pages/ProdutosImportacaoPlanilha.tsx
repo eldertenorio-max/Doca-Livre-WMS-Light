@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
+import {
+  createProdutoLista,
+  listProdutoListas,
+  produtoListasHabilitado,
+  saveProdutoLista,
+  type ProdutoListaItem,
+} from '../lib/produtoListaSupabase'
+import { emitProdutoListaAtualizada } from '../lib/sessaoProdutoListaContext'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
 
@@ -58,6 +66,27 @@ function parseSheet(rows: Record<string, unknown>[]): LinhaImport[] {
   return out
 }
 
+function linhasParaListaItens(linhas: LinhaImport[]): ProdutoListaItem[] {
+  return linhas.map((ln) => ({
+    codigo_interno: ln.codigo_interno.trim(),
+    descricao: ln.descricao.trim(),
+    unidade: ln.unidade,
+    ean: ln.ean,
+    dun: ln.dun,
+  }))
+}
+
+async function gravarListaImportada(nome: string, linhas: LinhaImport[]) {
+  const nomeTrim = nome.trim()
+  const produtos = linhasParaListaItens(linhas)
+  const listas = await listProdutoListas()
+  const existente = listas.find((l) => l.nome.trim().toLowerCase() === nomeTrim.toLowerCase())
+  if (existente) {
+    return saveProdutoLista({ ...existente, nome: nomeTrim, produtos })
+  }
+  return createProdutoLista(nomeTrim, produtos)
+}
+
 function baixarModeloImportacao() {
   const exemplo = [
     {
@@ -84,6 +113,7 @@ function baixarModeloImportacao() {
 
 export default function ProdutosImportacaoPlanilha() {
   const inputRef = useRef<HTMLInputElement>(null)
+  const [nomeLista, setNomeLista] = useState('')
   const [linhas, setLinhas] = useState<LinhaImport[]>([])
   const [arquivo, setArquivo] = useState('')
   const [importando, setImportando] = useState(false)
@@ -157,6 +187,16 @@ export default function ProdutosImportacaoPlanilha() {
 
   async function handleImportar() {
     if (!linhas.length) return
+    const nome = nomeLista.trim()
+    if (!nome) {
+      setLog(['Informe o nome da lista antes de importar.'])
+      return
+    }
+    if (!produtoListasHabilitado()) {
+      setLog(['Supabase não configurado — não é possível gravar a lista de produtos.'])
+      return
+    }
+
     setImportando(true)
     const msgs: string[] = []
     let ok = 0
@@ -176,7 +216,18 @@ export default function ProdutosImportacaoPlanilha() {
         msgs.push(`${ln.codigo_interno}: ${formatUnknownError(e)}`)
       }
     }
-    msgs.unshift(`Concluído — ${ok} gravado(s), ${skip} ignorado(s), ${err} erro(s).`)
+
+    try {
+      const lista = await gravarListaImportada(nome, linhas)
+      emitProdutoListaAtualizada([lista.id])
+      msgs.unshift(
+        `Lista «${lista.nome}» salva com ${lista.produtos.length} produto(s) — aparece em Produtos → listas salvas e pode ser usada no inventário.`,
+      )
+    } catch (e: unknown) {
+      msgs.unshift(`Catálogo atualizado, mas falhou ao gravar a lista: ${formatUnknownError(e)}`)
+    }
+
+    msgs.unshift(`Concluído — ${ok} gravado(s) em Todos os Produtos, ${skip} ignorado(s), ${err} erro(s).`)
     setLog(msgs)
     setImportando(false)
   }
@@ -186,12 +237,22 @@ export default function ProdutosImportacaoPlanilha() {
       <h1 className="page-panel__title">Importação de Planilha de Produtos</h1>
       <p className="page-panel__subtitle">
         Envie um Excel (.xlsx) com colunas <strong>codigo_interno</strong> (ou código) e{' '}
-        <strong>descricao</strong>. Opcional: unidade, ean, dun. Os dados são gravados em{' '}
-        <strong>Todos os Produtos</strong> no Supabase.
+        <strong>descricao</strong>. Opcional: unidade, ean, dun. Informe o <strong>nome da lista</strong> — os
+        produtos entram em <strong>Todos os Produtos</strong> e na lista salva, visível na aba{' '}
+        <strong>Produtos</strong> e disponível para inventário.
       </p>
 
       <div className="page-form-grid" style={{ maxWidth: 520 }}>
-        <label>
+        <label className="page-form-grid__full">
+          Nome da lista *
+          <input
+            value={nomeLista}
+            onChange={(e) => setNomeLista(e.target.value)}
+            placeholder="Ex.: CD Ultrapao guarulhos — importação jun/2026"
+            required
+          />
+        </label>
+        <label className="page-form-grid__full">
           Arquivo Excel
           <input
             ref={inputRef}
@@ -212,7 +273,11 @@ export default function ProdutosImportacaoPlanilha() {
           Atualizar produtos já existentes (mesmo código)
         </label>
         <div className="page-form-grid__actions page-form-grid__actions--wrap">
-          <button type="button" disabled={!linhas.length || importando} onClick={() => void handleImportar()}>
+          <button
+            type="button"
+            disabled={!nomeLista.trim() || !linhas.length || importando}
+            onClick={() => void handleImportar()}
+          >
             {importando ? 'Importando…' : `Importar ${linhas.length} linha(s)`}
           </button>
           <button type="button" className="page-btn-ghost" onClick={baixarModeloImportacao}>

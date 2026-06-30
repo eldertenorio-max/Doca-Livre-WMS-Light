@@ -347,8 +347,7 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
       ) : null}
       {loading ? <p className="page-panel__meta">Carregando inventários…</p> : null}
 
-      <div className="page-form-grid inv-gerenciar__criar">
-        <div className="page-form-grid__actions">
+      <div className="gerenciar-toolbar">
           <button type="button" onClick={abrirModalCriar} disabled={loading}>
             Criar inventário
           </button>
@@ -363,7 +362,6 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
           >
             Cadastrar conferente
           </button>
-        </div>
       </div>
 
       <div className="page-tabs inv-gerenciar__tabs" role="tablist" aria-label="Filtro de inventários">

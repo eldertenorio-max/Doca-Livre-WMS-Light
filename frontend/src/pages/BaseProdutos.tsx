@@ -14,6 +14,7 @@ import {
 import {
   emitProdutoListaAtualizada,
   getSessaoProdutoListaContext,
+  PRODUTO_LISTA_ATUALIZADA_EVENT,
 } from '../lib/sessaoProdutoListaContext'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
@@ -276,6 +277,14 @@ export default function BaseProdutos() {
 
   useEffect(() => {
     void carregarListas()
+  }, [carregarListas])
+
+  useEffect(() => {
+    const onListasAtualizadas = () => {
+      void carregarListas()
+    }
+    window.addEventListener(PRODUTO_LISTA_ATUALIZADA_EVENT, onListasAtualizadas)
+    return () => window.removeEventListener(PRODUTO_LISTA_ATUALIZADA_EVENT, onListasAtualizadas)
   }, [carregarListas])
 
   function limparAreaTrabalho() {

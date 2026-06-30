@@ -70,7 +70,7 @@ export default function CadastroEnderecamento() {
   const [listaMsg, setListaMsg] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [lote, setLote] = useState(emptyLote)
-  const [loteAberto, setLoteAberto] = useState(true)
+  const [loteAberto, setLoteAberto] = useState(false)
   const [exclusaoAberta, setExclusaoAberta] = useState(false)
   const [exclusao, setExclusao] = useState(emptyExclusao)
   const [exclusaoMsg, setExclusaoMsg] = useState('')
