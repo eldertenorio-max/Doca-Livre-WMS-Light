@@ -31,6 +31,8 @@ type Props = {
   icon?: ReactNode
   tone: WmsKpiTone
   onClick?: () => void
+  onDrillDown?: () => void
+  drillTitle?: string
   className?: string
   style?: CSSProperties
 }
@@ -43,6 +45,8 @@ export default function WmsKpiCard({
   icon,
   tone,
   onClick,
+  onDrillDown,
+  drillTitle,
   className = '',
   style,
 }: Props) {
@@ -56,9 +60,20 @@ export default function WmsKpiCard({
     >
       <div className="wms-kpi-card__head">
         <span className="wms-kpi-card__title">{title}</span>
-        <span className="wms-kpi-card__search" aria-hidden>
-          🔍
-        </span>
+        {onDrillDown ? (
+          <button
+            type="button"
+            className="wms-kpi-card__search-btn"
+            title={drillTitle ?? `Ver detalhes: ${title}`}
+            aria-label={drillTitle ?? `Ver detalhes: ${title}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDrillDown()
+            }}
+          >
+            🔍
+          </button>
+        ) : null}
       </div>
       <div className="wms-kpi-card__value">{value}</div>
       {subtitle ? <div className="wms-kpi-card__sub">{subtitle}</div> : null}

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import WmsDonutChart from '../components/dashboard/WmsDonutChart'
+import WmsHorizontalBarChart from '../components/dashboard/WmsHorizontalBarChart'
 import WmsInteractiveBarChart from '../components/dashboard/WmsInteractiveBarChart'
 import WmsKpiCard from '../components/dashboard/WmsKpiCard'
 import { PagePanelHeading } from '../components/ui/PagePanelHeading'
@@ -18,6 +19,10 @@ import {
   seriePorConferente,
   seriePorDia,
   seriePorNumeroContagem,
+  seriePorProduto,
+  serieQuantidadePorCamara,
+  serieQuantidadePorDia,
+  serieStatusSessoesInventario,
   todayYmdSp,
   type PainelChartPoint,
   type PainelFiltroAtivo,
@@ -31,7 +36,12 @@ import './PainelPage.css'
 
 type PainelTab = 'contagem' | 'inventario'
 
-const FILTRO_VAZIO: PainelFiltroAtivo = { ymd: null, conferenteId: null, camara: null }
+const FILTRO_VAZIO: PainelFiltroAtivo = {
+  ymd: null,
+  conferenteId: null,
+  camara: null,
+  codigoInterno: null,
+}
 
 export default function PainelPage() {
   const [tab, setTab] = useState<PainelTab>('contagem')
@@ -42,10 +52,19 @@ export default function PainelPage() {
   const [filtro, setFiltro] = useState<PainelFiltroAtivo>(FILTRO_VAZIO)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  const [highlightChart, setHighlightChart] = useState<string | null>(null)
   const [linhasContagem, setLinhasContagem] = useState<PainelLinhaContagem[]>([])
   const [linhasInventario, setLinhasInventario] = useState<PainelLinhaInventario[]>([])
   const [sessoesInv, setSessoesInv] = useState<InventarioSessao[]>([])
   const [presencaHoje, setPresencaHoje] = useState(0)
+
+  const chartRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  const focarGrafico = useCallback((id: string) => {
+    chartRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightChart(id)
+    window.setTimeout(() => setHighlightChart(null), 1800)
+  }, [])
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -98,12 +117,23 @@ export default function PainelPage() {
   const kpiCont = useMemo(() => kpisContagem(linhasContagemFiltradas), [linhasContagemFiltradas])
   const kpiInv = useMemo(() => kpisInventario(linhasInventarioFiltradas, sessoesInv), [linhasInventarioFiltradas, sessoesInv])
 
+  const baseCont = useMemo(() => filtrarLinhasContagem(linhasContagem, filtro), [linhasContagem, filtro])
+  const baseInv = useMemo(() => filtrarLinhasInventario(linhasInventario, filtro), [linhasInventario, filtro])
+
   const serieDiaCont = useMemo(
     () => seriePorDia(filtrarLinhasContagem(linhasContagem, filtro, 'ymd'), dataDe, dataAte),
     [linhasContagem, filtro, dataDe, dataAte],
   )
+  const serieQtdDiaCont = useMemo(
+    () => serieQuantidadePorDia(filtrarLinhasContagem(linhasContagem, filtro, 'ymd'), dataDe, dataAte),
+    [linhasContagem, filtro, dataDe, dataAte],
+  )
   const serieDiaInv = useMemo(
     () => seriePorDia(filtrarLinhasInventario(linhasInventario, filtro, 'ymd'), dataDe, dataAte),
+    [linhasInventario, filtro, dataDe, dataAte],
+  )
+  const serieQtdDiaInv = useMemo(
+    () => serieQuantidadePorDia(filtrarLinhasInventario(linhasInventario, filtro, 'ymd'), dataDe, dataAte),
     [linhasInventario, filtro, dataDe, dataAte],
   )
   const serieConfCont = useMemo(
@@ -114,14 +144,27 @@ export default function PainelPage() {
     () => seriePorConferente(filtrarLinhasInventario(linhasInventario, filtro, 'conferenteId')),
     [linhasInventario, filtro],
   )
+  const serieProdCont = useMemo(
+    () => seriePorProduto(filtrarLinhasContagem(linhasContagem, filtro, 'codigoInterno')),
+    [linhasContagem, filtro],
+  )
+  const serieProdInv = useMemo(
+    () => seriePorProduto(filtrarLinhasInventario(linhasInventario, filtro, 'codigoInterno')),
+    [linhasInventario, filtro],
+  )
   const serieCamaraInv = useMemo(
     () => seriePorCamara(filtrarLinhasInventario(linhasInventario, filtro, 'camara')),
+    [linhasInventario, filtro],
+  )
+  const serieQtdCamaraInv = useMemo(
+    () => serieQuantidadePorCamara(filtrarLinhasInventario(linhasInventario, filtro, 'camara')),
     [linhasInventario, filtro],
   )
   const serieNumContagemInv = useMemo(
     () => seriePorNumeroContagem(linhasInventarioFiltradas),
     [linhasInventarioFiltradas],
   )
+  const serieStatusInv = useMemo(() => serieStatusSessoesInventario(sessoesInv), [sessoesInv])
 
   const filtrosAtivos = [
     filtro.ymd ? `Dia ${formatYmdBr(filtro.ymd)}` : null,
@@ -129,6 +172,7 @@ export default function PainelPage() {
       ? `Conferente ${(tab === 'contagem' ? linhasContagem : linhasInventario).find((l) => l.conferente_id === filtro.conferenteId)?.conferente_nome ?? ''}`
       : null,
     filtro.camara ? `Câmara ${filtro.camara}` : null,
+    filtro.codigoInterno ? `Produto ${filtro.codigoInterno}` : null,
   ].filter(Boolean) as string[]
 
   function toggleDia(p: PainelChartPoint | null) {
@@ -143,6 +187,23 @@ export default function PainelPage() {
     setFiltro((f) => ({ ...f, camara: p ? p.id : null }))
   }
 
+  function toggleProduto(p: PainelChartPoint | null) {
+    setFiltro((f) => ({ ...f, codigoInterno: p ? p.id : null }))
+  }
+
+  function chartWrap(id: string, children: ReactNode) {
+    return (
+      <div
+        ref={(el) => {
+          chartRefs.current[id] = el
+        }}
+        className={`painel-page__chart-slot${highlightChart === id ? ' painel-page__chart-slot--highlight' : ''}`}
+      >
+        {children}
+      </div>
+    )
+  }
+
   return (
     <div className="page-panel page-panel--wide painel-page">
       <PagePanelHeading
@@ -150,7 +211,8 @@ export default function PainelPage() {
         info={
           <>
             Visão consolidada de <strong>contagem diária</strong> e <strong>inventário</strong>. Use o período
-            acima e clique nos gráficos para filtrar — todos os indicadores acompanham a seleção.
+            acima e clique nos gráficos para filtrar — todos os indicadores acompanham a seleção. A lupa nos
+            cards leva ao gráfico relacionado.
           </>
         }
       />
@@ -214,7 +276,9 @@ export default function PainelPage() {
           </button>
         </div>
       ) : (
-        <p className="painel-page__dica-filtro">Clique em um dia, conferente ou câmara nos gráficos para cruzar os dados.</p>
+        <p className="painel-page__dica-filtro">
+          Clique nos gráficos para cruzar os dados. Use a lupa nos cards para ir ao gráfico relacionado.
+        </p>
       )}
 
       {erro ? <p className="page-msg page-msg--error">{erro}</p> : null}
@@ -230,35 +294,106 @@ export default function PainelPage() {
           </header>
 
           <div className="wms-dashboard__top">
-            <WmsKpiCard tone="teal" title="Itens contados" value={String(kpiCont.itens)} subtitle="No período / filtro" icon={<span>📦</span>} />
-            <WmsKpiCard tone="blue" title="Conferentes" value={String(kpiCont.conferentes)} subtitle="Com registro" icon={<span>👤</span>} />
-            <WmsKpiCard tone="pink" title="SKUs distintos" value={String(kpiCont.skus)} subtitle="Produtos únicos" icon={<span>🏷️</span>} />
-            <WmsKpiCard tone="green" title="Presença hoje" value={String(presencaHoje)} subtitle="Check-in do dia" icon={<span>✅</span>} />
+            <WmsKpiCard
+              tone="teal"
+              title="Itens contados"
+              value={String(kpiCont.itens)}
+              subtitle={`Qtd total ${kpiCont.quantidadeTotal}`}
+              icon={<span>📦</span>}
+              onDrillDown={() => focarGrafico('cont-volume-dia')}
+              drillTitle="Ver gráfico de volume por dia"
+            />
+            <WmsKpiCard
+              tone="blue"
+              title="Conferentes"
+              value={String(kpiCont.conferentes)}
+              subtitle="Com registro"
+              icon={<span>👤</span>}
+              onDrillDown={() => focarGrafico('cont-conferente')}
+              drillTitle="Ver gráfico por conferente"
+            />
+            <WmsKpiCard
+              tone="pink"
+              title="SKUs distintos"
+              value={String(kpiCont.skus)}
+              subtitle="Produtos únicos"
+              icon={<span>🏷️</span>}
+              onDrillDown={() => focarGrafico('cont-top-produtos')}
+              drillTitle="Ver top produtos"
+            />
+            <WmsKpiCard
+              tone="green"
+              title="Presença hoje"
+              value={String(presencaHoje)}
+              subtitle="Check-in do dia"
+              icon={<span>✅</span>}
+              onDrillDown={() => setFiltro((f) => ({ ...f, ymd: todayYmdSp() }))}
+              drillTitle="Filtrar pelo dia de hoje"
+            />
           </div>
 
           <div className="painel-page__charts-grid">
-            <WmsInteractiveBarChart
-              title="Volume por dia"
-              points={serieDiaCont}
-              selectedId={filtro.ymd}
-              onSelect={toggleDia}
-              barColor="#0d9488"
-            />
-            <WmsDonutChart
-              title="Por conferente"
-              points={serieConfCont}
-              selectedId={filtro.conferenteId}
-              onSelect={toggleConferente}
-            />
+            {chartWrap(
+              'cont-volume-dia',
+              <WmsInteractiveBarChart
+                title="Volume por dia (linhas)"
+                points={serieDiaCont}
+                selectedId={filtro.ymd}
+                onSelect={toggleDia}
+                barColor="#0d9488"
+              />,
+            )}
+            {chartWrap(
+              'cont-conferente',
+              <WmsDonutChart
+                title="Por conferente"
+                points={serieConfCont}
+                selectedId={filtro.conferenteId}
+                onSelect={toggleConferente}
+              />,
+            )}
+          </div>
+
+          <div className="painel-page__charts-grid painel-page__charts-grid--half">
+            {chartWrap(
+              'cont-qtd-dia',
+              <WmsInteractiveBarChart
+                title="Quantidade contada por dia"
+                points={serieQtdDiaCont}
+                selectedId={filtro.ymd}
+                onSelect={toggleDia}
+                barColor="#0891b2"
+              />,
+            )}
+            {chartWrap(
+              'cont-top-produtos',
+              <WmsHorizontalBarChart
+                title="Top produtos (ocorrências)"
+                points={serieProdCont}
+                selectedId={filtro.codigoInterno}
+                onSelect={toggleProduto}
+                barColor="#7c3aed"
+              />,
+            )}
           </div>
 
           <div className="wms-dashboard__top painel-page__mini-kpis">
-            <WmsKpiCard tone="navy" title="Média / conferente" value={String(kpiCont.mediaPorConferente)} subtitle="Itens por pessoa" />
+            <WmsKpiCard
+              tone="navy"
+              title="Média / conferente"
+              value={String(kpiCont.mediaPorConferente)}
+              subtitle="Itens por pessoa"
+              onDrillDown={() => focarGrafico('cont-conferente')}
+            />
             <WmsKpiCard
               tone="orange"
               title="Pico no período"
               value={String(serieDiaCont.reduce((m, p) => Math.max(m, p.value), 0))}
-              subtitle="Máx. em um dia"
+              subtitle="Máx. linhas em 1 dia"
+              onDrillDown={() => {
+                const pico = [...serieDiaCont].sort((a, b) => b.value - a.value)[0]
+                if (pico?.value) setFiltro((f) => ({ ...f, ymd: pico.id }))
+              }}
             />
           </div>
         </section>
@@ -273,46 +408,129 @@ export default function PainelPage() {
           </header>
 
           <div className="wms-dashboard__top">
-            <WmsKpiCard tone="yellow" title="Linhas" value={String(kpiInv.linhas)} subtitle="Capturas no filtro" icon={<span>📋</span>} />
-            <WmsKpiCard tone="teal" title="Inventários abertos" value={String(kpiInv.abertos)} subtitle="Sessões ativas" icon={<span>📦</span>} />
-            <WmsKpiCard tone="brown" title="Fechados" value={String(kpiInv.fechados)} subtitle="Histórico total" icon={<span>🔒</span>} />
-            <WmsKpiCard tone="blue" title="Conferentes" value={String(kpiInv.conferentes)} subtitle="No período" icon={<span>👤</span>} />
+            <WmsKpiCard
+              tone="yellow"
+              title="Linhas"
+              value={String(kpiInv.linhas)}
+              subtitle={`Qtd ${kpiInv.quantidadeTotal}`}
+              icon={<span>📋</span>}
+              onDrillDown={() => focarGrafico('inv-volume-dia')}
+            />
+            <WmsKpiCard
+              tone="teal"
+              title="Inventários abertos"
+              value={String(kpiInv.abertos)}
+              subtitle="Sessões ativas"
+              icon={<span>📦</span>}
+              onDrillDown={() => focarGrafico('inv-status')}
+            />
+            <WmsKpiCard
+              tone="brown"
+              title="Fechados"
+              value={String(kpiInv.fechados)}
+              subtitle="Histórico total"
+              icon={<span>🔒</span>}
+              onDrillDown={() => focarGrafico('inv-status')}
+            />
+            <WmsKpiCard
+              tone="blue"
+              title="Conferentes"
+              value={String(kpiInv.conferentes)}
+              subtitle="No período"
+              icon={<span>👤</span>}
+              onDrillDown={() => focarGrafico('inv-conferente')}
+            />
           </div>
 
           <div className="painel-page__charts-grid">
-            <WmsInteractiveBarChart
-              title="Capturas por dia"
-              points={serieDiaInv}
-              selectedId={filtro.ymd}
-              onSelect={toggleDia}
-              barColor="#c026d3"
-            />
-            <WmsDonutChart
-              title="Por conferente"
-              points={serieConfInv}
-              selectedId={filtro.conferenteId}
-              onSelect={toggleConferente}
-            />
+            {chartWrap(
+              'inv-volume-dia',
+              <WmsInteractiveBarChart
+                title="Capturas por dia"
+                points={serieDiaInv}
+                selectedId={filtro.ymd}
+                onSelect={toggleDia}
+                barColor="#c026d3"
+              />,
+            )}
+            {chartWrap(
+              'inv-conferente',
+              <WmsDonutChart
+                title="Por conferente"
+                points={serieConfInv}
+                selectedId={filtro.conferenteId}
+                onSelect={toggleConferente}
+              />,
+            )}
           </div>
 
           <div className="painel-page__charts-grid painel-page__charts-grid--half">
-            {serieCamaraInv.length > 0 ? (
+            {chartWrap(
+              'inv-qtd-dia',
               <WmsInteractiveBarChart
-                title="Por câmara"
-                points={serieCamaraInv}
-                selectedId={filtro.camara}
-                onSelect={toggleCamara}
-                barColor="#2563eb"
-              />
-            ) : null}
-            {serieNumContagemInv.length > 0 ? (
-              <WmsInteractiveBarChart
-                title="Por número de contagem"
-                points={serieNumContagemInv}
-                selectedId={null}
-                barColor="#ea580c"
-              />
-            ) : null}
+                title="Quantidade por dia"
+                points={serieQtdDiaInv}
+                selectedId={filtro.ymd}
+                onSelect={toggleDia}
+                barColor="#db2777"
+              />,
+            )}
+            {serieStatusInv.length > 0
+              ? chartWrap(
+                  'inv-status',
+                  <WmsDonutChart title="Status das sessões" points={serieStatusInv} />,
+                )
+              : null}
+          </div>
+
+          <div className="painel-page__charts-grid painel-page__charts-grid--half">
+            {serieCamaraInv.length > 0
+              ? chartWrap(
+                  'inv-camara',
+                  <WmsInteractiveBarChart
+                    title="Linhas por câmara"
+                    points={serieCamaraInv}
+                    selectedId={filtro.camara}
+                    onSelect={toggleCamara}
+                    barColor="#2563eb"
+                  />,
+                )
+              : null}
+            {serieQtdCamaraInv.length > 0
+              ? chartWrap(
+                  'inv-qtd-camara',
+                  <WmsInteractiveBarChart
+                    title="Quantidade por câmara"
+                    points={serieQtdCamaraInv}
+                    selectedId={filtro.camara}
+                    onSelect={toggleCamara}
+                    barColor="#1d4ed8"
+                  />,
+                )
+              : null}
+          </div>
+
+          <div className="painel-page__charts-grid painel-page__charts-grid--half">
+            {serieNumContagemInv.length > 0
+              ? chartWrap(
+                  'inv-num-contagem',
+                  <WmsInteractiveBarChart
+                    title="Por número de contagem"
+                    points={serieNumContagemInv}
+                    barColor="#ea580c"
+                  />,
+                )
+              : null}
+            {chartWrap(
+              'inv-top-produtos',
+              <WmsHorizontalBarChart
+                title="Top produtos"
+                points={serieProdInv}
+                selectedId={filtro.codigoInterno}
+                onSelect={toggleProduto}
+                barColor="#9333ea"
+              />,
+            )}
           </div>
         </section>
       )}

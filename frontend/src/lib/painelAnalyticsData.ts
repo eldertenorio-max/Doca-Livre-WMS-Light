@@ -11,6 +11,7 @@ export type PainelFiltroAtivo = {
   ymd: string | null
   conferenteId: string | null
   camara: string | null
+  codigoInterno: string | null
 }
 
 export type PainelChartPoint = {
@@ -183,6 +184,8 @@ export function filtrarLinhasContagem(
     if (exceto !== 'ymd' && filtro.ymd && ln.data_contagem !== filtro.ymd) return false
     if (exceto !== 'conferenteId' && filtro.conferenteId && ln.conferente_id !== filtro.conferenteId)
       return false
+    if (exceto !== 'codigoInterno' && filtro.codigoInterno && ln.codigo_interno !== filtro.codigoInterno)
+      return false
     return true
   })
 }
@@ -197,6 +200,8 @@ export function filtrarLinhasInventario(
     if (exceto !== 'conferenteId' && filtro.conferenteId && ln.conferente_id !== filtro.conferenteId)
       return false
     if (exceto !== 'camara' && filtro.camara && ln.camara !== filtro.camara) return false
+    if (exceto !== 'codigoInterno' && filtro.codigoInterno && ln.codigo_interno !== filtro.codigoInterno)
+      return false
     return true
   })
 }
@@ -262,15 +267,80 @@ export function seriePorNumeroContagem(linhas: PainelLinhaInventario[]): PainelC
     .map(([id, value]) => ({ id, label: `${id}ª contagem`, value }))
 }
 
+export function seriePorProduto<T extends { codigo_interno: string }>(
+  linhas: T[],
+  limit = 8,
+): PainelChartPoint[] {
+  const map = new Map<string, number>()
+  for (const ln of linhas) {
+    const cod = ln.codigo_interno.trim()
+    if (!cod) continue
+    map.set(cod, (map.get(cod) ?? 0) + 1)
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([id, value]) => ({
+      id,
+      label: id.length > 16 ? `${id.slice(0, 14)}…` : id,
+      value,
+    }))
+}
+
+export function serieQuantidadePorDia<T extends { data_contagem: string; quantidade: number }>(
+  linhas: T[],
+  dataDe: string,
+  dataAte: string,
+): PainelChartPoint[] {
+  const dias = enumerateDays(dataDe, dataAte)
+  const map = new Map<string, number>()
+  for (const d of dias) map.set(d, 0)
+  for (const ln of linhas) {
+    if (!map.has(ln.data_contagem)) continue
+    map.set(ln.data_contagem, (map.get(ln.data_contagem) ?? 0) + ln.quantidade)
+  }
+  return dias.map((ymd) => ({
+    id: ymd,
+    label: labelDiaBr(ymd),
+    value: Math.round((map.get(ymd) ?? 0) * 100) / 100,
+  }))
+}
+
+export function serieQuantidadePorCamara(linhas: PainelLinhaInventario[]): PainelChartPoint[] {
+  const map = new Map<string, number>()
+  for (const ln of linhas) {
+    if (!ln.camara) continue
+    map.set(ln.camara, (map.get(ln.camara) ?? 0) + ln.quantidade)
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, value]) => ({
+      id,
+      label: `Câm. ${id}`,
+      value: Math.round(value * 100) / 100,
+    }))
+}
+
+export function serieStatusSessoesInventario(sessoes: InventarioSessao[]): PainelChartPoint[] {
+  const abertos = sessoes.filter((s) => s.status === 'aberto').length
+  const fechados = sessoes.filter((s) => s.status === 'fechado').length
+  return [
+    { id: 'aberto', label: 'Abertos', value: abertos },
+    { id: 'fechado', label: 'Fechados', value: fechados },
+  ].filter((p) => p.value > 0)
+}
+
 export function kpisContagem(linhas: PainelLinhaContagem[]) {
   const conferentes = new Set(linhas.map((l) => l.conferente_id).filter(Boolean))
   const produtos = new Set(linhas.map((l) => l.codigo_interno).filter(Boolean))
   const mediaConf = conferentes.size > 0 ? Math.round(linhas.length / conferentes.size) : 0
+  const qtdTotal = linhas.reduce((s, l) => s + l.quantidade, 0)
   return {
     itens: linhas.length,
     conferentes: conferentes.size,
     skus: produtos.size,
     mediaPorConferente: mediaConf,
+    quantidadeTotal: Math.round(qtdTotal * 100) / 100,
   }
 }
 
@@ -288,5 +358,6 @@ export function kpisInventario(
     skus: enderecos.size,
     abertos: sessoes.filter((s) => s.status === 'aberto').length,
     fechados: sessoes.filter((s) => s.status === 'fechado').length,
+    quantidadeTotal: Math.round(linhas.reduce((s, l) => s + l.quantidade, 0) * 100) / 100,
   }
 }

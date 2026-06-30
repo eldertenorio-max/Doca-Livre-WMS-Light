@@ -89,10 +89,21 @@ button.wms-kpi-card:hover {
   opacity: 0.95;
 }
 
-.wms-kpi-card__search {
+.wms-kpi-card__search-btn {
+  border: none;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  padding: 2px 5px;
   font-size: 0.7rem;
-  opacity: 0.85;
+  line-height: 1;
+  cursor: pointer;
   flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.wms-kpi-card__search-btn:hover {
+  background: rgba(0, 0, 0, 0.22);
+  opacity: 1;
 }
 
 .wms-kpi-card__value {
@@ -294,6 +305,15 @@ button.wms-kpi-card:hover {
 
 [data-theme='dark'] .wms-donut__legend-value {
   color: #5eead4;
+}
+
+.wms-chart-hbar-label {
+  font-size: 10px;
+  fill: #475569;
+}
+
+[data-theme='dark'] .wms-chart-hbar-label {
+  fill: #cbd5e1;
 }
 
 @media (max-width: 560px) {
