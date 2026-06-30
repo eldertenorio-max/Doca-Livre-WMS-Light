@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import {
   createProdutoLista,
   listProdutoListas,
+  mesclarProdutosNaListaSalva,
   produtoListasHabilitado,
-  saveProdutoLista,
+  type ProdutoLista,
   type ProdutoListaItem,
 } from '../lib/produtoListaSupabase'
 import { emitProdutoListaAtualizada } from '../lib/sessaoProdutoListaContext'
@@ -22,6 +23,15 @@ type LinhaImport = {
   ean: string | null
   dun: string | null
 }
+
+type CatalogoRef = { id: string; codigo_interno: string }
+
+type CatalogoIndex = {
+  byExact: Map<string, CatalogoRef>
+  byNorm: Map<string, CatalogoRef>
+}
+
+type ModoListaDestino = 'nova' | 'existente'
 
 function normCell(v: unknown): string {
   if (v == null) return ''
@@ -77,19 +87,135 @@ function linhasParaListaItens(linhas: LinhaImport[]): ProdutoListaItem[] {
   }))
 }
 
-async function gravarListaImportada(nome: string, linhas: LinhaImport[]) {
-  const nomeTrim = nome.trim()
-  const produtos = linhasParaListaItens(linhas)
-  const listas = await listProdutoListas()
-  const existente = listas.find((l) => l.nome.trim().toLowerCase() === nomeTrim.toLowerCase())
-  if (existente) {
-    return saveProdutoLista({ ...existente, nome: nomeTrim, produtos })
-  }
-  return createProdutoLista(nomeTrim, produtos)
-}
-
 function nomeListaFromArquivo(fileName: string): string {
   return fileName.replace(/\.(xlsx|xls|csv)$/i, '').trim()
+}
+
+function isUniqueViolationError(e: unknown): boolean {
+  const code =
+    e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : ''
+  if (code === '23505') return true
+  const msg = formatUnknownError(e).toLowerCase()
+  return msg.includes('duplicate') || msg.includes('unique constraint') || msg.includes('already exists')
+}
+
+function buildCatalogoIndex(rows: CatalogoRef[]): CatalogoIndex {
+  const byExact = new Map<string, CatalogoRef>()
+  const byNorm = new Map<string, CatalogoRef>()
+  for (const row of rows) {
+    const codigo = String(row.codigo_interno ?? '').trim()
+    if (!codigo) continue
+    if (!byExact.has(codigo)) byExact.set(codigo, row)
+    const norm = normalizeCodigoInternoCompareKey(codigo)
+    if (norm && !byNorm.has(norm)) byNorm.set(norm, row)
+  }
+  return { byExact, byNorm }
+}
+
+function findInCatalogoIndex(codigo: string, index: CatalogoIndex): CatalogoRef | undefined {
+  const trimmed = codigo.trim()
+  if (!trimmed) return undefined
+  const exact = index.byExact.get(trimmed)
+  if (exact) return exact
+  const norm = normalizeCodigoInternoCompareKey(trimmed)
+  if (norm) return index.byNorm.get(norm)
+  return undefined
+}
+
+function registerInCatalogoIndex(index: CatalogoIndex, ref: CatalogoRef): void {
+  const codigo = ref.codigo_interno.trim()
+  if (!codigo) return
+  index.byExact.set(codigo, ref)
+  const norm = normalizeCodigoInternoCompareKey(codigo)
+  if (norm) index.byNorm.set(norm, ref)
+}
+
+async function loadCatalogoIndex(): Promise<CatalogoIndex> {
+  const { data, error } = await supabase.from(TABELA).select('id,codigo_interno').limit(50000)
+  if (error) throw new Error(formatUnknownError(error))
+  return buildCatalogoIndex((data ?? []) as CatalogoRef[])
+}
+
+function buildPayloads(ln: LinhaImport): Record<string, unknown>[] {
+  const cod = ln.codigo_interno.trim()
+  const payload: Record<string, unknown> = {
+    codigo_interno: cod,
+    descricao: ln.descricao.trim(),
+    ean: ln.ean,
+    dun: ln.dun,
+    unidade: ln.unidade,
+  }
+  return [
+    payload,
+    { ...payload, unidade_medida: ln.unidade },
+    { codigo_interno: cod, descricao: ln.descricao.trim(), ean: ln.ean, dun: ln.dun },
+  ]
+}
+
+async function updateCatalogoRow(
+  ref: CatalogoRef,
+  payloads: Record<string, unknown>[],
+): Promise<{ ok: boolean; err?: string }> {
+  for (const p of payloads) {
+    const { error } = await supabase.from(TABELA).update(p).eq('id', ref.id)
+    if (!error) return { ok: true }
+    if (!isColumnMissingError(error)) return { ok: false, err: formatUnknownError(error) }
+  }
+  return { ok: false, err: 'Não foi possível atualizar o produto no catálogo.' }
+}
+
+async function insertCatalogoRow(
+  payloads: Record<string, unknown>[],
+): Promise<{ ok: boolean; row?: CatalogoRef; err?: string }> {
+  for (const p of payloads) {
+    const { data, error } = await supabase.from(TABELA).insert(p).select('id,codigo_interno').limit(1)
+    if (!error && data?.[0]) {
+      return { ok: true, row: data[0] as CatalogoRef }
+    }
+    if (error && !isColumnMissingError(error)) {
+      return { ok: false, err: formatUnknownError(error) }
+    }
+  }
+  return { ok: false, err: 'Não foi possível inserir o produto no catálogo.' }
+}
+
+async function upsertLinha(
+  ln: LinhaImport,
+  index: CatalogoIndex,
+  atualizarExistentes: boolean,
+): Promise<'ok' | 'skip' | { err: string }> {
+  const cod = ln.codigo_interno.trim()
+  const payloads = buildPayloads(ln)
+  let existente = findInCatalogoIndex(cod, index)
+
+  if (existente && !atualizarExistentes) return 'skip'
+
+  if (existente) {
+    const res = await updateCatalogoRow(existente, payloads)
+    return res.ok ? 'ok' : { err: res.err ?? 'Falha ao atualizar.' }
+  }
+
+  const ins = await insertCatalogoRow(payloads)
+  if (ins.ok) {
+    if (ins.row) registerInCatalogoIndex(index, ins.row)
+    return 'ok'
+  }
+
+  if (!isUniqueViolationError(ins.err)) {
+    return { err: ins.err ?? 'Falha ao inserir.' }
+  }
+
+  const refreshed = await loadCatalogoIndex()
+  index.byExact = refreshed.byExact
+  index.byNorm = refreshed.byNorm
+  existente = findInCatalogoIndex(cod, index)
+  if (!existente) {
+    return { err: ins.err ?? 'Código já existe no catálogo, mas não foi localizado para atualização.' }
+  }
+  if (!atualizarExistentes) return 'skip'
+
+  const res = await updateCatalogoRow(existente, payloads)
+  return res.ok ? 'ok' : { err: res.err ?? 'Falha ao atualizar após conflito de código.' }
 }
 
 function baixarModeloImportacao() {
@@ -120,12 +246,25 @@ export default function ProdutosImportacaoPlanilha() {
   const inputRef = useRef<HTMLInputElement>(null)
   const feedbackRef = useRef<HTMLPreElement>(null)
   const [nomeLista, setNomeLista] = useState('')
+  const [modoListaDestino, setModoListaDestino] = useState<ModoListaDestino>('nova')
+  const [listaExistenteId, setListaExistenteId] = useState('')
+  const [produtoListas, setProdutoListas] = useState<ProdutoLista[]>([])
   const [linhas, setLinhas] = useState<LinhaImport[]>([])
   const [arquivo, setArquivo] = useState('')
   const [importando, setImportando] = useState(false)
   const [log, setLog] = useState<string[]>([])
   const [erro, setErro] = useState('')
   const [atualizarExistentes, setAtualizarExistentes] = useState(true)
+
+  useEffect(() => {
+    if (!produtoListasHabilitado()) return
+    void listProdutoListas()
+      .then((listas) => {
+        setProdutoListas(listas)
+        if (listas.length === 1) setListaExistenteId(listas[0].id)
+      })
+      .catch(() => {})
+  }, [])
 
   function mostrarFeedback(msgs: string[]) {
     setLog(msgs)
@@ -138,7 +277,7 @@ export default function ProdutosImportacaoPlanilha() {
     setLog([])
     setErro('')
     setArquivo(file.name)
-    if (!nomeLista.trim()) {
+    if (!nomeLista.trim() && modoListaDestino === 'nova') {
       setNomeLista(nomeListaFromArquivo(file.name))
     }
     const reader = new FileReader()
@@ -160,48 +299,25 @@ export default function ProdutosImportacaoPlanilha() {
     reader.readAsArrayBuffer(file)
   }
 
-  async function upsertLinha(ln: LinhaImport): Promise<'ok' | 'skip' | 'err'> {
-    const cod = ln.codigo_interno.trim()
-    const { data: existente } = await supabase
-      .from(TABELA)
-      .select('id,codigo_interno')
-      .eq('codigo_interno', cod)
-      .limit(1)
-    if (existente?.length && !atualizarExistentes) return 'skip'
+  async function gravarListaImportada(nome: string, linhasImport: LinhaImport[]): Promise<ProdutoLista> {
+    const itens = linhasParaListaItens(linhasImport)
 
-    const payload: Record<string, unknown> = {
-      codigo_interno: cod,
-      descricao: ln.descricao.trim(),
-      ean: ln.ean,
-      dun: ln.dun,
-      unidade: ln.unidade,
+    if (modoListaDestino === 'existente') {
+      const id = listaExistenteId.trim()
+      if (!id) throw new Error('Selecione a lista existente para adicionar os produtos.')
+      return mesclarProdutosNaListaSalva(id, itens)
     }
 
-    if (existente?.length) {
-      const tries = [
-        payload,
-        { ...payload, unidade_medida: ln.unidade },
-        { codigo_interno: cod, descricao: ln.descricao.trim(), ean: ln.ean, dun: ln.dun },
-      ]
-      for (const p of tries) {
-        const { error } = await supabase.from(TABELA).update(p).eq('id', existente[0].id)
-        if (!error) return 'ok'
-        if (!isColumnMissingError(error)) return 'err'
-      }
-      return 'err'
+    const nomeTrim = nome.trim()
+    if (!nomeTrim) throw new Error('Informe o nome da nova lista.')
+    const listas = await listProdutoListas()
+    const dup = listas.find((l) => l.nome.trim().toLowerCase() === nomeTrim.toLowerCase())
+    if (dup) {
+      throw new Error(
+        `Já existe uma lista chamada «${dup.nome}». Escolha «Adicionar a lista existente» ou informe outro nome.`,
+      )
     }
-
-    const tries = [
-      payload,
-      { ...payload, unidade_medida: ln.unidade },
-      { codigo_interno: cod, descricao: ln.descricao.trim(), ean: ln.ean, dun: ln.dun },
-    ]
-    for (const p of tries) {
-      const { error } = await supabase.from(TABELA).insert(p)
-      if (!error) return 'ok'
-      if (!isColumnMissingError(error)) return 'err'
-    }
-    return 'err'
+    return createProdutoLista(nomeTrim, itens)
   }
 
   async function handleImportar() {
@@ -210,9 +326,12 @@ export default function ProdutosImportacaoPlanilha() {
       setErro('Selecione um arquivo Excel com pelo menos uma linha válida.')
       return
     }
-    const nome = nomeLista.trim()
-    if (!nome) {
-      setErro('Informe o nome da lista antes de importar.')
+    if (modoListaDestino === 'nova' && !nomeLista.trim()) {
+      setErro('Informe o nome da nova lista antes de importar.')
+      return
+    }
+    if (modoListaDestino === 'existente' && !listaExistenteId.trim()) {
+      setErro('Selecione a lista existente para adicionar os produtos.')
       return
     }
     if (!produtoListasHabilitado()) {
@@ -225,35 +344,53 @@ export default function ProdutosImportacaoPlanilha() {
     let ok = 0
     let skip = 0
     let err = 0
-    for (const ln of linhas) {
-      try {
-        const r = await upsertLinha(ln)
-        if (r === 'ok') ok++
-        else if (r === 'skip') skip++
-        else {
-          err++
-          msgs.push(`Falha: ${ln.codigo_interno}`)
-        }
-      } catch (e: unknown) {
-        err++
-        msgs.push(`${ln.codigo_interno}: ${formatUnknownError(e)}`)
-      }
-    }
+    let atualizados = 0
 
     try {
-      const lista = await gravarListaImportada(nome, linhas)
-      emitProdutoListaAtualizada([lista.id])
-      msgs.unshift(
-        `Lista «${lista.nome}» salva com ${lista.produtos.length} produto(s) — aparece em Produtos → listas salvas e pode ser usada no inventário.`,
-      )
-    } catch (e: unknown) {
-      msgs.unshift(`Catálogo atualizado, mas falhou ao gravar a lista: ${formatUnknownError(e)}`)
-    }
+      const index = await loadCatalogoIndex()
 
-    msgs.unshift(`Concluído — ${ok} gravado(s) em Todos os Produtos, ${skip} ignorado(s), ${err} erro(s).`)
-    setErro('')
-    mostrarFeedback(msgs)
-    setImportando(false)
+      for (const ln of linhas) {
+        const existia = !!findInCatalogoIndex(ln.codigo_interno, index)
+        try {
+          const r = await upsertLinha(ln, index, atualizarExistentes)
+          if (r === 'ok') {
+            ok++
+            if (existia && atualizarExistentes) atualizados++
+          } else if (r === 'skip') {
+            skip++
+          } else {
+            err++
+            msgs.push(`Falha ${ln.codigo_interno}: ${r.err}`)
+          }
+        } catch (e: unknown) {
+          err++
+          msgs.push(`${ln.codigo_interno}: ${formatUnknownError(e)}`)
+        }
+      }
+
+      const lista = await gravarListaImportada(nomeLista, linhas)
+      emitProdutoListaAtualizada([lista.id])
+
+      const modoListaMsg =
+        modoListaDestino === 'existente'
+          ? `Lista «${lista.nome}» atualizada — produtos mesclados pelo código (${lista.produtos.length} no total).`
+          : `Lista «${lista.nome}» criada com ${lista.produtos.length} produto(s).`
+
+      msgs.unshift(
+        `${modoListaMsg} Aparece em Produtos → listas salvas e pode ser usada no inventário.`,
+      )
+      msgs.unshift(
+        `Concluído — ${ok} gravado(s) em Todos os Produtos` +
+          (atualizados ? ` (${atualizados} atualizado(s) pelo código)` : '') +
+          `, ${skip} ignorado(s), ${err} erro(s).`,
+      )
+      setErro('')
+      mostrarFeedback(msgs)
+    } catch (e: unknown) {
+      setErro(formatUnknownError(e))
+    } finally {
+      setImportando(false)
+    }
   }
 
   const podeImportar = linhas.length > 0 && !importando
@@ -265,32 +402,82 @@ export default function ProdutosImportacaoPlanilha() {
         info={
           <>
             Envie um Excel (.xlsx) com colunas <strong>codigo_interno</strong> (ou código) e <strong>descricao</strong>.
-            Opcional: unidade, ean, dun. Informe o <strong>nome da lista</strong> — os produtos entram em{' '}
-            <strong>Todos os Produtos</strong> e na lista salva, visível na aba <strong>Produtos</strong> e disponível
-            para inventário.
+            Opcional: unidade, ean, dun. Os produtos entram em <strong>Todos os Produtos</strong> (pelo código — se já
+            existir, atualiza descrição, EAN e DUN) e na lista escolhida abaixo.
           </>
         }
       />
 
-      <div className="page-form-grid" style={{ maxWidth: 520 }}>
-        <label className="page-form-grid__full">
-          Nome da lista *
-          <input
-            value={nomeLista}
-            onChange={(e) => {
-              setNomeLista(e.target.value)
-              if (erro) setErro('')
-            }}
-            placeholder="Ex.: CD Ultrapao guarulhos — importação jun/2026"
-            required
-            aria-invalid={linhas.length > 0 && !nomeLista.trim()}
-          />
-        </label>
-        {linhas.length > 0 && !nomeLista.trim() ? (
+      <div className="page-form-grid page-form-grid--import">
+        <fieldset className="page-form-grid__destino">
+          <legend>Destino da lista</legend>
+          <div className="page-form-grid__radio-row">
+            <label className="page-form-grid__check">
+              <input
+                type="radio"
+                name="modo-lista-import"
+                checked={modoListaDestino === 'nova'}
+                onChange={() => setModoListaDestino('nova')}
+              />
+              Criar nova lista
+            </label>
+            <label className="page-form-grid__check">
+              <input
+                type="radio"
+                name="modo-lista-import"
+                checked={modoListaDestino === 'existente'}
+                onChange={() => setModoListaDestino('existente')}
+              />
+              Adicionar a lista existente (mescla pelo código)
+            </label>
+          </div>
+        </fieldset>
+
+        {modoListaDestino === 'nova' ? (
+          <label className="page-form-grid__full">
+            Nome da nova lista *
+            <input
+              value={nomeLista}
+              onChange={(e) => {
+                setNomeLista(e.target.value)
+                if (erro) setErro('')
+              }}
+              placeholder="Ex.: CD Ultrapao guarulhos — importação jun/2026"
+              required
+              aria-invalid={linhas.length > 0 && !nomeLista.trim()}
+            />
+          </label>
+        ) : (
+          <label className="page-form-grid__full">
+            Lista existente *
+            <select
+              value={listaExistenteId}
+              onChange={(e) => {
+                setListaExistenteId(e.target.value)
+                if (erro) setErro('')
+              }}
+            >
+              <option value="">Selecione…</option>
+              {produtoListas.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.nome} ({l.produtos.length} produto(s))
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {linhas.length > 0 && modoListaDestino === 'nova' && !nomeLista.trim() ? (
           <p className="page-form-hint page-form-hint--err page-form-grid__full">
-            Informe o nome da lista para concluir a importação.
+            Informe o nome da nova lista para concluir a importação.
           </p>
         ) : null}
+        {linhas.length > 0 && modoListaDestino === 'existente' && !listaExistenteId ? (
+          <p className="page-form-hint page-form-hint--err page-form-grid__full">
+            Selecione a lista existente para concluir a importação.
+          </p>
+        ) : null}
+
         <label className="page-form-grid__full">
           Arquivo Excel
           <input
@@ -303,25 +490,23 @@ export default function ProdutosImportacaoPlanilha() {
             }}
           />
         </label>
-        <label className="page-form-grid__check">
-          <input
-            type="checkbox"
-            checked={atualizarExistentes}
-            onChange={(e) => setAtualizarExistentes(e.target.checked)}
-          />
-          Atualizar produtos já existentes (mesmo código)
-        </label>
-        <div className="page-form-grid__actions page-form-grid__actions--wrap">
-          <button
-            type="button"
-            disabled={!podeImportar}
-            onClick={() => void handleImportar()}
-          >
-            {importando ? 'Importando…' : `Importar ${linhas.length} linha(s)`}
-          </button>
-          <button type="button" className="page-btn-ghost" onClick={baixarModeloImportacao}>
-            Baixar modelo da planilha
-          </button>
+        <div className="page-form-grid__footer-bar">
+          <label className="page-form-grid__check">
+            <input
+              type="checkbox"
+              checked={atualizarExistentes}
+              onChange={(e) => setAtualizarExistentes(e.target.checked)}
+            />
+            Atualizar existentes em Todos os Produtos (mesmo código — descrição, EAN e DUN)
+          </label>
+          <div className="page-form-grid__actions">
+            <button type="button" disabled={!podeImportar} onClick={() => void handleImportar()}>
+              {importando ? 'Importando…' : `Importar ${linhas.length} linha(s)`}
+            </button>
+            <button type="button" className="page-btn-ghost" onClick={baixarModeloImportacao}>
+              Baixar modelo
+            </button>
+          </div>
         </div>
       </div>
 
@@ -362,10 +547,7 @@ export default function ProdutosImportacaoPlanilha() {
       ) : null}
 
       {log.length > 0 ? (
-        <pre
-          ref={feedbackRef}
-          className="page-form-log"
-        >
+        <pre ref={feedbackRef} className="page-form-log">
           {log.join('\n')}
         </pre>
       ) : null}

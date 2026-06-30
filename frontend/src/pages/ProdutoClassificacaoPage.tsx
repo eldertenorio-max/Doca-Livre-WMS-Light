@@ -88,7 +88,10 @@ export default function ProdutoClassificacaoPage({
       <h1 className="page-panel__title">{titulo}</h1>
       <p className="page-panel__subtitle">{subtitulo}</p>
 
-      <form className="page-form-grid" onSubmit={handleSubmit}>
+      <form
+        className={`page-form-grid page-form-grid--cadastro${parentOptions?.length ? ' has-parent' : ''}`}
+        onSubmit={handleSubmit}
+      >
         {parentOptions?.length ? (
           <label>
             {parentLabel}
@@ -142,12 +145,14 @@ export default function ProdutoClassificacaoPage({
         </div>
       </form>
 
-      <div className="page-field-label" style={{ marginTop: 20, maxWidth: 420 }}>
-        <span>Buscar</span>
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código ou nome" />
+      <div className="page-form-grid--cadastro-search">
+        <label className="page-field-label">
+          Buscar
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código ou nome" />
+        </label>
       </div>
 
-      <div className="page-table-wrap" style={{ marginTop: 16 }}>
+      <div className="page-table-wrap" style={{ marginTop: 12 }}>
         <table className="page-table">
           <thead>
             <tr>

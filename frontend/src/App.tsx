@@ -20,6 +20,7 @@ import EstoqueConsulta from './pages/EstoqueConsulta'
 import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
+import PainelPage from './pages/PainelPage'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 import { clearSessaoProdutoListaContext } from './lib/sessaoProdutoListaContext'
 
@@ -38,6 +39,7 @@ export type AppView =
   | 'contagem'
   | 'contagemCaptura'
   | 'estoque'
+  | 'painel'
 
 type Theme = 'dark' | 'light'
 
@@ -131,6 +133,7 @@ export default function App() {
       { id: 'ocupacao', label: 'Ocupação', icon: <NavEmoji>📊</NavEmoji>, accent: '#38bdf8' },
       { id: 'seguranca', label: 'Estoque de segurança', icon: <NavEmoji>🛡️</NavEmoji>, accent: '#2dd4bf' },
       { id: 'enderecamento', label: 'Endereçamento', icon: <NavEmoji>📍</NavEmoji>, accent: '#a78bfa' },
+      { id: 'painel', label: 'Painel', icon: <NavEmoji>📈</NavEmoji>, accent: '#f59e0b' },
       { id: 'inventarios', label: 'Inventários', icon: <NavEmoji>📦</NavEmoji>, accent: '#26c6da' },
       { id: 'contagem', label: 'Contagem diária', icon: <NavEmoji>📋</NavEmoji>, accent: '#4f8eff' },
       { id: 'estoque', label: 'Estoque', icon: <NavEmoji>📊</NavEmoji>, accent: '#a855f7' },
@@ -212,6 +215,11 @@ export default function App() {
         </PanelErrorBoundary>
       ) : null}
       {view === 'enderecamento' ? <CadastroEnderecamento /> : null}
+      {view === 'painel' ? (
+        <PanelErrorBoundary>
+          <PainelPage />
+        </PanelErrorBoundary>
+      ) : null}
       {view === 'inventarios' ? (
         <InventarioGerenciar onAbrirCaptura={abrirCaptura} session={session} />
       ) : null}

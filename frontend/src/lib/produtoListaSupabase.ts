@@ -1,4 +1,5 @@
 import { mapRowToProductOption, TABELA_PRODUTOS, type ProductOption } from './productOptionMapper'
+import { normalizeCodigoInternoCompareKey } from './codigoInternoCompare'
 import { isSupabaseConfigured, supabase } from './supabaseClient'
 import { formatUnknownError } from './supabaseError'
 
@@ -96,6 +97,60 @@ export async function deleteProdutoLista(id: string): Promise<void> {
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao excluir lista de produtos.')
 }
 
+/** Mescla produtos importados na lista pelo código interno (normalizado). */
+export function mergeProdutosNaLista(
+  produtosAtuais: ProdutoListaItem[],
+  novos: ProdutoListaItem[],
+): ProdutoListaItem[] {
+  const produtos = [...produtosAtuais]
+  const idxByKey = new Map<string, number>()
+  produtos.forEach((p, i) => {
+    const k = normalizeCodigoInternoCompareKey(p.codigo_interno)
+    if (k) idxByKey.set(k, i)
+  })
+
+  for (const item of novos) {
+    const codigo = item.codigo_interno.trim()
+    if (!codigo) continue
+    const key = normalizeCodigoInternoCompareKey(codigo)
+    if (!key) continue
+
+    const idx = idxByKey.get(key)
+    if (idx !== undefined) {
+      const atual = produtos[idx]
+      produtos[idx] = {
+        codigo_interno: atual.codigo_interno,
+        descricao: item.descricao.trim() || atual.descricao,
+        unidade: item.unidade?.trim() ? item.unidade : atual.unidade ?? null,
+        ean: item.ean?.trim() ? item.ean : atual.ean ?? null,
+        dun: item.dun?.trim() ? item.dun : atual.dun ?? null,
+      }
+    } else {
+      produtos.push({
+        codigo_interno: codigo,
+        descricao: item.descricao.trim(),
+        unidade: item.unidade ?? null,
+        ean: item.ean ?? null,
+        dun: item.dun ?? null,
+      })
+      idxByKey.set(key, produtos.length - 1)
+    }
+  }
+
+  produtos.sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR'))
+  return produtos
+}
+
+export async function mesclarProdutosNaListaSalva(
+  listaId: string,
+  novos: ProdutoListaItem[],
+): Promise<ProdutoLista> {
+  const lista = await getProdutoLista(listaId)
+  if (!lista) throw new Error('Lista de produtos não encontrada.')
+  const produtos = mergeProdutosNaLista(lista.produtos, novos)
+  return saveProdutoLista({ ...lista, produtos })
+}
+
 /** Inclui ou atualiza um produto na lista salva (por código interno). */
 export async function upsertProdutoNaListaSalva(
   listaId: string,
@@ -115,7 +170,9 @@ export async function upsertProdutoNaListaSalva(
   }
 
   const produtos = [...lista.produtos]
-  const idx = produtos.findIndex((p) => p.codigo_interno.trim() === codigo)
+  const idx = produtos.findIndex(
+    (p) => normalizeCodigoInternoCompareKey(p.codigo_interno) === normalizeCodigoInternoCompareKey(codigo),
+  )
   if (idx >= 0) {
     produtos[idx] = { ...produtos[idx], ...item }
   } else {
