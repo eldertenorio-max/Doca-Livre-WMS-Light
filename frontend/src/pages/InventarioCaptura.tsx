@@ -52,7 +52,7 @@ import {
   setSessaoProdutoListaContext,
 } from '../lib/sessaoProdutoListaContext'
 import { supabase } from '../lib/supabaseClient'
-import BarcodeCameraScanner, { IconClearField, IconScanBarcode } from '../components/barcode/BarcodeCameraScanner'
+import BarcodeCameraScanner, { IconClearField, IconScanBarcode, IconCalendar } from '../components/barcode/BarcodeCameraScanner'
 import CapturaLinhasMobile from '../components/inventario/CapturaLinhasMobile'
 import {
   clampDataFabricacaoYmd,
@@ -97,6 +97,16 @@ function formatDataLinha(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function abrirDatePicker(inputId: string) {
+  const el = document.getElementById(inputId) as HTMLInputElement | null
+  el?.focus()
+  try {
+    el?.showPicker?.()
+  } catch {
+    /* showPicker indisponível */
+  }
 }
 
 function linhaCamaraLabel(linha: InventarioLinhaCaptura): string {
@@ -1151,21 +1161,14 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     />
                     <button
                       type="button"
-                      className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only"
+                      className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only inventario-captura__action-btn--calendar"
                       disabled={readonly}
                       title="Abrir calendário"
                       aria-label="Abrir calendário de fabricação"
-                      onClick={() => {
-                        const el = document.getElementById('inv-fabricacao') as HTMLInputElement | null
-                        el?.focus()
-                        try {
-                          el?.showPicker?.()
-                        } catch {
-                          /* showPicker indisponível */
-                        }
-                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => abrirDatePicker('inv-fabricacao')}
                     >
-                      📅
+                      <IconCalendar className="inventario-captura__btn-icon" />
                     </button>
                   </div>
                 </div>
@@ -1182,21 +1185,14 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     />
                     <button
                       type="button"
-                      className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only"
+                      className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only inventario-captura__action-btn--calendar"
                       disabled={readonly}
                       title="Abrir calendário"
                       aria-label="Abrir calendário de validade"
-                      onClick={() => {
-                        const el = document.getElementById('inv-validade') as HTMLInputElement | null
-                        el?.focus()
-                        try {
-                          el?.showPicker?.()
-                        } catch {
-                          /* showPicker indisponível */
-                        }
-                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => abrirDatePicker('inv-validade')}
                     >
-                      📅
+                      <IconCalendar className="inventario-captura__btn-icon" />
                     </button>
                   </div>
                 </div>

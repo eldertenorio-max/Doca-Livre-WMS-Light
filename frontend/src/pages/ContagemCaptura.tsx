@@ -37,7 +37,7 @@ import {
   setSessaoProdutoListaContext,
 } from '../lib/sessaoProdutoListaContext'
 import { supabase } from '../lib/supabaseClient'
-import BarcodeCameraScanner, { IconClearField, IconScanBarcode } from '../components/barcode/BarcodeCameraScanner'
+import BarcodeCameraScanner, { IconClearField, IconScanBarcode, IconCalendar } from '../components/barcode/BarcodeCameraScanner'
 import CapturaLinhasMobile from '../components/inventario/CapturaLinhasMobile'
 
 type Props = {
@@ -66,6 +66,16 @@ function formatDataLinha(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function abrirDatePicker(inputId: string) {
+  const el = document.getElementById(inputId) as HTMLInputElement | null
+  el?.focus()
+  try {
+    el?.showPicker?.()
+  } catch {
+    /* showPicker indisponível */
+  }
 }
 
 function IconSave() {
@@ -657,6 +667,17 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                           onChange={(e) => setFabricacao(clampDataFabricacaoYmd(e.target.value))}
                           disabled={readonly}
                         />
+                        <button
+                          type="button"
+                          className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only inventario-captura__action-btn--calendar"
+                          disabled={readonly}
+                          title="Abrir calendário"
+                          aria-label="Abrir calendário de fabricação"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => abrirDatePicker('cd-fabricacao')}
+                        >
+                          <IconCalendar className="inventario-captura__btn-icon" />
+                        </button>
                       </div>
                     </div>
                     <div className="inventario-captura__field inv-cap__field">
@@ -669,6 +690,17 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                           onChange={(e) => setValidade(e.target.value)}
                           disabled={readonly}
                         />
+                        <button
+                          type="button"
+                          className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only inventario-captura__action-btn--calendar"
+                          disabled={readonly}
+                          title="Abrir calendário"
+                          aria-label="Abrir calendário de validade"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => abrirDatePicker('cd-validade')}
+                        >
+                          <IconCalendar className="inventario-captura__btn-icon" />
+                        </button>
                       </div>
                     </div>
                   </div>

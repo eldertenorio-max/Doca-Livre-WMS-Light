@@ -2150,6 +2150,19 @@
   display: flex;
   gap: 4px;
   align-items: stretch;
+  min-width: 0;
+}
+
+.inventario-captura__input-row input[type='date'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.inventario-captura__action-btn--calendar .inventario-captura__btn-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .inventario-captura__field input,
@@ -2645,9 +2658,19 @@
 
 .inv-cap__produto-box {
   margin-top: 10px !important;
+  width: 100%;
+  min-width: 0;
+}
+
+.inv-cap__cell--produto-id {
+  width: 100%;
+  min-width: 0;
 }
 
 .inv-cap__cell--produto-id .inventario-captura__produto {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   min-height: 38px;
   max-height: 40px;
   padding: 6px 10px;
@@ -3310,7 +3333,16 @@
   }
 
   .captura--contagem .inv-cap__form-line--primary {
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 2.85fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inv-cap__form-line--primary .inv-cap__cell--produto-id {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .inventario-captura--v2:not(.captura--contagem) .inv-cap__form-line--primary .inv-cap__cell--busca {
+    grid-column: 2 / -1;
   }
 
   .inv-cap__form-line--primary .inv-cap__cell.inventario-captura__field {
@@ -3847,6 +3879,23 @@
     justify-content: center;
   }
 
+  .inventario-captura__action-btn--calendar {
+    min-width: 36px;
+    width: 36px;
+    min-height: 36px;
+  }
+
+  .inventario-captura__action-btn--calendar .inventario-captura__btn-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+  }
+
+  .inventario-captura__input-row input[type='date'] {
+    flex: 1;
+    min-width: 0;
+  }
+
   .inventario-captura__action-btn--icon-only .inventario-captura__btn-text {
     display: none;
   }
@@ -4078,11 +4127,14 @@
   }
 
   .inv-cap__cell--produto-id .inventario-captura__produto {
-    min-height: 36px;
-    max-height: 36px;
-    padding: 0 8px;
+    width: 100%;
+    max-width: none;
+    resize: none;
+    overflow: hidden;
     line-height: 36px;
     font-size: 13px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .inv-cap__codigo-interno {
