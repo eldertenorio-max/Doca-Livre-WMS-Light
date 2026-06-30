@@ -1,4 +1,4 @@
-import { conferenteIdParaBanco, listConferentes, resolveConferenteIdPorNome, type Conferente } from './conferentesStore'
+import { conferenteIdParaBanco, ensureConferenteIdParaGravacao, listConferentes } from './conferentesStore'
 import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
 import type { ContagemDiariaLinhaCaptura } from './contagemDiariaLinhaTypes'
 import {
@@ -7,10 +7,6 @@ import {
 } from './contagemDiariaSessaoSupabase'
 import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
 import { supabase } from './supabaseClient'
-
-function resolveConferenteId(nome: string | undefined, conferentes: Conferente[]): string | null {
-  return resolveConferenteIdPorNome(nome, conferentes)
-}
 
 function parseUpAdicional(raw: string | undefined): number | null {
   const s = String(raw ?? '').trim()
@@ -22,7 +18,7 @@ function parseUpAdicional(raw: string | undefined): number | null {
 function linhaToPayload(
   sessao: ContagemDiariaSessao,
   linha: ContagemDiariaLinhaCaptura,
-  conferentes: Conferente[],
+  conferenteId: string,
 ): Record<string, unknown> {
   const df = String(linha.fabricacao ?? '').trim()
   const dv = String(linha.validade ?? '').trim()
@@ -31,7 +27,7 @@ function linhaToPayload(
   return {
     data_contagem: sessao.dataContagem,
     data_hora_contagem: linha.createdAt || sessao.dataFim || new Date().toISOString(),
-    conferente_id: resolveConferenteId(linha.conferenteNome ?? sessao.conferenteNome, conferentes),
+    conferente_id: conferenteId,
     produto_id: null,
     codigo_interno: String(linha.codigoInterno ?? '').trim(),
     descricao: String(linha.descricao ?? '').trim(),
@@ -143,7 +139,11 @@ export async function syncContagemDiariaSessaoParaContagens(
   if (!opts?.force && (await sessaoJaSincronizada(sessao.id))) return { inserted: 0 }
 
   const conferentes = await listConferentes()
-  const rows = sessao.linhas.map((ln) => linhaToPayload(sessao, ln, conferentes))
+  const rows: Record<string, unknown>[] = []
+  for (const ln of sessao.linhas) {
+    const conferenteId = await ensureConferenteIdParaGravacao(ln.conferenteNome ?? sessao.conferenteNome, conferentes)
+    rows.push(linhaToPayload(sessao, ln, conferenteId))
+  }
   await deleteContagensDaSessao(sessao.id)
   const inserted = await insertContagemRows(rows)
   return { inserted }

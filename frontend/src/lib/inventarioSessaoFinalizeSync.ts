@@ -4,7 +4,7 @@ import {
   planilhaOrdemFromPosNivel,
 } from '../components/inventario/inventarioPlanilhaModel'
 import { parseEnderecoCodigo } from './enderecamentoStore'
-import { listConferentes, resolveConferenteIdPorNome, type Conferente } from './conferentesStore'
+import { listConferentes, resolveConferenteIdPorNome, ensureConferenteIdParaGravacao, type Conferente } from './conferentesStore'
 import { planilhaFkContagemColumn, TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
 import {
   insertInventarioContagensRows,
@@ -215,7 +215,7 @@ function linhaToPayload(
   linha: InventarioLinhaCaptura,
   dataContagemYmd: string,
   meta: PlanilhaMeta,
-  conferentes: Conferente[],
+  conferenteId: string,
 ): Record<string, unknown> {
   const df = String(linha.fabricacao ?? '').trim()
   const dv = String(linha.validade ?? '').trim()
@@ -223,7 +223,7 @@ function linhaToPayload(
   return {
     data_contagem: dataContagemYmd,
     data_hora_contagem: linha.createdAt || sessao.dataFim || new Date().toISOString(),
-    conferente_id: resolveConferenteId(linha.conferenteNome, conferentes),
+    conferente_id: conferenteId,
     produto_id: null,
     codigo_interno: String(linha.codigoInterno ?? '').trim(),
     descricao: String(linha.descricao ?? '').trim(),
@@ -302,22 +302,19 @@ export async function syncInventarioSessaoParaContagens(
 
   const conferentes = await listConferentes()
   const metaMap = buildPlanilhaMetaPorLinha(sessao.linhas)
-  const rows = sessao.linhas.map((ln) =>
-    linhaToPayload(
-      sessao,
-      ln,
-      dataContagemYmd,
-      metaMap.get(ln.id) ?? {
-        grupo: null,
-        ordem: null,
-        repeticao: 1,
-        rua: null,
-        posicao: 1,
-        nivel: 1,
-      },
-      conferentes,
-    ),
-  )
+  const rows: Record<string, unknown>[] = []
+  for (const ln of sessao.linhas) {
+    const meta = metaMap.get(ln.id) ?? {
+      grupo: null,
+      ordem: null,
+      repeticao: 1,
+      rua: null,
+      posicao: 1,
+      nivel: 1,
+    }
+    const conferenteId = await ensureConferenteIdParaGravacao(ln.conferenteNome, conferentes)
+    rows.push(linhaToPayload(sessao, ln, dataContagemYmd, meta, conferenteId))
+  }
 
   await deleteContagensDaSessao(sessao.id)
   await replaceInventarioExistentePorEndereco(dataContagemYmd, rows)

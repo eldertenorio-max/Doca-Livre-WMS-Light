@@ -21,25 +21,20 @@ import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
 import PainelPage from './pages/PainelPage'
+import PermissoesAcessoPage from './pages/PermissoesAcessoPage'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 import { clearSessaoProdutoListaContext } from './lib/sessaoProdutoListaContext'
+import type { AppView } from './lib/appViews'
+import {
+  canAccessView,
+  filterSidebarByPermissions,
+  firstAllowedView,
+  permissoesViewsToSet,
+} from './lib/appPermissions'
+import { isAppAdmin } from './lib/authUser'
+import { fetchMinhasPermissoes } from './lib/usuarioPermissoesStore'
 
-export type AppView =
-  | 'produtos'
-  | 'produtosFamilia'
-  | 'produtosGrupos'
-  | 'produtosImportacao'
-  | 'produtosSubGrupos'
-  | 'temperatura'
-  | 'ocupacao'
-  | 'seguranca'
-  | 'enderecamento'
-  | 'inventarios'
-  | 'inventarioCaptura'
-  | 'contagem'
-  | 'contagemCaptura'
-  | 'estoque'
-  | 'painel'
+export type { AppView } from './lib/appViews'
 
 type Theme = 'dark' | 'light'
 
@@ -85,6 +80,29 @@ export default function App() {
     const saved = localStorage.getItem('ui-theme')
     return saved === 'light' || saved === 'dark' ? saved : 'dark'
   })
+  const [permissoesViews, setPermissoesViews] = useState<string[] | null>(null)
+  const [permissoesCarregadas, setPermissoesCarregadas] = useState(() => !isSupabaseConfigured())
+
+  const adminUser = isAppAdmin(session)
+  const allowedViews = useMemo(() => permissoesViewsToSet(permissoesViews), [permissoesViews])
+
+  useEffect(() => {
+    if (!authEnabled || !session) {
+      setPermissoesViews(null)
+      setPermissoesCarregadas(true)
+      return
+    }
+    let alive = true
+    setPermissoesCarregadas(false)
+    void fetchMinhasPermissoes(session.user.id).then((views) => {
+      if (!alive) return
+      setPermissoesViews(views)
+      setPermissoesCarregadas(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [authEnabled, session])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -114,7 +132,7 @@ export default function App() {
     }
   }, [authEnabled])
 
-  const sidebarItems: SidebarItem[] = useMemo(
+  const sidebarItemsBase: SidebarItem[] = useMemo(
     () => [
       { id: 'painel', label: 'Painel', icon: <NavEmoji>📈</NavEmoji>, accent: '#f59e0b' },
       {
@@ -141,13 +159,40 @@ export default function App() {
     [],
   )
 
+  const sidebarItems: SidebarItem[] = useMemo(() => {
+    const filtrados = filterSidebarByPermissions(sidebarItemsBase, adminUser ? null : allowedViews)
+    if (adminUser) {
+      return [
+        ...filtrados,
+        {
+          id: 'permissoes',
+          label: 'Permissões de acesso',
+          icon: <NavEmoji>🔐</NavEmoji>,
+          accent: '#f97316',
+        },
+      ]
+    }
+    return filtrados
+  }, [sidebarItemsBase, allowedViews, adminUser])
+
+  useEffect(() => {
+    if (!permissoesCarregadas) return
+    if (!authEnabled || adminUser) return
+    if (canAccessView(view, allowedViews, false)) return
+    setView(firstAllowedView(allowedViews))
+  }, [permissoesCarregadas, authEnabled, adminUser, view, allowedViews])
+
   const activeSidebarId =
     view === 'inventarioCaptura' ? 'inventarios' : view === 'contagemCaptura' ? 'contagem' : view
 
   function navigate(id: string) {
+    const next = id as AppView
+    if (authEnabled && permissoesCarregadas && !canAccessView(next, allowedViews, adminUser)) {
+      return
+    }
     if (id === 'inventarios') setCapturaInventarioId(null)
     if (id === 'contagem') setCapturaContagemId(null)
-    setView(id as AppView)
+    setView(next)
   }
 
   function abrirCaptura(inventarioId: string) {
@@ -253,6 +298,11 @@ export default function App() {
       {view === 'estoque' ? (
         <PanelErrorBoundary>
           <EstoqueConsulta />
+        </PanelErrorBoundary>
+      ) : null}
+      {view === 'permissoes' ? (
+        <PanelErrorBoundary>
+          <PermissoesAcessoPage session={session} />
         </PanelErrorBoundary>
       ) : null}
     </AppShell>

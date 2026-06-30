@@ -43,6 +43,7 @@ import { listContagensDiarias } from '../lib/contagemDiariaSessaoStore'
 import { listInventarios } from '../lib/inventarioSessaoStore'
 import type { ContagemDiariaSessao } from '../lib/contagemDiariaSessaoTypes'
 import type { InventarioSessao } from '../lib/inventarioSessaoTypes'
+import { formatUnknownError } from '../lib/supabaseError'
 
 type ContagemRow = {
   id: string
@@ -2123,7 +2124,12 @@ export default function RelatorioContagem({
     setExportSessaoIdLoading(sessao.id)
     setError('')
     try {
-      await syncInventarioSessaoParaContagens(sessao, { force: true })
+      try {
+        await syncInventarioSessaoParaContagens(sessao, { force: true })
+      } catch (syncErr: unknown) {
+        if (import.meta.env.DEV) console.warn('[exportInventario] sync', syncErr)
+      }
+
       const fresh = await getInventario(sessao.id)
       const source = fresh ?? sessao
       let exportRows: ContagemRow[]
@@ -2154,7 +2160,7 @@ export default function RelatorioContagem({
         .slice(0, 80)
       XLSX.writeFile(wb, `inventario_${safeFile}.xlsx`)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao exportar inventário.')
+      setError(formatUnknownError(e) || 'Erro ao exportar inventário.')
     } finally {
       setExportSessaoIdLoading(null)
     }

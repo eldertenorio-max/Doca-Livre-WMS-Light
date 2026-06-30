@@ -26,6 +26,38 @@ export function resolveConferenteIdPorNome(
   return parcial?.id ?? null
 }
 
+const SEM_CONFERENTE_LABEL = 'Sem conferente'
+
+/**
+ * Garante UUID válido para colunas NOT NULL (`contagens_inventario`, etc.).
+ * Cria conferente no banco quando o nome da captura não está cadastrado.
+ */
+export async function ensureConferenteIdParaGravacao(
+  nome: string | undefined,
+  conferentes: Conferente[],
+): Promise<string> {
+  const resolved = resolveConferenteIdPorNome(nome, conferentes)
+  if (resolved) return resolved
+
+  const label = String(nome ?? '').trim() || SEM_CONFERENTE_LABEL
+  const exatoLabel = conferentes.find((c) => c.nome.trim().toLowerCase() === label.toLowerCase())
+  if (exatoLabel) return exatoLabel.id
+
+  const sem = conferentes.find((c) => c.nome.trim().toLowerCase() === SEM_CONFERENTE_LABEL.toLowerCase())
+  if (sem) return sem.id
+
+  try {
+    const novo = await cadastrarConferente(label)
+    conferentes.push(novo)
+    return novo.id
+  } catch {
+    if (conferentes[0]?.id) return conferentes[0].id
+    throw new Error(
+      `Conferente "${label}" não encontrado e não foi possível cadastrar. Cadastre em Conferentes antes de exportar.`,
+    )
+  }
+}
+
 export async function listConferentes(): Promise<Conferente[]> {
   const { data, error } = await supabase.from('conferentes').select('id,nome').order('nome')
   if (error) throw error

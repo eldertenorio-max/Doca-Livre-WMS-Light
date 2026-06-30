@@ -1,5 +1,13 @@
 import type { Session } from '@supabase/supabase-js'
 
+export function isAppAdmin(session: Session | null | undefined): boolean {
+  if (!session?.user) return false
+  const u = usernameFromSession(session).toLowerCase()
+  if (u === 'diego.isidoro' || u === 'diego') return true
+  const email = (session.user.email ?? '').split('@')[0]?.trim().toLowerCase()
+  return email === 'diego.isidoro' || email === 'diego'
+}
+
 export function usernameFromSession(session: Session | null | undefined): string {
   if (!session?.user) return 'usuário'
   const meta = session.user.user_metadata as Record<string, unknown> | undefined
