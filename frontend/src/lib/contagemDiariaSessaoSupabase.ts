@@ -73,43 +73,35 @@ function sessaoToRow(s: ContagemDiariaSessao): DbRow {
   }
 }
 
-const SELECT_CORE =
-  'id,numero,titulo,local,data_contagem,conferente_nome,data_inicio,data_fim,status,iniciada,created_at,updated_at'
-const SELECT_LISTA = 'lista_produtos_id,lista_produtos_nome'
-const SELECT_COLS_CANDIDATES = [
-  `${SELECT_CORE},${SELECT_LISTA},linhas`,
-  `${SELECT_CORE},linhas`,
-  `${SELECT_CORE},${SELECT_LISTA}`,
-  SELECT_CORE,
-]
-
-/** Evita repetir SELECTs que falham com 400 quando colunas opcionais não existem. */
-let selectColsCache: string | null = null
+/** `null` = ainda não sabemos; definido após leitura ou upsert. */
 let linhasColumnDisponivel: boolean | null = null
+let listaProdutosColumnDisponivel: boolean | null = null
 
-function selectIncluiLinhas(cols: string): boolean {
-  return cols.split(',').includes('linhas')
+/** Infere colunas opcionais a partir do retorno de `select('*')` (sem GETs extras com 400). */
+function aplicarDicasSchemaNasLinhas(data: DbRow[] | DbRow | null): void {
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row || typeof row !== 'object') return
+  if ('linhas' in row) linhasColumnDisponivel = true
+  else if (linhasColumnDisponivel === null) linhasColumnDisponivel = false
+  if ('lista_produtos_id' in row) listaProdutosColumnDisponivel = true
+  else if (listaProdutosColumnDisponivel === null) listaProdutosColumnDisponivel = false
+}
+
+export function resetContagemDiariaSchemaProbe(): void {
+  linhasColumnDisponivel = null
+  listaProdutosColumnDisponivel = null
 }
 
 async function queryContagemSessoes(id?: string): Promise<DbRow[] | DbRow | null> {
-  const candidates = selectColsCache
-    ? [selectColsCache, ...SELECT_COLS_CANDIDATES.filter((c) => c !== selectColsCache)]
-    : SELECT_COLS_CANDIDATES
-
-  let lastError: unknown = null
-  for (const cols of candidates) {
-    const res = id
-      ? await supabase.from(TABELA).select(cols).eq('id', id).maybeSingle()
-      : await supabase.from(TABELA).select(cols).order('numero', { ascending: false })
-    if (!res.error) {
-      selectColsCache = cols
-      linhasColumnDisponivel = selectIncluiLinhas(cols)
-      return (res.data as DbRow[] | DbRow | null) ?? (id ? null : [])
-    }
-    lastError = res.error
-    if (!isColumnMissingError(res.error)) break
+  const res = id
+    ? await supabase.from(TABELA).select('*').eq('id', id).maybeSingle()
+    : await supabase.from(TABELA).select('*').order('numero', { ascending: false })
+  if (res.error) {
+    throw new Error(formatUnknownError(res.error) || 'Erro ao buscar contagens no banco.')
   }
-  throw new Error(formatUnknownError(lastError) || 'Erro ao buscar contagens no banco.')
+  const data = (res.data as DbRow[] | DbRow | null) ?? (id ? null : [])
+  aplicarDicasSchemaNasLinhas(data)
+  return data
 }
 
 export async function fetchContagemDiariaSessoesSupabase(): Promise<ContagemDiariaSessao[]> {
@@ -136,37 +128,34 @@ export async function upsertContagemDiariaSessaoSupabase(
   const row = sessaoToRow(sessao)
   const temLinhas = (sessao.linhas?.length ?? 0) > 0
 
+  const payload: Record<string, unknown> = { ...row }
+  if (listaProdutosColumnDisponivel === false) {
+    delete payload.lista_produtos_id
+    delete payload.lista_produtos_nome
+  }
   if (linhasColumnDisponivel === false) {
-    const { lista_produtos_id: _a, lista_produtos_nome: _b, linhas: _c, ...semOpcionais } = row
-    let { error } = await upsertRow(semOpcionais)
-    if (error && isColumnMissingError(error)) {
-      const { lista_produtos_id: _d, lista_produtos_nome: _e, ...legacy } = row
-      const res = await upsertRow({ ...legacy, linhas: undefined })
-      error = res.error
-    }
-    if (error) throw new Error(formatUnknownError(error) || 'Erro ao salvar contagem no banco.')
-    return { linhasNoBanco: false }
+    delete payload.linhas
   }
 
-  let { error } = await upsertRow(row as unknown as Record<string, unknown>)
+  let { error } = await upsertRow(payload)
   if (error && isColumnMissingError(error)) {
-    const { lista_produtos_id: _a, lista_produtos_nome: _b, ...semLista } = row
-    const res = await upsertRow(semLista as unknown as Record<string, unknown>)
+    delete payload.lista_produtos_id
+    delete payload.lista_produtos_nome
+    listaProdutosColumnDisponivel = false
+    const res = await upsertRow(payload)
     error = res.error
   }
   if (error && isColumnMissingError(error)) {
-    const { linhas: _c, lista_produtos_id: _a, lista_produtos_nome: _b, ...legacyRow } = row
+    delete payload.linhas
     linhasColumnDisponivel = false
-    if (selectColsCache && selectIncluiLinhas(selectColsCache)) {
-      selectColsCache = SELECT_COLS_CANDIDATES.find((c) => !selectIncluiLinhas(c)) ?? SELECT_CORE
-    }
-    const res = await upsertRow(legacyRow as unknown as Record<string, unknown>)
+    const res = await upsertRow(payload)
     error = res.error
     if (!error) return { linhasNoBanco: temLinhas ? false : true }
   }
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao salvar contagem no banco.')
-  linhasColumnDisponivel = true
-  return { linhasNoBanco: true }
+  if ('linhas' in payload) linhasColumnDisponivel = true
+  if ('lista_produtos_id' in payload) listaProdutosColumnDisponivel = true
+  return { linhasNoBanco: linhasColumnDisponivel !== false }
 }
 
 export async function deleteContagemDiariaSessaoSupabase(id: string): Promise<void> {

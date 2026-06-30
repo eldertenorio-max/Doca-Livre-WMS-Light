@@ -8,6 +8,21 @@ import {
   filtrarSugestoesProduto,
 } from '../lib/buscaProdutoInventario'
 import {
+  camarasDosEnderecos,
+  enderecosParaCaptura,
+  niveisDosEnderecos,
+  partesFormDoCodigo,
+  posicoesDosEnderecos,
+  ruasDosEnderecos,
+} from '../lib/enderecamentoCascata'
+import {
+  buildCodigoEndereco,
+  camaraFromEnderecoCodigo,
+  findEnderecoByCodigo,
+  formatEnderecoCodigoInput,
+  normalizeEnderecoCodigo,
+} from '../lib/enderecamentoStore'
+import {
   clampDataFabricacaoYmd,
   isFabricacaoAposHoje,
   isVencimentoAntesFabricacao,
@@ -91,6 +106,11 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const [sessaoLoading, setSessaoLoading] = useState(true)
   const [produtos, setProdutos] = useState<ProductOption[]>([])
   const [produtosCarregando, setProdutosCarregando] = useState(false)
+  const [endCamara, setEndCamara] = useState('')
+  const [endRua, setEndRua] = useState('')
+  const [endPosicao, setEndPosicao] = useState('')
+  const [endNivel, setEndNivel] = useState('')
+  const [enderecoCodigoInput, setEnderecoCodigoInput] = useState('')
   const [codigoBarras, setCodigoBarras] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [unidade, setUnidade] = useState('')
@@ -107,7 +127,10 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const [editandoLinhaId, setEditandoLinhaId] = useState<string | null>(null)
   const [linhasPage, setLinhasPage] = useState(1)
   const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
+  const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
 
+  const camaraRef = useRef<HTMLSelectElement>(null)
+  const enderecoCodigoRef = useRef<HTMLInputElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
   const comboRef = useRef<HTMLDivElement>(null)
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -120,6 +143,38 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     () => filtrarSugestoesProduto(codigoBarras, produtos, productMaps, SUGESTOES_MAX),
     [codigoBarras, produtos, productMaps],
   )
+
+  const enderecosCaptura = useMemo(() => enderecosParaCaptura(null, null), [])
+
+  const endereco = useMemo(() => {
+    if (!endCamara || !endRua || !endPosicao || !endNivel) return ''
+    const cam = Number(endCamara)
+    const pos = Number(endPosicao)
+    const niv = Number(endNivel)
+    if (!Number.isFinite(cam) || !Number.isFinite(pos) || !Number.isFinite(niv)) return ''
+    return buildCodigoEndereco(cam, endRua, pos, niv)
+  }, [endCamara, endRua, endPosicao, endNivel])
+
+  const camarasOpcoes = useMemo(() => camarasDosEnderecos(enderecosCaptura), [enderecosCaptura])
+
+  const ruasOpcoes = useMemo(() => {
+    const cam = Number(endCamara)
+    if (!Number.isFinite(cam)) return []
+    return ruasDosEnderecos(enderecosCaptura, cam)
+  }, [enderecosCaptura, endCamara])
+
+  const posicoesOpcoes = useMemo(() => {
+    const cam = Number(endCamara)
+    if (!Number.isFinite(cam) || !endRua) return []
+    return posicoesDosEnderecos(enderecosCaptura, cam, endRua)
+  }, [enderecosCaptura, endCamara, endRua])
+
+  const niveisOpcoes = useMemo(() => {
+    const cam = Number(endCamara)
+    const pos = Number(endPosicao)
+    if (!Number.isFinite(cam) || !endRua || !Number.isFinite(pos)) return []
+    return niveisDosEnderecos(enderecosCaptura, cam, endRua, pos)
+  }, [enderecosCaptura, endCamara, endRua, endPosicao])
 
   const linhasSalvas = useMemo(
     () => [...(sessao?.linhas ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
@@ -140,6 +195,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     () =>
       linhasPaginadas.map((linha, idx) => {
         const metaParts: string[] = []
+        if (linha.endereco?.trim()) metaParts.push(linha.endereco.trim())
         if (linha.lote?.trim()) metaParts.push(`Lote ${linha.lote.trim()}`)
         if (linha.fabricacao?.trim()) metaParts.push(`Fab ${formatYmdBR(linha.fabricacao)}`)
         if (linha.validade?.trim()) metaParts.push(`Val ${formatYmdBR(linha.validade)}`)
@@ -279,6 +335,143 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     }
   }
 
+  function aplicarPartesEndereco(
+    partes: { camara: string; rua: string; posicao: string; nivel: string },
+    codigoExibido?: string,
+  ) {
+    setEndCamara(partes.camara)
+    setEndRua(partes.rua)
+    setEndPosicao(partes.posicao)
+    setEndNivel(partes.nivel)
+    if (codigoExibido !== undefined) {
+      setEnderecoCodigoInput(codigoExibido)
+      return
+    }
+    if (partes.camara && partes.rua && partes.posicao && partes.nivel) {
+      setEnderecoCodigoInput(
+        buildCodigoEndereco(
+          Number(partes.camara),
+          partes.rua,
+          Number(partes.posicao),
+          Number(partes.nivel),
+        ),
+      )
+    } else if (!partes.camara && !partes.rua && !partes.posicao && !partes.nivel) {
+      setEnderecoCodigoInput('')
+    }
+  }
+
+  function confirmarEnderecoCompleto(cod: string) {
+    const normalized = normalizeEnderecoCodigo(cod.trim())
+    if (!normalized) return
+    const found = findEnderecoByCodigo(normalized)
+    if (found) {
+      setMsg(
+        `Endereço ${normalized} — Câm. ${found.camara ?? '—'} · Rua ${found.rua || '—'} · Pos. ${found.posicao ?? '—'} · Nív. ${found.nivel ?? '—'}`,
+      )
+    } else {
+      setMsg(`Endereço ${normalized} (não cadastrado na lista)`)
+    }
+    setErr('')
+    barcodeRef.current?.focus()
+  }
+
+  function aplicarEnderecoLido(codRaw: string) {
+    const formatted = formatEnderecoCodigoInput(codRaw.trim())
+    const partes = partesFormDoCodigo(formatted)
+    aplicarPartesEndereco(partes, formatted)
+    if (partes.camara && partes.rua && partes.posicao && partes.nivel) {
+      const cod = buildCodigoEndereco(
+        Number(partes.camara),
+        partes.rua,
+        Number(partes.posicao),
+        Number(partes.nivel),
+      )
+      confirmarEnderecoCompleto(cod)
+    }
+  }
+
+  function handleEnderecoCodigoChange(value: string) {
+    setEnderecoCodigoInput(formatEnderecoCodigoInput(value))
+    setErr('')
+    setMsg('')
+  }
+
+  function commitEnderecoCodigoInput() {
+    const raw = enderecoCodigoInput.trim()
+    if (!raw) return
+    aplicarEnderecoLido(raw)
+  }
+
+  function handleCamaraChange(value: string) {
+    setEndCamara(value)
+    setEndRua('')
+    setEndPosicao('')
+    setEndNivel('')
+    setEnderecoCodigoInput('')
+    setErr('')
+    setMsg('')
+  }
+
+  function handleRuaChange(value: string) {
+    setEndRua(value)
+    setEndPosicao('')
+    setEndNivel('')
+    setEnderecoCodigoInput('')
+    setErr('')
+    setMsg('')
+  }
+
+  function handlePosicaoChange(value: string) {
+    setEndPosicao(value)
+    setEndNivel('')
+    setEnderecoCodigoInput('')
+    setErr('')
+    setMsg('')
+  }
+
+  function handleNivelChange(value: string) {
+    setEndNivel(value)
+    if (!value || !endCamara || !endRua || !endPosicao) {
+      setEnderecoCodigoInput('')
+      return
+    }
+    const cod = buildCodigoEndereco(Number(endCamara), endRua, Number(endPosicao), Number(value))
+    setEnderecoCodigoInput(cod)
+    confirmarEnderecoCompleto(cod)
+  }
+
+  function limparCampoEndereco() {
+    aplicarPartesEndereco({ camara: '', rua: '', posicao: '', nivel: '' }, '')
+    setMsg('')
+    setErr('')
+    enderecoCodigoRef.current?.focus()
+  }
+
+  function resolverCamaraEndereco(end: string): number | null {
+    const found = findEnderecoByCodigo(end)
+    if (found?.camara != null) return found.camara
+    return camaraFromEnderecoCodigo(end)
+  }
+
+  function abrirCameraBarcode(alvo: 'endereco' | 'produto') {
+    setBarcodeCameraAlvo(alvo)
+    setBarcodeCameraOpen(true)
+  }
+
+  function handleBarcodeCameraScan(raw: string) {
+    const value = raw.trim()
+    if (!value) return
+    if (barcodeCameraAlvo === 'endereco') {
+      aplicarEnderecoLido(formatEnderecoCodigoInput(value))
+      return
+    }
+    handleBuscaChange(value)
+    void resolverProduto(value).then(() => {
+      ;(document.getElementById('cd-quantidade') as HTMLInputElement | null)?.focus()
+    })
+  }
+
   function handleBuscaChange(v: string) {
     setCodigoBarras(v)
     setSugestoesOpen(true)
@@ -304,6 +497,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   }
 
   function limparFormulario() {
+    limparCampoEndereco()
     limparCampoProduto()
     setQuantidade('')
     setUp('')
@@ -311,12 +505,14 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     setFabricacao('')
     setValidade('')
     setEditandoLinhaId(null)
-    barcodeRef.current?.focus()
+    enderecoCodigoRef.current?.focus()
   }
 
   function iniciarEdicaoLinha(linha: ContagemDiariaLinhaCaptura) {
     if (!sessao || sessao.status !== 'aberto') return
     setEditandoLinhaId(linha.id)
+    const codEnd = normalizeEnderecoCodigo(linha.endereco ?? '')
+    aplicarPartesEndereco(partesFormDoCodigo(codEnd), codEnd)
     setCodigoBarras(linha.codigoBarras)
     setQuantidade(String(linha.quantidade))
     setUnidade(linha.unidade)
@@ -333,7 +529,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
 
   async function excluirLinha(linha: ContagemDiariaLinhaCaptura) {
     if (!sessao || sessao.status !== 'aberto') return
-    if (!confirm(`Excluir a linha ${linha.descricao}?`)) return
+    if (!confirm(`Excluir a linha do endereço ${linha.endereco || '—'} (${linha.descricao})?`)) return
     try {
       const ok = await deleteLinhaContagemDiaria(sessao.id, linha.id)
       if (!ok) {
@@ -355,9 +551,14 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
       setErr('Contagem finalizada — somente leitura.')
       return
     }
+    const end = normalizeEnderecoCodigo(endereco.trim())
     const bar = codigoBarras.trim()
     const q = Number(String(quantidade).replace(',', '.'))
     const upStr = up.trim()
+    if (!end) {
+      setErr('Selecione câmara, rua, posição e nível.')
+      return
+    }
     if (!bar || !codigoInterno) {
       setErr('Informe EAN, código do produto ou descrição válida.')
       return
@@ -386,6 +587,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     try {
       const qtdAntes = sessao.linhas.length
       const payload = {
+        endereco: end,
         codigoBarras: bar,
         codigoInterno,
         descricao: produtoLabel,
@@ -395,6 +597,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
         lote: lote.trim(),
         fabricacao: fab,
         validade: val,
+        camara: resolverCamaraEndereco(end),
         conferenteNome: usuarioLogado.trim() || undefined,
       }
       if (editandoLinhaId) {
@@ -510,7 +713,135 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
           <div className="inv-cap__form-panel">
             <div className="inv-cap__form-compact">
               <div className="inv-cap__form-line inv-cap__form-line--primary">
+                <section className="inv-cap__section inv-cap__section--endereco">
+                  <h2 className="inv-cap__section-title inv-cap__section-title--stack">
+                    <span className="inv-cap__step">1</span> Endereço
+                  </h2>
+                  <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--endereco">
+                    <div className="inv-cap__endereco-row">
+                      <div className="inv-cap__endereco-codigo-field">
+                        <label htmlFor="cd-end-codigo">Código endereço</label>
+                        <div className="inventario-captura__input-row">
+                          <input
+                            id="cd-end-codigo"
+                            ref={enderecoCodigoRef}
+                            value={enderecoCodigoInput}
+                            onChange={(e) => handleEnderecoCodigoChange(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                commitEnderecoCodigoInput()
+                              }
+                            }}
+                            onBlur={() => {
+                              if (enderecoCodigoInput.trim()) commitEnderecoCodigoInput()
+                            }}
+                            disabled={readonly}
+                            autoComplete="off"
+                            autoCapitalize="characters"
+                            spellCheck={false}
+                            placeholder="Bipar ou digitar — ex.: 21-A-03-2"
+                          />
+                          <button
+                            type="button"
+                            className="inventario-captura__action-btn inventario-captura__action-btn--limpar"
+                            disabled={readonly || (!enderecoCodigoInput.trim() && !endereco)}
+                            aria-label="Limpar endereço"
+                            title="Limpar"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={limparCampoEndereco}
+                          >
+                            <span className="inventario-captura__btn-text">Limpar</span>
+                            <IconClearField className="inventario-captura__btn-icon" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className="inventario-captura__action-btn inventario-captura__action-btn--icon-only inventario-captura__action-btn--scan"
+                            disabled={readonly}
+                            aria-label="Ler código de endereço pela câmera"
+                            title="Ler endereço"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => abrirCameraBarcode('endereco')}
+                          >
+                            <IconScanBarcode className="inventario-captura__btn-icon" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="inv-cap__endereco-grid">
+                        <div className="inv-cap__endereco-item">
+                          <label htmlFor="cd-end-camara">Câmara</label>
+                          <select
+                            id="cd-end-camara"
+                            ref={camaraRef}
+                            value={endCamara}
+                            onChange={(e) => handleCamaraChange(e.target.value)}
+                            disabled={readonly || camarasOpcoes.length === 0}
+                          >
+                            <option value="">—</option>
+                            {camarasOpcoes.map((c) => (
+                              <option key={c} value={String(c)}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="inv-cap__endereco-item">
+                          <label htmlFor="cd-end-rua">Rua</label>
+                          <select
+                            id="cd-end-rua"
+                            value={endRua}
+                            onChange={(e) => handleRuaChange(e.target.value)}
+                            disabled={readonly || !endCamara || ruasOpcoes.length === 0}
+                          >
+                            <option value="">—</option>
+                            {ruasOpcoes.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="inv-cap__endereco-item">
+                          <label htmlFor="cd-end-posicao">Posição</label>
+                          <select
+                            id="cd-end-posicao"
+                            value={endPosicao}
+                            onChange={(e) => handlePosicaoChange(e.target.value)}
+                            disabled={readonly || !endRua || posicoesOpcoes.length === 0}
+                          >
+                            <option value="">—</option>
+                            {posicoesOpcoes.map((p) => (
+                              <option key={p} value={String(p)}>
+                                {String(p).padStart(2, '0')}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="inv-cap__endereco-item">
+                          <label htmlFor="cd-end-nivel">Nível</label>
+                          <select
+                            id="cd-end-nivel"
+                            value={endNivel}
+                            onChange={(e) => handleNivelChange(e.target.value)}
+                            disabled={readonly || !endPosicao || niveisOpcoes.length === 0}
+                          >
+                            <option value="">—</option>
+                            {niveisOpcoes.map((n) => (
+                              <option key={n} value={String(n)}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
                 <section className="inv-cap__section inv-cap__section--produto">
+                  <h2 className="inv-cap__section-title inv-cap__section-title--stack">
+                    <span className="inv-cap__step">2</span> Produto
+                  </h2>
                   <div
                     className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--busca"
                     ref={comboRef}
@@ -555,6 +886,9 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                         disabled={readonly}
                         autoComplete="off"
                         placeholder="Código de barras, EAN ou descrição"
+                        aria-autocomplete="list"
+                        aria-expanded={sugestoesOpen}
+                        aria-controls="cd-produto-sugestoes"
                       />
                       <button
                         type="button"
@@ -573,13 +907,13 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                         disabled={readonly}
                         aria-label="Ler código de barras pela câmera"
                         title="Ler código de barras"
-                        onClick={() => setBarcodeCameraOpen(true)}
+                        onClick={() => abrirCameraBarcode('produto')}
                       >
                         <IconScanBarcode className="inventario-captura__btn-icon" />
                       </button>
                     </div>
                     {sugestoesOpen && !readonly ? (
-                      <ul className="inventario-captura__sugestoes" role="listbox">
+                      <ul id="cd-produto-sugestoes" className="inventario-captura__sugestoes" role="listbox">
                         {sugestoes.length === 0 ? (
                           <li className="inventario-captura__sugestao inventario-captura__sugestao--empty">
                             {produtosCarregando ? 'Carregando…' : 'Nenhum produto encontrado'}
@@ -597,6 +931,9 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                               >
                                 <span className="inventario-captura__sugestao-cod">{p.codigo}</span>
                                 <span className="inventario-captura__sugestao-desc">{p.descricao}</span>
+                                {p.ean ? (
+                                  <span className="inventario-captura__sugestao-ean">EAN {p.ean}</span>
+                                ) : null}
                               </button>
                             </li>
                           ))
@@ -626,6 +963,9 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
 
               <div className="inv-cap__form-line inv-cap__form-line--secondary">
                 <section className="inv-cap__section inv-cap__section--qty">
+                  <h2 className="inv-cap__section-title inv-cap__section-title--stack">
+                    <span className="inv-cap__step">3</span> Quantidade e validade
+                  </h2>
                   <div className="inv-cap__grid">
                     <div className="inventario-captura__field inv-cap__field">
                       <label htmlFor="cd-quantidade">Quantidade</label>
@@ -773,6 +1113,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                       <th>Data</th>
                       <th>Hora</th>
                       <th>Conferente</th>
+                      <th>Endereço</th>
                       <th>Código</th>
                       <th>Produto</th>
                       <th>Qtd</th>
@@ -793,6 +1134,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                         <td>{formatDataLinha(linha.createdAt)}</td>
                         <td>{formatHora(linha.createdAt)}</td>
                         <td className="inventario-captura__linhas-conf">{linha.conferenteNome?.trim() || '—'}</td>
+                        <td className="inventario-captura__linhas-end">{linha.endereco?.trim() || '—'}</td>
                         <td className="inventario-captura__linhas-cod">{linha.codigoInterno}</td>
                         <td className="inventario-captura__linhas-desc">{linha.descricao}</td>
                         <td>
@@ -848,15 +1190,8 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
       <BarcodeCameraScanner
         open={barcodeCameraOpen}
         onClose={() => setBarcodeCameraOpen(false)}
-        onScan={(raw) => {
-          const value = raw.trim()
-          if (!value) return
-          handleBuscaChange(value)
-          void resolverProduto(value).then(() => {
-            ;(document.getElementById('cd-quantidade') as HTMLInputElement | null)?.focus()
-          })
-        }}
-        title="Ler código de barras"
+        onScan={handleBarcodeCameraScan}
+        title={barcodeCameraAlvo === 'endereco' ? 'Ler código de endereço' : 'Ler código de barras'}
       />
     </div>
   )

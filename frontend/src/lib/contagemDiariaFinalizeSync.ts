@@ -36,7 +36,8 @@ function linhaToPayload(
 ): Record<string, unknown> {
   const df = String(linha.fabricacao ?? '').trim()
   const dv = String(linha.validade ?? '').trim()
-  const obsBase = `Contagem #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}`
+  const end = String(linha.endereco ?? '').trim()
+  const obsBase = `Contagem #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}${end ? ` · ${end}` : ''}`
   return {
     data_contagem: sessao.dataContagem,
     data_hora_contagem: linha.createdAt || sessao.dataFim || new Date().toISOString(),

@@ -4,6 +4,7 @@ import {
   fetchContagemDiariaSessaoByIdSupabase,
   fetchContagemDiariaSessoesSupabase,
   fetchProximoNumeroContagemDiariaSupabase,
+  resetContagemDiariaSchemaProbe,
   upsertContagemDiariaSessaoSupabase,
 } from './contagemDiariaSessaoSupabase'
 import { syncContagemDiariaSessaoParaContagens } from './contagemDiariaFinalizeSync'
@@ -91,6 +92,7 @@ async function usarSupabaseSessoes(): Promise<boolean> {
 
 export function resetContagemDiariaSupabaseProbe(): void {
   resetSupabaseTableProbe(TABELA_CD)
+  resetContagemDiariaSchemaProbe()
 }
 
 export async function contagemDiariaUsaArmazenamentoLocal(): Promise<boolean> {

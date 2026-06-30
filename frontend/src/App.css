@@ -3333,7 +3333,11 @@
   }
 
   .captura--contagem .inv-cap__form-line--primary {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1.05fr) minmax(0, 3.1fr);
+  }
+
+  .captura--contagem .inv-cap__form-line--primary .inv-cap__cell--busca {
+    grid-column: 2 / -1;
   }
 
   .inv-cap__form-line--primary .inv-cap__cell--produto-id {
@@ -4144,10 +4148,6 @@
   .inv-cap__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px;
-  }
-
-  .captura--contagem .inv-cap__grid > .inventario-captura__field:nth-child(2) {
-    display: none;
   }
 
   .inv-cap__endereco-codigo-field .inventario-captura__action-btn--limpar .inventario-captura__btn-text {
