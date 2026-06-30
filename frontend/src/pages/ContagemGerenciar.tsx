@@ -16,6 +16,7 @@ import {
 import { formatUnknownError } from '../lib/supabaseError'
 import { listConferentes } from '../lib/conferentesStore'
 import CadastroConferenteModal from '../components/conferente/CadastroConferenteModal'
+import { PagePanelHeading } from '../components/ui/PagePanelHeading'
 
 type Props = {
   onAbrirContagem: (contagemId: string) => void
@@ -328,12 +329,16 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
 
   return (
     <div className="page-panel inv-gerenciar">
-      <h1 className="page-panel__title">Contagem diária</h1>
-      <p className="page-panel__subtitle">
-        Crie uma contagem com nome — ela aparecerá na lista. Depois clique em <strong>Começar contagem</strong> na
-        linha para abrir a checklist. Os dados ficam salvos no <strong>Supabase</strong> e aparecem em qualquer
-        dispositivo.
-      </p>
+      <PagePanelHeading
+        title="Contagem diária"
+        info={
+          <>
+            Crie uma contagem com nome — ela aparecerá na lista. Depois clique em <strong>Começar contagem</strong> na
+            linha para abrir a checklist. Os dados ficam salvos no <strong>Supabase</strong> e aparecem em qualquer
+            dispositivo.
+          </>
+        }
+      />
 
       {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
       {modoLocal ? (

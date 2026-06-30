@@ -18,6 +18,8 @@ import {
 } from '../lib/sessaoProdutoListaContext'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
+import PageInfoButton, { PageInfoBlock } from '../components/ui/PageInfoButton'
+import { PageSectionHeading } from '../components/ui/PagePanelHeading'
 import './BaseProdutos.css'
 
 const TABELA_PRODUTOS = 'Todos os Produtos'
@@ -1031,11 +1033,20 @@ export default function BaseProdutos() {
     <div className="produtos-page produtos-page--lista">
       <header className="produtos-page__header">
         <div>
-          <h1>Produtos</h1>
-          <p>
-            Monte listas de produtos para o inventário. A base oficial fica no Supabase ({TABELA_PRODUTOS}) — use
-            «Carregar base» na área abaixo ou cadastre produtos manualmente.
-          </p>
+          <div className="produtos-page__title-row">
+            <h1>Produtos</h1>
+            <PageInfoButton title="Produtos" ariaLabel="Ajuda: Produtos">
+              <PageInfoBlock>
+                Monte listas de produtos para o inventário. A base oficial fica no Supabase ({TABELA_PRODUTOS}) — use
+                «Carregar base» na área abaixo ou cadastre produtos manualmente.
+              </PageInfoBlock>
+              <PageInfoBlock title="Listas de produtos salvas">
+                Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong>{' '}
+                para sair da edição; ao <strong>Salvar lista</strong>, os produtos são gravados e a área de trabalho é
+                limpa.
+              </PageInfoBlock>
+            </PageInfoButton>
+          </div>
         </div>
         <button
           type="button"
@@ -1062,11 +1073,7 @@ export default function BaseProdutos() {
       ) : null}
 
       <section className="produtos-listas-salvas">
-        <h2 className="produtos-listas-salvas__title">Listas de produtos salvas</h2>
-        <p className="produtos-listas-salvas__hint">
-          Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong> para
-          sair da edição; ao <strong>Salvar lista</strong>, os produtos são gravados e a área de trabalho é limpa.
-        </p>
+        <PageSectionHeading title="Listas de produtos salvas" />
         <div className="page-table-wrap">
           <table className="page-table page-table--compact">
             <thead>

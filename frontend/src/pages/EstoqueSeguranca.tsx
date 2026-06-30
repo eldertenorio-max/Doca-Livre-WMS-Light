@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { ComparativoLinhasSvgChart, type SvgChartSeries } from '../components/ComparativoLinhasSvgChart'
 import ControleShelfLifePanel from '../components/ControleShelfLifePanel'
+import PageInfoButton from '../components/ui/PageInfoButton'
 import VisaoCruzadaEstoqueShelfPanel from '../components/VisaoCruzadaEstoqueShelfPanel'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import { fetchGoogleSheetCsv } from '../lib/googleSheetsCsv'
@@ -729,6 +730,12 @@ export default function EstoqueSeguranca() {
         }}
       >
         <h2 style={{ margin: 0, textAlign: 'center' }}>Estoque de Seguranca</h2>
+        <PageInfoButton title="Gráficos de estoque" ariaLabel="Ajuda: gráficos de estoque de segurança">
+          Os gráficos usam os <strong>mesmos dados da planilha</strong> (uma série por item no eixo horizontal). Passe o
+          cursor para ver valores no tooltip. Clique num <strong>ponto</strong> no eixo do item ou num{' '}
+          <strong>status</strong> no gráfico do semáforo para filtrar <strong>todos</strong> os gráficos e a tabela;
+          clique de novo no mesmo ponto para limpar.
+        </PageInfoButton>
         {abaAtiva === 'estoque' && !loading && !error ? (
           <>
             <button
@@ -1016,14 +1023,7 @@ export default function EstoqueSeguranca() {
                 Mostrar todos os itens
               </button>
             </div>
-          ) : (
-            <p style={{ margin: '0 0 12px 0', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
-              Os gráficos usam os <strong>mesmos dados da planilha</strong> (uma série por item no eixo horizontal). Passe o cursor
-              para ver valores no tooltip. Clique num <strong>ponto</strong> no eixo do item ou num <strong>status</strong> no
-              gráfico do semáforo para filtrar <strong>todos</strong> os gráficos e a tabela; clique de novo no mesmo ponto para
-              limpar.
-            </p>
-          )}
+          ) : null}
           <div style={gridCharts}>
             <ComboPedidosChart
               labels={labelsSkuGraficos}

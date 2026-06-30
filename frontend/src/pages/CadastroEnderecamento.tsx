@@ -20,6 +20,7 @@ import {
   type EnderecoCadastro,
 } from '../lib/enderecamentoStore'
 import { formatUnknownError } from '../lib/supabaseError'
+import { PageInfoBlock, PagePanelHeading, PageSectionHeading } from '../components/ui/PagePanelHeading'
 
 const PAGE_SIZE = 30
 
@@ -492,18 +493,24 @@ export default function CadastroEnderecamento() {
 
   return (
     <div className="page-panel">
-      <h1 className="page-panel__title">Cadastro de endereçamento</h1>
-      <p className="page-panel__subtitle">
-        Endereços usados na contagem do inventário (câmara, rua, posição, nível). O código é o que o conferente bipa na
-        tela de captura — formato padrão: <strong>{exemploCodigo}</strong> (câmara-rua-posição-nível).
-      </p>
+      <PagePanelHeading
+        title="Cadastro de endereçamento"
+        info={
+          <>
+            <PageInfoBlock>
+              Endereços usados na contagem do inventário (câmara, rua, posição, nível). O código é o que o conferente bipa
+              na tela de captura — formato padrão: <strong>{exemploCodigo}</strong> (câmara-rua-posição-nível).
+            </PageInfoBlock>
+            <PageInfoBlock title="Listas de endereçamento salvas">
+              Listas gravadas no sistema. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong> para sair da
+              edição; ao <strong>Salvar lista</strong>, os endereços são gravados e a área de cadastro é limpa.
+            </PageInfoBlock>
+          </>
+        }
+      />
 
       <section className="endereco-listas-salvas" style={{ marginBottom: '1.5rem' }}>
-        <h2 className="page-panel__section-title">Listas de endereçamento salvas</h2>
-        <p className="page-panel__meta" style={{ marginBottom: '0.75rem' }}>
-          Listas gravadas no sistema. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong> para sair da
-          edição; ao <strong>Salvar lista</strong>, os endereços são gravados e a área de cadastro é limpa.
-        </p>
+        <PageSectionHeading title="Listas de endereçamento salvas" />
         <div className="page-table-wrap">
           <table className="page-table">
             <thead>

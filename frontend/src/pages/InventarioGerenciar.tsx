@@ -20,6 +20,7 @@ import {
 } from '../lib/inventarioSessaoStore'
 import { formatUnknownError } from '../lib/supabaseError'
 import CadastroConferenteModal from '../components/conferente/CadastroConferenteModal'
+import { PagePanelHeading } from '../components/ui/PagePanelHeading'
 
 type Props = {
   onAbrirCaptura: (inventarioId: string) => void
@@ -330,12 +331,17 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
 
   return (
     <div className="page-panel inv-gerenciar">
-      <h1 className="page-panel__title">Inventários</h1>
-      <p className="page-panel__subtitle">
-        Crie um inventário com nome — configure as <strong>posições</strong> (endereços) e use a lista de produtos{' '}
-        <strong>Ultrapao</strong> (aba Produtos → Todos os Produtos). Depois clique em <strong>Começar inventário</strong>{' '}
-        para coletar. Os dados ficam salvos no <strong>Supabase</strong> e aparecem em qualquer dispositivo.
-      </p>
+      <PagePanelHeading
+        title="Inventários"
+        info={
+          <>
+            Crie um inventário com nome — configure as <strong>posições</strong> (endereços) e use a lista de produtos{' '}
+            <strong>Ultrapao</strong> (aba Produtos → Todos os Produtos). Depois clique em{' '}
+            <strong>Começar inventário</strong> para coletar. Os dados ficam salvos no <strong>Supabase</strong> e
+            aparecem em qualquer dispositivo.
+          </>
+        }
+      />
 
       {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
       {modoLocal ? (

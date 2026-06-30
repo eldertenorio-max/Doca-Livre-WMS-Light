@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import * as XLSX from 'xlsx'
 import { ComparativoLinhasSvgChart, type SvgChartSeries } from './ComparativoLinhasSvgChart'
 import ShelfLifeRegrasLegenda from './ShelfLifeRegrasLegenda'
+import PageInfoButton from './ui/PageInfoButton'
 import { fetchGoogleSheetCsv, parseGoogleSheetsCsv } from '../lib/googleSheetsCsv'
 
 const CHART_ANIM_CSS = `
@@ -357,7 +358,13 @@ export default function ControleShelfLifePanel() {
         }}
       >
         <div>
-          <div style={{ fontWeight: 900, color: '#f8fafc', fontSize: 19 }}>Controle Shelf Life</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ fontWeight: 900, color: '#f8fafc', fontSize: 19 }}>Controle Shelf Life</div>
+            <PageInfoButton title="Gráficos Shelf Life" ariaLabel="Ajuda: gráficos de shelf life">
+              Gráficos usam os mesmos dados da planilha. Clique num <strong>ponto</strong> (código no eixo) ou num{' '}
+              <strong>status</strong> no semáforo para filtrar tabela e demais gráficos.
+            </PageInfoButton>
+          </div>
           <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
             Dados da aba <strong>CONTROLE SHELF LIFE</strong> (planilha de estoque SP). Atualização semanal na terça-feira.
           </div>
@@ -512,12 +519,7 @@ export default function ControleShelfLifePanel() {
                 Limpar filtros
               </button>
             </div>
-          ) : (
-            <p style={{ margin: '0 0 4px', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
-              Gráficos usam os mesmos dados da planilha. Clique num <strong>ponto</strong> (código no eixo) ou num{' '}
-              <strong>status</strong> no semáforo para filtrar tabela e demais gráficos.
-            </p>
-          )}
+          ) : null}
 
           <div style={gridCharts}>
             <ComparativoLinhasSvgChart

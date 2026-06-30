@@ -9,6 +9,7 @@ import {
 } from '../lib/estoqueConsultaFetch'
 import { formatUnknownError } from '../lib/supabaseError'
 import RelatorioContagem from './RelatorioContagem'
+import { PageInfoBlock, PagePanelHeading } from '../components/ui/PagePanelHeading'
 
 const PAGE_SIZE = 50
 
@@ -105,10 +106,23 @@ export default function EstoqueConsulta() {
 
   return (
     <div className="page-panel page-panel--wide">
-      <h1 className="page-panel__title">Estoque</h1>
-      <p className="page-panel__subtitle">
-        Consulte as contagens registradas no banco ou gere planilhas Excel com o mesmo layout dos relatórios.
-      </p>
+      <PagePanelHeading
+        title="Estoque"
+        info={
+          <>
+            <PageInfoBlock>
+              Consulte as contagens registradas no banco ou gere planilhas Excel com o mesmo layout dos relatórios.
+            </PageInfoBlock>
+            <PageInfoBlock title="Consulta">
+              Use os filtros e clique em <strong>Carregar</strong> para buscar no período; busca, conferente e câmara
+              refinam a lista já carregada.
+            </PageInfoBlock>
+            <PageInfoBlock title="Exportar Excel">
+              Escolha o tipo, o período e exporte a planilha Excel com as mesmas colunas dos relatórios.
+            </PageInfoBlock>
+          </>
+        }
+      />
 
       <div className="page-tabs inv-gerenciar__tabs" role="tablist" aria-label="Estoque">
         <button
@@ -133,10 +147,6 @@ export default function EstoqueConsulta() {
 
       {estoqueTab === 'exportar' ? (
         <>
-          <p className="page-panel__subtitle" style={{ marginTop: 0 }}>
-            Escolha o tipo, o período e exporte a planilha Excel com as mesmas colunas dos relatórios.
-          </p>
-
           <RelatorioContagem
             key={exportTipo}
             exportOnly
@@ -149,11 +159,6 @@ export default function EstoqueConsulta() {
         </>
       ) : (
         <>
-      <p className="page-panel__subtitle">
-        Use os filtros e clique em <strong>Carregar</strong> para buscar no período; busca, conferente e câmara refinam a
-        lista já carregada.
-      </p>
-
       <section className="page-form-grid page-form-grid--filters">
         <label>
           Tipo

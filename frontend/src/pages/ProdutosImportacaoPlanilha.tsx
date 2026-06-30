@@ -11,6 +11,7 @@ import {
 import { emitProdutoListaAtualizada } from '../lib/sessaoProdutoListaContext'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
+import { PagePanelHeading } from '../components/ui/PagePanelHeading'
 
 const TABELA = 'Todos os Produtos'
 
@@ -259,13 +260,17 @@ export default function ProdutosImportacaoPlanilha() {
 
   return (
     <div className="page-panel">
-      <h1 className="page-panel__title">Importação de Planilha de Produtos</h1>
-      <p className="page-panel__subtitle">
-        Envie um Excel (.xlsx) com colunas <strong>codigo_interno</strong> (ou código) e{' '}
-        <strong>descricao</strong>. Opcional: unidade, ean, dun. Informe o <strong>nome da lista</strong> — os
-        produtos entram em <strong>Todos os Produtos</strong> e na lista salva, visível na aba{' '}
-        <strong>Produtos</strong> e disponível para inventário.
-      </p>
+      <PagePanelHeading
+        title="Importação de Planilha de Produtos"
+        info={
+          <>
+            Envie um Excel (.xlsx) com colunas <strong>codigo_interno</strong> (ou código) e <strong>descricao</strong>.
+            Opcional: unidade, ean, dun. Informe o <strong>nome da lista</strong> — os produtos entram em{' '}
+            <strong>Todos os Produtos</strong> e na lista salva, visível na aba <strong>Produtos</strong> e disponível
+            para inventário.
+          </>
+        }
+      />
 
       <div className="page-form-grid" style={{ maxWidth: 520 }}>
         <label className="page-form-grid__full">
