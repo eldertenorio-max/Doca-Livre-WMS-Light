@@ -6,9 +6,10 @@ import {
   fetchProximoNumeroContagemDiariaSupabase,
   upsertContagemDiariaSessaoSupabase,
 } from './contagemDiariaSessaoSupabase'
+import { syncContagemDiariaSessaoParaContagens } from './contagemDiariaFinalizeSync'
 
-export type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
-import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
+export type { ContagemDiariaSessao, ContagemDiariaLinhaCaptura } from './contagemDiariaSessaoTypes'
+import type { ContagemDiariaLinhaCaptura, ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
 import { isTableMissingError } from './supabaseError'
 import { isSupabaseTableAvailable, resetSupabaseTableProbe } from './supabaseTableProbe'
 
@@ -64,6 +65,7 @@ function normalizeLegacyContagem(raw: Record<string, unknown>): ContagemDiariaSe
   const createdAt = String(raw.createdAt ?? raw.dataInicio ?? new Date().toISOString())
   const dataContagemRaw = String(raw.dataContagem ?? '').slice(0, 10)
   const dataContagem = /^\d{4}-\d{2}-\d{2}$/.test(dataContagemRaw) ? dataContagemRaw : todayYmdLocal()
+  const linhas = Array.isArray(raw.linhas) ? (raw.linhas as ContagemDiariaLinhaCaptura[]) : []
   return {
     id: String(raw.id ?? crypto.randomUUID()),
     numero: typeof raw.numero === 'number' && Number.isFinite(raw.numero) ? raw.numero : 1,
@@ -71,10 +73,13 @@ function normalizeLegacyContagem(raw: Record<string, unknown>): ContagemDiariaSe
     local: String(raw.local ?? 'ULTRAPAO GUARULHOS DISTRI'),
     dataContagem,
     conferenteNome: raw.conferenteNome ? String(raw.conferenteNome) : undefined,
+    listaProdutosId: raw.listaProdutosId ? String(raw.listaProdutosId) : undefined,
+    listaProdutosNome: raw.listaProdutosNome ? String(raw.listaProdutosNome) : undefined,
     dataInicio: String(raw.dataInicio ?? createdAt),
     dataFim: raw.dataFim ? String(raw.dataFim) : null,
     status: raw.status === 'fechado' ? 'fechado' : 'aberto',
     iniciada: Boolean(raw.iniciada),
+    linhas,
     createdAt,
     updatedAt: String(raw.updatedAt ?? createdAt),
   }
@@ -186,6 +191,7 @@ export async function criarContagemDiaria(opts?: {
     dataFim: null,
     status: 'aberto',
     iniciada: false,
+    linhas: [],
     createdAt: now,
     updatedAt: now,
   }
@@ -226,6 +232,13 @@ export async function fecharContagemDiaria(id: string): Promise<void> {
   sessao.status = 'fechado'
   sessao.dataFim = new Date().toISOString()
   await saveContagemDiaria(sessao)
+  if (sessao.linhas.length > 0) {
+    try {
+      await syncContagemDiariaSessaoParaContagens(sessao, { force: true })
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[fecharContagemDiaria] sync contagens_estoque', e)
+    }
+  }
 }
 
 export async function reabrirContagemDiaria(id: string): Promise<ContagemDiariaSessao | null> {
@@ -275,6 +288,54 @@ export function formatDataContagemBR(ymd: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(ymd)
   if (!m) return ymd
   return `${m[3]}/${m[2]}/${m[1]}`
+}
+
+export async function addLinhaContagemDiaria(
+  contagemId: string,
+  linha: Omit<ContagemDiariaLinhaCaptura, 'id' | 'createdAt'>,
+): Promise<ContagemDiariaLinhaCaptura | null> {
+  const sessao = await getContagemDiaria(contagemId)
+  if (!sessao || sessao.status !== 'aberto') return null
+  const row: ContagemDiariaLinhaCaptura = {
+    ...linha,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  }
+  sessao.linhas = [...sessao.linhas, row]
+  await saveContagemDiaria(sessao)
+  return row
+}
+
+export async function updateLinhaContagemDiaria(
+  contagemId: string,
+  linhaId: string,
+  linha: Omit<ContagemDiariaLinhaCaptura, 'id' | 'createdAt'>,
+): Promise<ContagemDiariaLinhaCaptura | null> {
+  const sessao = await getContagemDiaria(contagemId)
+  if (!sessao || sessao.status !== 'aberto') return null
+  const idx = sessao.linhas.findIndex((l) => l.id === linhaId)
+  if (idx < 0) return null
+  const prev = sessao.linhas[idx]!
+  const row: ContagemDiariaLinhaCaptura = {
+    ...linha,
+    id: linhaId,
+    createdAt: prev.createdAt,
+  }
+  const next = [...sessao.linhas]
+  next[idx] = row
+  sessao.linhas = next
+  await saveContagemDiaria(sessao)
+  return row
+}
+
+export async function deleteLinhaContagemDiaria(contagemId: string, linhaId: string): Promise<boolean> {
+  const sessao = await getContagemDiaria(contagemId)
+  if (!sessao || sessao.status !== 'aberto') return false
+  const antes = sessao.linhas.length
+  sessao.linhas = sessao.linhas.filter((l) => l.id !== linhaId)
+  if (sessao.linhas.length === antes) return false
+  await saveContagemDiaria(sessao)
+  return true
 }
 
 export { contagemDiariaSyncHabilitado } from './contagemDiariaSessaoSupabase'

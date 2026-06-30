@@ -13,6 +13,7 @@ import ProdutosImportacaoPlanilha from './pages/ProdutosImportacaoPlanilha'
 import ProdutosSubGrupos from './pages/ProdutosSubGrupos'
 import CadastroEnderecamento from './pages/CadastroEnderecamento'
 import ContagemDiariaAmbiental from './pages/ContagemDiariaAmbiental'
+import ContagemCaptura from './pages/ContagemCaptura'
 import ContagemEstoque from './pages/ContagemEstoque'
 import ContagemGerenciar from './pages/ContagemGerenciar'
 import EstoqueConsulta from './pages/EstoqueConsulta'
@@ -231,17 +232,15 @@ export default function App() {
         </PanelErrorBoundary>
       ) : null}
       {view === 'contagemCaptura' && capturaContagemId ? (
-        <PanelErrorBoundary>
-          <ContagemEstoque
-            contagemSessaoId={capturaContagemId}
-            session={session}
-            onVoltarLista={() => {
-              clearSessaoProdutoListaContext()
-              setCapturaContagemId(null)
-              setView('contagem')
-            }}
-          />
-        </PanelErrorBoundary>
+        <ContagemCaptura
+          contagemId={capturaContagemId}
+          session={session}
+          onVoltar={() => {
+            clearSessaoProdutoListaContext()
+            setCapturaContagemId(null)
+            setView('contagem')
+          }}
+        />
       ) : null}
       {view === 'estoque' ? (
         <PanelErrorBoundary>

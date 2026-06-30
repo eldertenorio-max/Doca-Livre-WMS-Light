@@ -4,6 +4,7 @@ import {
 } from './contagemListagemCompat'
 import { fetchConferentesNomesPorIds } from './conferentesNomesBatch'
 import { TABLE_CONTAGEM_DIARIA, TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
+import { ensureContagensDiariaSessaoSincronizadas } from './contagemDiariaFinalizeSync'
 import { ensureInventariosSessaoSincronizados } from './inventarioSessaoFinalizeSync'
 import { supabase } from './supabaseClient'
 
@@ -148,6 +149,12 @@ function aplicarFiltrosCliente(rows: EstoqueLinha[], f: EstoqueConsultaFiltros):
 }
 
 export async function fetchEstoqueConsulta(f: EstoqueConsultaFiltros): Promise<EstoqueLinha[]> {
+  if (f.tipo === 'todos' || f.tipo === 'contagem_diaria') {
+    await ensureContagensDiariaSessaoSincronizadas({
+      startYmd: f.dataDe,
+      endYmd: f.dataAte,
+    })
+  }
   if (f.tipo === 'todos' || f.tipo === 'inventario') {
     await ensureInventariosSessaoSincronizados({
       startYmd: f.dataDe,

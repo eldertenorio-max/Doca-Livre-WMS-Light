@@ -1899,27 +1899,32 @@
 }
 
 /* ——— Tela captura inventário (coletor) ——— */
-.app-shell:has(.inventario-captura-wrap) .app-sidebar {
-  display: none;
-}
-
-.app-shell:has(.inventario-captura-wrap) {
+.app-shell:has(.inventario-captura-wrap),
+.app-shell:has(.contagem-captura-wrap) {
   height: 100dvh;
   overflow: hidden;
 }
 
-.app-shell:has(.inventario-captura-wrap) .app-shell__main {
+.app-shell:has(.inventario-captura-wrap) .app-sidebar,
+.app-shell:has(.contagem-captura-wrap) .app-sidebar {
+  display: none;
+}
+
+.app-shell:has(.inventario-captura-wrap) .app-shell__main,
+.app-shell:has(.contagem-captura-wrap) .app-shell__main {
   margin-left: 0;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
 }
 
-.app-shell:has(.inventario-captura-wrap) .app-shell__header-extra {
+.app-shell:has(.inventario-captura-wrap) .app-shell__header-extra,
+.app-shell:has(.contagem-captura-wrap) .app-shell__header-extra {
   display: none;
 }
 
-.app-shell:has(.inventario-captura-wrap) .app-shell__content {
+.app-shell:has(.inventario-captura-wrap) .app-shell__content,
+.app-shell:has(.contagem-captura-wrap) .app-shell__content {
   padding: 0;
   flex: 1;
   min-height: 0;
@@ -1945,7 +1950,8 @@
   min-height: 100dvh;
 }
 
-.inventario-captura-wrap {
+.inventario-captura-wrap,
+.contagem-captura-wrap {
   width: 100%;
   flex: 1;
   min-height: 0;
@@ -3188,6 +3194,10 @@
     align-items: start;
   }
 
+  .captura--contagem .inv-cap__form-line--primary {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 2.85fr);
+  }
+
   .inv-cap__form-line--primary .inv-cap__cell.inventario-captura__field {
     margin: 0 !important;
     width: 100%;
@@ -3526,7 +3536,8 @@
     justify-content: flex-end;
   }
 
-  .inventario-captura-wrap {
+  .inventario-captura-wrap,
+  .contagem-captura-wrap {
     flex: 1;
     min-height: 0;
     height: 100%;
