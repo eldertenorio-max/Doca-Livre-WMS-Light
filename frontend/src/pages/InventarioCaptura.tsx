@@ -44,6 +44,7 @@ import {
   setSessaoProdutoListaContext,
 } from '../lib/sessaoProdutoListaContext'
 import { supabase } from '../lib/supabaseClient'
+import BarcodeCameraScanner, { IconClearField, IconScanBarcode } from '../components/barcode/BarcodeCameraScanner'
 
 type Props = {
   inventarioId: string
@@ -88,22 +89,6 @@ function linhaCamaraLabel(linha: InventarioLinhaCaptura): string {
   return parsed != null ? String(parsed) : '—'
 }
 
-function IconFlash() {
-  return (
-    <svg className="inventario-captura__btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M7 2v11h3v9l7-12h-4l4-8z" />
-    </svg>
-  )
-}
-
-function IconBarcode() {
-  return (
-    <svg className="inventario-captura__btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M2 6h2v12H2V6zm3 0h1v12H5V6zm2 0h3v12H7V6zm4 0h1v12h-1V6zm2 0h2v12h-2V6zm3 0h1v12h-1V6zm2 0h3v12h-3V6z" />
-    </svg>
-  )
-}
-
 function IconSave() {
   return (
     <svg className="inventario-captura__btn-icon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -134,6 +119,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [sugestaoIdx, setSugestaoIdx] = useState(0)
   const [presencaRows, setPresencaRows] = useState<InventarioCapturaPresencaRow[]>([])
   const [editandoLinhaId, setEditandoLinhaId] = useState<string | null>(null)
+  const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
+  const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
 
   const enderecoRef = useRef<HTMLInputElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
@@ -341,8 +328,12 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   }
 
   function handleEnderecoBlur() {
-    const cod = normalizeEnderecoCodigo(endereco.trim())
-    if (cod !== endereco) setEndereco(cod)
+    aplicarEnderecoLido(endereco)
+  }
+
+  function aplicarEnderecoLido(codRaw: string) {
+    const cod = normalizeEnderecoCodigo(codRaw.trim())
+    setEndereco(cod)
     if (!cod) return
     if (sessao && !enderecoPermitidoNaSessao(sessao, cod)) {
       setErr('Endereço fora das posições deste inventário.')
@@ -355,7 +346,44 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     } else {
       setMsg('Endereço não cadastrado (será gravado como digitado)')
     }
+    setErr('')
     barcodeRef.current?.focus()
+  }
+
+  function limparCampoEndereco() {
+    setEndereco('')
+    setMsg('')
+    setErr('')
+    enderecoRef.current?.focus()
+  }
+
+  function limparCampoProduto() {
+    if (resolverTimerRef.current) clearTimeout(resolverTimerRef.current)
+    setCodigoBarras('')
+    setCodigoInterno('')
+    setProdutoLabel('')
+    setUnidade('')
+    setSugestoesOpen(false)
+    setErr('')
+    barcodeRef.current?.focus()
+  }
+
+  function abrirCameraBarcode(alvo: 'endereco' | 'produto') {
+    setBarcodeCameraAlvo(alvo)
+    setBarcodeCameraOpen(true)
+  }
+
+  function handleBarcodeCameraScan(raw: string) {
+    const value = raw.trim()
+    if (!value) return
+    if (barcodeCameraAlvo === 'endereco') {
+      aplicarEnderecoLido(formatEnderecoCodigoInput(value))
+      return
+    }
+    handleBuscaChange(value)
+    void resolverProduto(value).then(() => {
+      ;(document.getElementById('inv-quantidade') as HTMLInputElement | null)?.focus()
+    })
   }
 
   function handleBuscaChange(v: string) {
@@ -600,11 +628,13 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
 
         <div className="inv-cap__body">
           <div className="inv-cap__form-panel">
-            <section className="inv-cap__section">
-              <h2 className="inv-cap__section-title">
-                <span className="inv-cap__step">1</span> Endereço
-              </h2>
-              <div className="inventario-captura__field inventario-captura__field--full inv-cap__field">
+            <div className="inv-cap__form-compact">
+              <div className="inv-cap__form-line inv-cap__form-line--primary">
+                <section className="inv-cap__section inv-cap__section--endereco">
+                  <h2 className="inv-cap__section-title inv-cap__section-title--stack">
+                    <span className="inv-cap__step">1</span> Endereço
+                  </h2>
+                  <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--endereco">
                 <label htmlFor="inv-endereco">Endereço</label>
                 <div className="inventario-captura__input-row">
                   <input
@@ -627,21 +657,22 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   <button
                     type="button"
                     className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
-                    disabled={readonly}
-                    aria-label="Focar endereço"
-                    onClick={() => enderecoRef.current?.focus()}
+                    disabled={readonly || !endereco.trim()}
+                    aria-label="Limpar endereço"
+                    title="Limpar"
+                    onClick={limparCampoEndereco}
                   >
-                    <IconFlash />
-                    <span className="inventario-captura__btn-text">Focar</span>
+                    <IconClearField className="inventario-captura__btn-icon" />
                   </button>
                   <button
                     type="button"
                     className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
                     disabled={readonly}
-                    aria-label="Bipar endereço"
-                    onClick={() => enderecoRef.current?.focus()}
+                    aria-label="Ler endereço pela câmera"
+                    title="Câmera"
+                    onClick={() => abrirCameraBarcode('endereco')}
                   >
-                    <IconBarcode />
+                    <IconScanBarcode className="inventario-captura__btn-icon" />
                   </button>
                 </div>
                 {posicoesInventario.length > 0 ? (
@@ -651,14 +682,17 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     ))}
                   </datalist>
                 ) : null}
-              </div>
-            </section>
+                  </div>
+                </section>
 
-            <section className="inv-cap__section">
-              <h2 className="inv-cap__section-title">
-                <span className="inv-cap__step">2</span> Produto
-              </h2>
-              <div className="inventario-captura__field inventario-captura__field--full inv-cap__field" ref={comboRef}>
+                <section className="inv-cap__section inv-cap__section--produto">
+                  <h2 className="inv-cap__section-title inv-cap__section-title--stack">
+                    <span className="inv-cap__step">2</span> Produto
+                  </h2>
+                  <div
+                    className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--busca"
+                    ref={comboRef}
+                  >
                 <label htmlFor="inv-barcode">Código / barras / descrição</label>
                 <div className="inventario-captura__input-row">
                   <input
@@ -706,25 +740,22 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   <button
                     type="button"
                     className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
-                    disabled={readonly}
-                    aria-label="Focar código"
-                    onClick={() => barcodeRef.current?.focus()}
+                    disabled={readonly || !codigoBarras.trim()}
+                    aria-label="Limpar produto"
+                    title="Limpar"
+                    onClick={limparCampoProduto}
                   >
-                    <IconFlash />
+                    <IconClearField className="inventario-captura__btn-icon" />
                   </button>
                   <button
                     type="button"
                     className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
                     disabled={readonly}
-                    title="Ver lista de produtos"
-                    aria-label="Lista de produtos"
-                    onClick={() => {
-                      setSugestoesOpen((v) => !v)
-                      barcodeRef.current?.focus()
-                    }}
+                    aria-label="Ler código de barras pela câmera"
+                    title="Câmera"
+                    onClick={() => abrirCameraBarcode('produto')}
                   >
-                    <IconBarcode />
-                    <span className="inventario-captura__btn-text">Lista</span>
+                    <IconScanBarcode className="inventario-captura__btn-icon" />
                   </button>
                 </div>
                 {sugestoesOpen && !readonly ? (
@@ -755,8 +786,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     )}
                   </ul>
                 ) : null}
-              </div>
-              <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__produto-box">
+                  </div>
+                  <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__produto-box inv-cap__cell inv-cap__cell--produto-id">
                 <label htmlFor="inv-produto">Produto identificado</label>
                 <textarea
                   id="inv-produto"
@@ -771,14 +802,16 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     Código interno: <strong>{codigoInterno}</strong>
                   </p>
                 ) : null}
+                  </div>
+                </section>
               </div>
-            </section>
 
-            <section className="inv-cap__section">
-              <h2 className="inv-cap__section-title">
-                <span className="inv-cap__step">3</span> Quantidade e validade
-              </h2>
-              <div className="inv-cap__grid">
+              <div className="inv-cap__form-line inv-cap__form-line--secondary">
+                <section className="inv-cap__section inv-cap__section--qty">
+                  <h2 className="inv-cap__section-title inv-cap__section-title--stack">
+                    <span className="inv-cap__step">3</span> Quantidade e validade
+                  </h2>
+                  <div className="inv-cap__grid">
                 <div className="inventario-captura__field inv-cap__field">
                   <label htmlFor="inv-quantidade">Quantidade</label>
                   <input
@@ -891,10 +924,10 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     </button>
                   </div>
                 </div>
-              </div>
-            </section>
+                </div>
+                </section>
 
-            <div className="inv-cap__save-bar">
+                <div className="inv-cap__save-bar inv-cap__cell inv-cap__cell--save">
               {editandoLinhaId ? (
                 <button type="button" className="inv-cap__cancel-edit page-btn-ghost" onClick={limparFormulario}>
                   Cancelar edição
@@ -925,6 +958,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
               >
                 {editandoLinhaId ? 'Atualizar linha' : 'Salvar linha'}
               </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1005,6 +1040,13 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
           </aside>
         </div>
       </div>
+
+      <BarcodeCameraScanner
+        open={barcodeCameraOpen}
+        onClose={() => setBarcodeCameraOpen(false)}
+        onScan={handleBarcodeCameraScan}
+        title={barcodeCameraAlvo === 'endereco' ? 'Ler endereço' : 'Ler código de barras'}
+      />
     </div>
   )
 }

@@ -3,7 +3,6 @@ import type { Session } from '@supabase/supabase-js'
 import { usernameFromSession } from '../../lib/authUser'
 
 const EMPRESA_PADRAO = 'Ultrapao Alimentos'
-const CNPJ_PADRAO = '47.380.171/0001-59'
 const CLIENTES_PADRAO = ['Todos clientes de armazenagem', 'Ultrapao Guarulhos Distri', 'DIS Logística']
 
 type Theme = 'dark' | 'light'
@@ -86,6 +85,7 @@ function MenuItem({
 
 export default function AppHeader({ session, authEnabled, theme, onThemeToggle, onSignOut }: Props) {
   const [open, setOpen] = useState(false)
+  const [agora, setAgora] = useState(() => new Date())
   const [empresa, setEmpresa] = useState(() => localStorage.getItem('header-empresa') || EMPRESA_PADRAO)
   const [cliente, setCliente] = useState(
     () => localStorage.getItem('header-cliente') || CLIENTES_PADRAO[0],
@@ -110,21 +110,35 @@ export default function AppHeader({ session, authEnabled, theme, onThemeToggle, 
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
+  useEffect(() => {
+    const id = window.setInterval(() => setAgora(new Date()), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const dataHora = agora.toLocaleString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })
+
   return (
     <header className="app-header">
-      <div className="app-header__left">
-        <p className="app-header__empresa">
-          {empresa} ({EMPRESA_PADRAO})
-        </p>
-        <p className="app-header__meta">
-          {CNPJ_PADRAO} — {username}
-        </p>
-      </div>
+      <div className="app-header__spacer" aria-hidden />
 
       <div className="app-header__right">
         <button type="button" className="app-header__icon-btn" title="Notificações" aria-label="Notificações">
           <IconBell />
         </button>
+
+        <div className="app-header__user-block">
+          <p className="app-header__user-name">{username}</p>
+          <p className="app-header__user-role">
+            {empresa} / DIS Logística
+          </p>
+          <p className="app-header__user-time">{dataHora}</p>
+        </div>
 
         <div className="app-header__user-wrap" ref={wrapRef}>
           <button

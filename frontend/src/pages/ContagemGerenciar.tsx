@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { usernameFromSession } from '../lib/authUser'
+import { resolveConferenteDoUsuarioLogado, usernameFromSession } from '../lib/authUser'
 import {
   atualizarContagemDiariaMeta,
   criarContagemDiaria,
@@ -9,6 +9,8 @@ import {
   formatDataContagemBR,
   listContagensDiarias,
   reabrirContagemDiaria,
+  resetContagemDiariaSupabaseProbe,
+  contagemDiariaUsaArmazenamentoLocal,
   type ContagemDiariaSessao,
 } from '../lib/contagemDiariaSessaoStore'
 import { formatUnknownError } from '../lib/supabaseError'
@@ -75,7 +77,6 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const [criarTitulo, setCriarTitulo] = useState('')
   const [criarLocal, setCriarLocal] = useState('ULTRAPAO GUARULHOS DISTRI')
   const [criarData, setCriarData] = useState(() => todayYmdLocal())
-  const [criarConferente, setCriarConferente] = useState('')
   const [conferentes, setConferentes] = useState<Array<{ id: string; nome: string }>>([])
   const [conferentesLoading, setConferentesLoading] = useState(false)
   const [editarId, setEditarId] = useState<string | null>(null)
@@ -86,6 +87,12 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const [filtroLocal, setFiltroLocal] = useState('')
   const [filtroDataDe, setFiltroDataDe] = useState('')
   const [filtroDataAte, setFiltroDataAte] = useState('')
+  const [modoLocal, setModoLocal] = useState(false)
+
+  const conferenteLogadoResolvido = useMemo(
+    () => resolveConferenteDoUsuarioLogado(session, conferentes),
+    [session, conferentes],
+  )
 
   const abertos = useMemo(() => rows.filter((r) => r.status === 'aberto'), [rows])
   const finalizados = useMemo(() => rows.filter((r) => r.status === 'fechado'), [rows])
@@ -122,11 +129,14 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   async function refresh() {
     setLoading(true)
     setLoadError('')
+    resetContagemDiariaSupabaseProbe()
     try {
       setRows(await listContagensDiarias())
+      setModoLocal(await contagemDiariaUsaArmazenamentoLocal())
     } catch (e: unknown) {
       setLoadError(formatUnknownError(e) || 'Erro ao carregar contagens.')
       setRows([])
+      setModoLocal(false)
     } finally {
       setLoading(false)
     }
@@ -155,25 +165,10 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     }
   }, [])
 
-  function conferentePadraoCriar(): string {
-    const logado = conferenteLogado.trim()
-    if (!logado) return conferentes[0]?.nome ?? ''
-    const alvo = logado.toLowerCase()
-    const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === alvo)
-    if (exato) return exato.nome
-    const parcial = conferentes.find(
-      (c) =>
-        c.nome.trim().toLowerCase().includes(alvo) ||
-        alvo.includes(c.nome.trim().toLowerCase()),
-    )
-    return parcial?.nome ?? logado
-  }
-
   function abrirModalCriar() {
     setCriarTitulo('')
     setCriarLocal('ULTRAPAO GUARULHOS DISTRI')
     setCriarData(todayYmdLocal())
-    setCriarConferente(conferentePadraoCriar())
     setCriarOpen(true)
   }
 
@@ -183,9 +178,10 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
       alert('Informe o nome da contagem.')
       return
     }
-    const conferenteNome = criarConferente.trim()
-    if (!conferenteNome) {
-      alert('Informe o conferente.')
+    const conferenteNome =
+      conferenteLogadoResolvido?.nome?.trim() || conferenteLogado.trim()
+    if (!conferenteNome || conferenteNome === 'usuário') {
+      alert('Não foi possível identificar o usuário logado como conferente.')
       return
     }
     try {
@@ -327,6 +323,13 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
       </p>
 
       {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
+      {modoLocal ? (
+        <p className="page-msg page-msg--warn">
+          Tabela <strong>contagem_diaria_sessoes</strong> ainda não existe no Supabase — as contagens ficam salvas só
+          neste navegador. Execute <strong>supabase/sql/setup_inventario_listas_completo.sql</strong> no SQL Editor e
+          clique em Atualizar lista.
+        </p>
+      ) : null}
       {loading ? <p className="page-panel__meta">Carregando contagens…</p> : null}
 
       <div className="page-form-grid inv-gerenciar__criar">
@@ -538,17 +541,15 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
               <label className="page-form-grid__full">
                 Conferente
                 <input
-                  list="contagem-conferente-sugestoes"
-                  value={criarConferente}
-                  onChange={(e) => setCriarConferente(e.target.value)}
-                  placeholder={conferentesLoading ? 'Carregando conferentes…' : 'Selecione na lista ou digite o nome'}
-                  disabled={conferentesLoading}
+                  readOnly
+                  value={
+                    conferenteLogadoResolvido?.nome ||
+                    conferenteLogado ||
+                    (conferentesLoading ? 'Carregando…' : '—')
+                  }
+                  className="inventario-captura__readonly"
+                  title="Sempre o usuário logado — cada pessoa conta com a própria sessão"
                 />
-                <datalist id="contagem-conferente-sugestoes">
-                  {conferentes.map((c) => (
-                    <option key={c.id} value={c.nome} />
-                  ))}
-                </datalist>
               </label>
               <label className="page-form-grid__full">
                 Local / unidade

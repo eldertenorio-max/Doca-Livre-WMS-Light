@@ -469,6 +469,21 @@
   gap: 10px;
 }
 
+.produtos-modal__lista-destino {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.1);
+  border: 1px solid rgba(250, 204, 21, 0.28);
+}
+
+.produtos-modal__lista-destino strong {
+  color: #facc15;
+}
+
 .produtos-page__sessao-ctx {
   margin-bottom: 1rem;
   padding: 10px 14px;

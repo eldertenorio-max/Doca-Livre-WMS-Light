@@ -77,6 +77,19 @@ export default function CadastroEnderecamento() {
   const [busca, setBusca] = useState('')
   const [page, setPage] = useState(1)
   const [loteMsg, setLoteMsg] = useState('')
+  const [cadastroListaId, setCadastroListaId] = useState('')
+
+  const emRascunhoNovaLista = !editingListaId && rows.length > 0
+
+  const listaDestinoFixaCadastro = useMemo(() => {
+    if (editingListaId) {
+      return { id: editingListaId, nome: editingListaNome, modo: 'edicao' as const }
+    }
+    if (emRascunhoNovaLista) {
+      return { id: null, nome: 'Rascunho da área abaixo (salve a lista depois)', modo: 'rascunho' as const }
+    }
+    return null
+  }, [editingListaId, editingListaNome, emRascunhoNovaLista])
 
   const sortRows = useCallback(
     (list: EnderecoCadastro[]) => [...list].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR')),
@@ -118,6 +131,7 @@ export default function CadastroEnderecamento() {
     setExclusaoMsg('')
     setEditingListaId(null)
     setEditingListaNome('')
+    setCadastroListaId('')
   }
 
   function iniciarNovaLista() {
@@ -128,10 +142,43 @@ export default function CadastroEnderecamento() {
   function abrirListaSalva(lista: EnderecoLista) {
     setEditingListaId(lista.id)
     setEditingListaNome(lista.nome)
+    setCadastroListaId(lista.id)
     setRows(sortRows(lista.enderecos))
     setForm(emptyForm())
     setPage(1)
     setListaMsg(`Editando «${lista.nome}» (${contarEnderecosAtivos(lista)} endereços). Salve para gravar e limpar a área.`)
+  }
+
+  function fecharListaAberta() {
+    if (!editingListaId) return
+    const nome = editingListaNome
+    const msg =
+      rows.length > 0
+        ? `Fechar a lista «${nome}»? Alterações não salvas na área de trabalho serão descartadas.`
+        : `Fechar a lista «${nome}»? A área de trabalho será limpa.`
+    if (!confirm(msg)) return
+    limparAreaTrabalho()
+    setListaMsg(`Lista «${nome}» fechada.`)
+  }
+
+  /** Base para cadastro: lista aberta, rascunho ou lista escolhida no select. */
+  function prepararBaseRowsParaCadastro(): EnderecoCadastro[] | null {
+    if (editingListaId || emRascunhoNovaLista) return rows
+    if (listas.length === 0) return rows
+
+    if (!cadastroListaId.trim()) {
+      setListaMsg('Selecione a lista de destino antes de cadastrar.')
+      return null
+    }
+    const lista = listas.find((l) => l.id === cadastroListaId)
+    if (!lista) {
+      setListaMsg('Lista não encontrada. Recarregue a página.')
+      return null
+    }
+    setEditingListaId(lista.id)
+    setEditingListaNome(lista.nome)
+    setListaMsg(`Editando «${lista.nome}» — o endereço será incluído nesta lista.`)
+    return sortRows(lista.enderecos)
   }
 
   async function salvarListaAtual() {
@@ -163,7 +210,15 @@ export default function CadastroEnderecamento() {
 
   async function excluirListaSalva(lista: EnderecoLista) {
     const n = contarEnderecosAtivos(lista)
-    if (!confirm(`Excluir a lista «${lista.nome}» (${n} endereço(s))? Esta ação não pode ser desfeita.`)) return
+    if (
+      !confirm(
+        `Tem certeza que deseja excluir a lista «${lista.nome}»?\n\n` +
+          `${n} endereço(s) serão removidos desta lista. ` +
+          `Esta ação não pode ser desfeita.`,
+      )
+    ) {
+      return
+    }
     try {
       await deleteEnderecoLista(lista.id)
       if (editingListaId === lista.id) limparAreaTrabalho()
@@ -365,7 +420,9 @@ export default function CadastroEnderecamento() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.codigo.trim()) return
-    const { all } = saveEnderecoEm(rows, {
+    const baseRows = prepararBaseRowsParaCadastro()
+    if (baseRows === null) return
+    const { all } = saveEnderecoEm(baseRows, {
       id: form.id || undefined,
       codigo: form.codigo,
       camara: form.camara ? Number(form.camara) : null,
@@ -408,7 +465,10 @@ export default function CadastroEnderecamento() {
       return
     }
 
-    const { all, resultado: res } = saveEnderecosEmLoteEm(rows, {
+    const baseRows = prepararBaseRowsParaCadastro()
+    if (baseRows === null) return
+
+    const { all, resultado: res } = saveEnderecosEmLoteEm(baseRows, {
       camara,
       rua: lote.rua,
       nivelDe,
@@ -441,8 +501,8 @@ export default function CadastroEnderecamento() {
       <section className="endereco-listas-salvas" style={{ marginBottom: '1.5rem' }}>
         <h2 className="page-panel__section-title">Listas de endereçamento salvas</h2>
         <p className="page-panel__meta" style={{ marginBottom: '0.75rem' }}>
-          Listas gravadas no sistema. Use <strong>Abrir</strong> para editar; ao <strong>Salvar lista</strong>, os
-          endereços são gravados e a área de cadastro é limpa.
+          Listas gravadas no sistema. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong> para sair da
+          edição; ao <strong>Salvar lista</strong>, os endereços são gravados e a área de cadastro é limpa.
         </p>
         <div className="page-table-wrap">
           <table className="page-table">
@@ -475,15 +535,26 @@ export default function CadastroEnderecamento() {
                       </td>
                       <td>{n}</td>
                       <td>{formatListaAtualizado(l.updatedAt)}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="page-btn-ghost"
-                          disabled={salvando}
-                          onClick={() => abrirListaSalva(l)}
-                        >
-                          Abrir
-                        </button>
+                      <td className="endereco-listas-salvas__actions">
+                        {emEdicao ? (
+                          <button
+                            type="button"
+                            className="page-btn-ghost"
+                            disabled={salvando}
+                            onClick={fecharListaAberta}
+                          >
+                            Fechar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="page-btn-ghost"
+                            disabled={salvando}
+                            onClick={() => abrirListaSalva(l)}
+                          >
+                            Abrir
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="page-btn-ghost page-btn-danger"
@@ -509,6 +580,11 @@ export default function CadastroEnderecamento() {
             {editingListaId ? `Editando: ${editingListaNome}` : 'Área de cadastro'}
           </h2>
           <div className="endereco-area-trabalho__actions">
+            {editingListaId ? (
+              <button type="button" disabled={salvando} onClick={fecharListaAberta}>
+                Fechar lista
+              </button>
+            ) : null}
             <button type="button" disabled={listaLoading || salvando} onClick={iniciarNovaLista}>
               Nova lista
             </button>
@@ -526,6 +602,37 @@ export default function CadastroEnderecamento() {
             ? 'Cadastre endereços abaixo (individual ou em lote). Nada é gravado até clicar em Salvar lista.'
             : `${rows.length} endereço(s) no rascunho — salve para gravar na lista e limpar esta área.`}
         </p>
+
+        {listaDestinoFixaCadastro ? (
+          <p className="endereco-lista-destino" role="status">
+            Lista de destino:{' '}
+            <strong>{listaDestinoFixaCadastro.nome || '—'}</strong>
+            {listaDestinoFixaCadastro.modo === 'edicao'
+              ? ' — o endereço entra na lista aberta.'
+              : ' — salve a lista depois para gravar no sistema.'}
+          </p>
+        ) : listas.length > 0 ? (
+          <div className="endereco-lista-destino-select">
+            <label htmlFor="endereco-cadastro-lista-destino">Lista de destino *</label>
+            <select
+              id="endereco-cadastro-lista-destino"
+              value={cadastroListaId}
+              onChange={(e) => setCadastroListaId(e.target.value)}
+              disabled={listaLoading || salvando}
+            >
+              <option value="">{listaLoading ? 'Carregando listas…' : 'Selecione a lista…'}</option>
+              {listas.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.nome} ({contarEnderecosAtivos(l)} endereços)
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <p className="endereco-lista-destino" role="status">
+            Nenhuma lista salva ainda. Os endereços ficam no rascunho até você clicar em Salvar lista.
+          </p>
+        )}
 
       <section className="endereco-lote-panel">
         <button

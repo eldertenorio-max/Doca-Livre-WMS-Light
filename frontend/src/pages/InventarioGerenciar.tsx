@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import InventarioPosicoesModal from '../components/inventario/InventarioPosicoesModal'
 import InventarioIniciarModal from '../components/inventario/InventarioIniciarModal'
+import { usernameFromSession } from '../lib/authUser'
 import {
   atualizarInventarioMeta,
   configurarInventarioListas,
@@ -12,12 +14,15 @@ import {
   listInventarios,
   mensagemTituloInventarioEmUso,
   reabrirInventario,
+  resetInventarioSupabaseProbe,
+  inventarioUsaArmazenamentoLocal,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
 import { formatUnknownError } from '../lib/supabaseError'
 
 type Props = {
   onAbrirCaptura: (inventarioId: string) => void
+  session?: Session | null
 }
 
 type ListaTab = 'todos' | 'abertos' | 'finalizados'
@@ -59,7 +64,8 @@ function inventarioMatchBusca(inv: InventarioSessao, q: string): boolean {
   return campos.some((c) => c.toUpperCase().includes(u))
 }
 
-export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
+export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) {
+  const conferenteLogado = usernameFromSession(session)
   const [rows, setRows] = useState<InventarioSessao[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -76,6 +82,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const [filtroLocal, setFiltroLocal] = useState('')
   const [filtroDataDe, setFiltroDataDe] = useState('')
   const [filtroDataAte, setFiltroDataAte] = useState('')
+  const [modoLocal, setModoLocal] = useState(false)
 
   const inventarioPosicoes = useMemo(
     () => (posicoesInvId ? rows.find((r) => r.id === posicoesInvId) : undefined),
@@ -117,11 +124,14 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   async function refresh() {
     setLoading(true)
     setLoadError('')
+    resetInventarioSupabaseProbe()
     try {
       setRows(await listInventarios())
+      setModoLocal(await inventarioUsaArmazenamentoLocal())
     } catch (e: unknown) {
       setLoadError(formatUnknownError(e) || 'Erro ao carregar inventários.')
       setRows([])
+      setModoLocal(false)
     } finally {
       setLoading(false)
     }
@@ -325,6 +335,13 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
       </p>
 
       {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
+      {modoLocal ? (
+        <p className="page-msg page-msg--warn">
+          Tabela <strong>inventario_sessoes</strong> ainda não existe no Supabase — os inventários ficam salvos só
+          neste navegador. Execute <strong>supabase/sql/setup_inventario_listas_completo.sql</strong> no SQL Editor e
+          clique em Atualizar lista.
+        </p>
+      ) : null}
       {loading ? <p className="page-panel__meta">Carregando inventários…</p> : null}
 
       <div className="page-form-grid inv-gerenciar__criar">
@@ -530,6 +547,15 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleCriar()
                   }}
+                />
+              </label>
+              <label className="page-form-grid__full">
+                Conferente
+                <input
+                  readOnly
+                  value={conferenteLogado && conferenteLogado !== 'usuário' ? conferenteLogado : '—'}
+                  className="inventario-captura__readonly"
+                  title="Sempre o usuário logado — cada pessoa conta com a própria sessão"
                 />
               </label>
               <label className="page-form-grid__full">

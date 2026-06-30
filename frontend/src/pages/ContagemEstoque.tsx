@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { createPortal } from 'react-dom'
+import { resolveConferenteDoUsuarioLogado } from '../lib/authUser'
 import { supabase } from '../lib/supabaseClient'
 import { formatUnknownError } from '../lib/supabaseError'
 import { fetchContagensPaged, readAbsentContagensColumns } from '../lib/contagensSelectCompat'
@@ -556,10 +558,12 @@ function newSessionId() {
 export default function ContagemEstoque({
   inventario = false,
   contagemSessaoId,
+  session,
   onVoltarLista,
 }: {
   inventario?: boolean
   contagemSessaoId?: string
+  session?: Session | null
   onVoltarLista?: () => void
 }) {
   const sessionMode: OfflineSessionMode = inventario ? 'inventario' : 'contagem'
@@ -586,6 +590,20 @@ export default function ContagemEstoque({
     if (conferenteId.trim() !== '') return conferenteId
     return '—'
   }, [conferentes, conferenteId])
+
+  const conferenteLogadoResolvido = useMemo(
+    () => resolveConferenteDoUsuarioLogado(session, conferentes),
+    [session, conferentes],
+  )
+
+  const conferenteSelectOpcoes = useMemo(() => {
+    if (!conferenteLogadoResolvido) return []
+    if (conferenteLogadoResolvido.id) {
+      const hit = conferentes.find((c) => c.id === conferenteLogadoResolvido.id)
+      return hit ? [hit] : [conferenteLogadoResolvido as Conferente]
+    }
+    return [{ id: '', nome: conferenteLogadoResolvido.nome }]
+  }, [conferenteLogadoResolvido, conferentes])
 
   const [codigoInterno, setCodigoInterno] = useState('')
   const [descricaoInput, setDescricaoInput] = useState('')
@@ -1490,8 +1508,17 @@ export default function ContagemEstoque({
   }, [])
 
   useEffect(() => {
+    if (conferentesLoading) return
+    const resolved = conferenteLogadoResolvido
+    if (!resolved) return
+    if (resolved.id && conferenteId !== resolved.id) {
+      setConferenteId(resolved.id)
+    }
+  }, [conferentesLoading, conferenteLogadoResolvido, conferenteId])
+
+  useEffect(() => {
     if (inventario || conferentesLoading || conferenteId) return
-    const alvo = contagemSessaoMeta?.conferenteNome?.trim()
+    const alvo = (conferenteLogadoResolvido?.nome || contagemSessaoMeta?.conferenteNome || '').trim()
     if (!alvo) return
 
     const hit = conferentes.find((c) => c.nome.trim().toLowerCase() === alvo.toLowerCase())
@@ -1523,6 +1550,7 @@ export default function ContagemEstoque({
     conferentesLoading,
     conferenteId,
     contagemSessaoMeta?.conferenteNome,
+    conferenteLogadoResolvido?.nome,
     conferentes,
   ])
 
@@ -6226,11 +6254,16 @@ export default function ContagemEstoque({
               value={conferenteId}
               onChange={(e) => setConferenteId(e.target.value)}
               style={inputStyle}
-              disabled={conferentesLoading || (!!offlineSession && offlineSession.status === 'aberta')}
+              disabled
+              title="Sempre o usuário logado — cada pessoa conta com a própria sessão"
             >
-              <option value="">Selecione...</option>
-              {conferentes.map((c) => (
-                <option key={c.id} value={c.id}>
+              <option value="">
+                {conferentesLoading
+                  ? 'Carregando…'
+                  : conferenteLogadoResolvido?.nome || 'Usuário não identificado'}
+              </option>
+              {conferenteSelectOpcoes.map((c) => (
+                <option key={c.id || c.nome} value={c.id}>
                   {c.nome}
                 </option>
               ))}
@@ -6238,14 +6271,9 @@ export default function ContagemEstoque({
           </label>
 
           <div style={{ gridColumn: isMobile ? 'auto' : 'span 5', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => setShowAddConferente((v) => !v)}
-              disabled={addingConferente || (!!offlineSession && offlineSession.status === 'aberta')}
-              style={buttonStyle}
-            >
-              {showAddConferente ? 'Cancelar' : 'Cadastrar conferente'}
-            </button>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text, #888)', lineHeight: 1.45 }}>
+              A contagem fica vinculada ao usuário logado para evitar que uma pessoa conte em nome de outra.
+            </p>
 
             {showAddConferente ? (
               offlineSession?.status === 'aberta' ? (

@@ -9,8 +9,11 @@ import {
 
 export type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
+import { isTableMissingError } from './supabaseError'
+import { isSupabaseTableAvailable, resetSupabaseTableProbe } from './supabaseTableProbe'
 
 const LEGACY_STORAGE_KEY = 'inventario-sessoes-v2'
+const TABELA_INV = 'inventario_sessoes'
 
 let legacyMigrationPromise: Promise<void> | null = null
 
@@ -24,6 +27,37 @@ function readLegacyLocal(): InventarioSessao[] {
   } catch {
     return []
   }
+}
+
+function writeLegacyLocal(list: InventarioSessao[]): void {
+  try {
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(list))
+  } catch {
+    /* ignore */
+  }
+}
+
+function sortInventarios(list: InventarioSessao[]): InventarioSessao[] {
+  return [...list].sort((a, b) => b.numero - a.numero)
+}
+
+function proximoNumeroLocal(): number {
+  const legacy = readLegacyLocal()
+  if (!legacy.length) return 1
+  return Math.max(...legacy.map((l) => l.numero)) + 1
+}
+
+async function usarSupabaseSessoes(): Promise<boolean> {
+  if (!inventarioSyncHabilitado()) return false
+  return isSupabaseTableAvailable(TABELA_INV)
+}
+
+export function resetInventarioSupabaseProbe(): void {
+  resetSupabaseTableProbe(TABELA_INV)
+}
+
+export async function inventarioUsaArmazenamentoLocal(): Promise<boolean> {
+  return !(await usarSupabaseSessoes())
 }
 
 function normalizeLegacyInventario(raw: Record<string, unknown>): InventarioSessao {
@@ -53,6 +87,7 @@ function normalizeLegacyInventario(raw: Record<string, unknown>): InventarioSess
 }
 
 async function migrateLegacyInventariosToSupabase(): Promise<void> {
+  if (!(await usarSupabaseSessoes())) return
   const legacy = readLegacyLocal()
   if (!legacy.length) return
   for (const sessao of legacy) {
@@ -82,10 +117,9 @@ function requireSupabase(): void {
 }
 
 function wrapDbError(e: unknown, fallback: string): Error {
-  const msg = e instanceof Error ? e.message : fallback
-  if (/relation.*does not exist|42P01/i.test(msg)) {
+  if (isTableMissingError(e, 'inventario_sessoes')) {
     return new Error(
-      'Tabela inventario_sessoes não existe no Supabase. Execute supabase/sql/create_inventario_sessoes.sql.',
+      'Tabela inventario_sessoes não existe no Supabase. No SQL Editor, execute supabase/sql/setup_inventario_listas_completo.sql (ou create_inventario_sessoes.sql).',
     )
   }
   return e instanceof Error ? e : new Error(fallback)
@@ -123,13 +157,16 @@ export function mensagemTituloInventarioEmUso(titulo: string, existente?: Invent
 
 export async function listInventarios(): Promise<InventarioSessao[]> {
   requireSupabase()
+  if (!(await usarSupabaseSessoes())) {
+    return sortInventarios(readLegacyLocal())
+  }
   try {
     await ensureLegacyInventariosMigrated()
     return await fetchInventarioSessoesSupabase()
   } catch (e) {
     const legacy = readLegacyLocal()
     if (legacy.length) {
-      return [...legacy].sort((a, b) => b.numero - a.numero)
+      return sortInventarios(legacy)
     }
     throw wrapDbError(e, 'Erro ao listar inventários.')
   }
@@ -137,10 +174,15 @@ export async function listInventarios(): Promise<InventarioSessao[]> {
 
 export async function getInventario(id: string): Promise<InventarioSessao | null> {
   requireSupabase()
+  if (!(await usarSupabaseSessoes())) {
+    return readLegacyLocal().find((l) => l.id === id) ?? null
+  }
   try {
     await ensureLegacyInventariosMigrated()
     return await fetchInventarioSessaoByIdSupabase(id)
   } catch (e) {
+    const local = readLegacyLocal().find((l) => l.id === id)
+    if (local) return local
     throw wrapDbError(e, 'Erro ao carregar inventário.')
   }
 }
@@ -153,7 +195,9 @@ export async function criarInventario(opts?: {
 }): Promise<InventarioSessao | null> {
   requireSupabase()
   const lista = await listInventarios()
-  const numero = await fetchProximoNumeroInventarioSupabase()
+  const numero = (await usarSupabaseSessoes())
+    ? await fetchProximoNumeroInventarioSupabase()
+    : proximoNumeroLocal()
   const tituloFinal = opts?.titulo?.trim() || `Inventário (Validade) #${numero}`
   if (inventarioAbertoComMesmoTitulo(lista, tituloFinal)) return null
 
@@ -173,13 +217,28 @@ export async function criarInventario(opts?: {
     createdAt: now,
     updatedAt: now,
   }
-  await upsertInventarioSessaoSupabase(row)
+  if (await usarSupabaseSessoes()) {
+    await upsertInventarioSessaoSupabase(row)
+  } else {
+    const local = readLegacyLocal()
+    local.push(row)
+    writeLegacyLocal(local)
+  }
   return row
 }
 
 export async function saveInventario(sessao: InventarioSessao): Promise<void> {
   requireSupabase()
-  await upsertInventarioSessaoSupabase(withUpdatedAt(sessao))
+  const row = withUpdatedAt(sessao)
+  if (await usarSupabaseSessoes()) {
+    await upsertInventarioSessaoSupabase(row)
+    return
+  }
+  const list = readLegacyLocal()
+  const idx = list.findIndex((l) => l.id === row.id)
+  if (idx >= 0) list[idx] = row
+  else list.push(row)
+  writeLegacyLocal(list)
 }
 
 export async function addLinhaInventario(
@@ -253,7 +312,11 @@ export async function deleteInventario(id: string): Promise<boolean> {
   requireSupabase()
   const sessao = await getInventario(id)
   if (!sessao) return false
-  await deleteInventarioSessaoSupabase(id)
+  if (await usarSupabaseSessoes()) {
+    await deleteInventarioSessaoSupabase(id)
+  } else {
+    writeLegacyLocal(readLegacyLocal().filter((l) => l.id !== id))
+  }
   return true
 }
 

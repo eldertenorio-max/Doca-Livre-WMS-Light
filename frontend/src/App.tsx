@@ -212,7 +212,7 @@ export default function App() {
       ) : null}
       {view === 'enderecamento' ? <CadastroEnderecamento /> : null}
       {view === 'inventarios' ? (
-        <InventarioGerenciar onAbrirCaptura={abrirCaptura} />
+        <InventarioGerenciar onAbrirCaptura={abrirCaptura} session={session} />
       ) : null}
       {view === 'inventarioCaptura' && capturaInventarioId ? (
         <InventarioCaptura
@@ -234,6 +234,7 @@ export default function App() {
         <PanelErrorBoundary>
           <ContagemEstoque
             contagemSessaoId={capturaContagemId}
+            session={session}
             onVoltarLista={() => {
               clearSessaoProdutoListaContext()
               setCapturaContagemId(null)

@@ -176,6 +176,7 @@ export default function BaseProdutos() {
   const [cadastroUnidade, setCadastroUnidade] = useState('')
   const [cadastroEan, setCadastroEan] = useState('')
   const [cadastroDun, setCadastroDun] = useState('')
+  const [cadastroListaId, setCadastroListaId] = useState('')
   const [cadastroSaving, setCadastroSaving] = useState(false)
 
   const [bipCodigoBarras, setBipCodigoBarras] = useState('')
@@ -206,17 +207,58 @@ export default function BaseProdutos() {
     }
   }, [])
 
-  async function sincronizarProdutoNasListasVinculadas(row: ProdutoDbRow): Promise<string | null> {
+  async function sincronizarProdutoNasListasVinculadas(
+    row: ProdutoDbRow,
+    listaIdsExtras: string[] = [],
+  ): Promise<string | null> {
     const item = rowsToProdutoListaItems([row])[0]
     if (!item) return null
     const ids = new Set<string>()
     const ctx = getSessaoProdutoListaContext()
     if (ctx?.listaProdutosId) ids.add(ctx.listaProdutosId)
     if (editingListaId) ids.add(editingListaId)
+    for (const id of listaIdsExtras) {
+      if (id.trim()) ids.add(id.trim())
+    }
     if (!ids.size) return null
     const atualizadas = await sincronizarProdutoNasListas(item, ids)
     if (atualizadas.length) emitProdutoListaAtualizada(atualizadas)
-    return ctx?.listaProdutosNome ?? produtoListas.find((l) => atualizadas.includes(l.id))?.nome ?? null
+    const nomeCtx = ctx?.listaProdutosNome
+    const nomeEdit = editingListaNome
+    const nomeExtra = produtoListas.find((l) => listaIdsExtras.includes(l.id))?.nome
+    return (
+      nomeEdit ||
+      nomeCtx ||
+      nomeExtra ||
+      produtoListas.find((l) => atualizadas.includes(l.id))?.nome ||
+      null
+    )
+  }
+
+  const emRascunhoNovaLista = !editingListaId && rows.length > 0
+
+  const listaDestinoFixaCadastro = useMemo(() => {
+    if (editingListaId) {
+      return { id: editingListaId, nome: editingListaNome, modo: 'edicao' as const }
+    }
+    const ctx = sessaoListaCtx
+    if (ctx?.listaProdutosId) {
+      return {
+        id: ctx.listaProdutosId,
+        nome: ctx.listaProdutosNome ?? produtoListas.find((l) => l.id === ctx.listaProdutosId)?.nome ?? '',
+        modo: 'sessao' as const,
+      }
+    }
+    if (emRascunhoNovaLista) {
+      return { id: null, nome: 'Rascunho da área abaixo (salve a lista depois)', modo: 'rascunho' as const }
+    }
+    return null
+  }, [editingListaId, editingListaNome, sessaoListaCtx, produtoListas, emRascunhoNovaLista])
+
+  function abrirModalCadastro() {
+    setCadastroListaId(editingListaId ?? sessaoListaCtx?.listaProdutosId ?? '')
+    setCadastroOpen(true)
+    setError('')
   }
 
   const carregarListas = useCallback(async () => {
@@ -268,6 +310,18 @@ export default function BaseProdutos() {
     )
   }
 
+  function fecharListaAberta() {
+    if (!editingListaId) return
+    const nome = editingListaNome
+    const msg =
+      rows.length > 0
+        ? `Fechar a lista «${nome}»? Alterações não salvas na área de trabalho serão descartadas.`
+        : `Fechar a lista «${nome}»? A área de trabalho será limpa.`
+    if (!confirm(msg)) return
+    limparAreaTrabalho()
+    setListaProdutoMsg(`Lista «${nome}» fechada.`)
+  }
+
   async function salvarListaProdutosAtual() {
     if (rows.length === 0) {
       alert('Adicione pelo menos um produto antes de salvar a lista.')
@@ -301,7 +355,9 @@ export default function BaseProdutos() {
   async function excluirListaSalva(lista: ProdutoLista) {
     if (
       !confirm(
-        `Excluir a lista «${lista.nome}» (${lista.produtos.length} produto(s))? Esta ação não pode ser desfeita.`,
+        `Tem certeza que deseja excluir a lista «${lista.nome}»?\n\n` +
+          `${lista.produtos.length} produto(s) serão removidos desta lista. ` +
+          `Esta ação não pode ser desfeita.`,
       )
     ) {
       return
@@ -904,20 +960,41 @@ export default function BaseProdutos() {
         dun_alterado_em_hora: dun != null ? agoraIso : null,
         dun_alterado_conferente: dun != null ? nomeAlt : null,
       }
-      setRows((prev) => {
-        const keyNovo = normalizeCodigoInternoCompareKey(novo.codigo_interno)
-        const semDup = prev.filter((x) => normalizeCodigoInternoCompareKey(x.codigo_interno) !== keyNovo)
-        return [...semDup, novo].sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR'))
-      })
+
+      const listaIdSync =
+        editingListaId ?? sessaoListaCtx?.listaProdutosId ?? (cadastroListaId.trim() || null)
+
+      if (!emRascunhoNovaLista && !listaIdSync && produtoListas.length > 0) {
+        setError('Selecione em qual lista incluir o produto.')
+        setCadastroSaving(false)
+        return
+      }
+
+      if (editingListaId || emRascunhoNovaLista) {
+        setRows((prev) => {
+          const keyNovo = normalizeCodigoInternoCompareKey(novo.codigo_interno)
+          const semDup = prev.filter((x) => normalizeCodigoInternoCompareKey(x.codigo_interno) !== keyNovo)
+          return [...semDup, novo].sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR'))
+        })
+      }
 
       let msgOk = `Produto ${cod} cadastrado no banco.`
       try {
-        const listaNome = await sincronizarProdutoNasListasVinculadas(novo)
+        const extras: string[] = []
+        if (!emRascunhoNovaLista && listaIdSync && !listaDestinoFixaCadastro) {
+          extras.push(listaIdSync)
+        }
+        const listaNome = await sincronizarProdutoNasListasVinculadas(novo, extras)
         if (listaNome) {
           msgOk += ` Incluído na lista «${listaNome}» — já pode bipar na contagem/inventário.`
+        } else if (emRascunhoNovaLista) {
+          msgOk += ' Incluído no rascunho — clique em Salvar lista para gravar.'
+        } else if (listaIdSync) {
+          const n = produtoListas.find((l) => l.id === listaIdSync)?.nome
+          if (n) msgOk += ` Incluído na lista «${n}».`
         }
       } catch {
-        msgOk += ' Não foi possível incluir na lista do inventário/contagem; use «Atualizar produtos» na captura.'
+        msgOk += ' Não foi possível incluir na lista; tente novamente ou salve a lista manualmente.'
       }
       setSuccess(msgOk)
       setCadastroOpen(false)
@@ -926,6 +1003,7 @@ export default function BaseProdutos() {
       setCadastroUnidade('')
       setCadastroEan('')
       setCadastroDun('')
+      setCadastroListaId('')
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao cadastrar.')
     } finally {
@@ -953,10 +1031,7 @@ export default function BaseProdutos() {
         <button
           type="button"
           className="produtos-page__btn-cadastrar"
-          onClick={() => {
-            setCadastroOpen(true)
-            setError('')
-          }}
+          onClick={abrirModalCadastro}
         >
           + Cadastrar
         </button>
@@ -980,8 +1055,8 @@ export default function BaseProdutos() {
       <section className="produtos-listas-salvas">
         <h2 className="produtos-listas-salvas__title">Listas de produtos salvas</h2>
         <p className="produtos-listas-salvas__hint">
-          Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar; ao <strong>Salvar lista</strong>,
-          os produtos são gravados e a área de trabalho é limpa.
+          Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong> para
+          sair da edição; ao <strong>Salvar lista</strong>, os produtos são gravados e a área de trabalho é limpa.
         </p>
         <div className="page-table-wrap">
           <table className="page-table page-table--compact">
@@ -1016,14 +1091,25 @@ export default function BaseProdutos() {
                       <td>{l.produtos.length}</td>
                       <td>{formatListaAtualizado(l.updatedAt)}</td>
                       <td className="produtos-page__actions-cell">
-                        <button
-                          type="button"
-                          className="page-btn-ghost"
-                          disabled={listaProdutoSaving}
-                          onClick={() => abrirListaSalva(l)}
-                        >
-                          Abrir
-                        </button>
+                        {emEdicao ? (
+                          <button
+                            type="button"
+                            className="page-btn-ghost"
+                            disabled={listaProdutoSaving}
+                            onClick={fecharListaAberta}
+                          >
+                            Fechar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="page-btn-ghost"
+                            disabled={listaProdutoSaving}
+                            onClick={() => abrirListaSalva(l)}
+                          >
+                            Abrir
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="page-btn-ghost page-btn-danger"
@@ -1049,6 +1135,11 @@ export default function BaseProdutos() {
             {editingListaId ? `Editando: ${editingListaNome}` : 'Área de produtos'}
           </h2>
           <div className="produtos-area-trabalho__actions">
+            {editingListaId ? (
+              <button type="button" disabled={listaProdutoSaving} onClick={fecharListaAberta}>
+                Fechar lista
+              </button>
+            ) : null}
             <button type="button" disabled={listaProdutoLoading || listaProdutoSaving} onClick={iniciarNovaLista}>
               Nova lista
             </button>
@@ -1349,6 +1440,41 @@ export default function BaseProdutos() {
               </button>
             </div>
             <div className="produtos-modal__body">
+              {listaDestinoFixaCadastro ? (
+                <p className="produtos-modal__lista-destino" role="status">
+                  Lista de destino:{' '}
+                  <strong>{listaDestinoFixaCadastro.nome || '—'}</strong>
+                  {listaDestinoFixaCadastro.modo === 'edicao'
+                    ? ' — o produto entra na lista aberta e na base.'
+                    : listaDestinoFixaCadastro.modo === 'sessao'
+                      ? ' — vinculado ao inventário/contagem em andamento.'
+                      : ' — salve a lista depois para gravar no sistema.'}
+                </p>
+              ) : produtoListas.length > 0 ? (
+                <div className="produtos-page__field">
+                  <label htmlFor="cadastro-lista-destino">Lista de destino *</label>
+                  <select
+                    id="cadastro-lista-destino"
+                    value={cadastroListaId}
+                    onChange={(e) => setCadastroListaId(e.target.value)}
+                    disabled={cadastroSaving || listaProdutoLoading}
+                  >
+                    <option value="">
+                      {listaProdutoLoading ? 'Carregando listas…' : 'Selecione a lista…'}
+                    </option>
+                    {produtoListas.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.nome} ({l.produtos.length} produtos)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="produtos-modal__lista-destino" role="status">
+                  O produto será gravado só na base «{TABELA_PRODUTOS}». Crie ou abra uma lista para vincular ao
+                  inventário.
+                </p>
+              )}
               <div className="produtos-page__field">
                 <label>Código do produto *</label>
                 <input

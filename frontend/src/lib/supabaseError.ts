@@ -24,6 +24,27 @@ export function formatUnknownError(e: unknown): string {
   return String(e)
 }
 
+/** Tabela inexistente ou fora do schema cache do PostgREST. */
+export function isTableMissingError(e: unknown, tableName?: string): boolean {
+  const code =
+    e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : ''
+  const msg = formatUnknownError(e).toLowerCase()
+  const table = tableName?.toLowerCase()
+  if (code === '42P01' || code === 'PGRST205') {
+    return !table || msg.includes(table)
+  }
+  if (msg.includes('relation') && msg.includes('does not exist')) {
+    return !table || msg.includes(table)
+  }
+  if (msg.includes('could not find') && msg.includes('table')) {
+    return !table || msg.includes(table)
+  }
+  if (msg.includes('schema cache') && msg.includes('table')) {
+    return !table || msg.includes(table)
+  }
+  return false
+}
+
 /** Coluna inexistente ou fora do schema cache do PostgREST — permite tentar payload menor. */
 export function isColumnMissingError(e: unknown): boolean {
   const code =

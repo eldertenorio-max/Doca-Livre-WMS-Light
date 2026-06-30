@@ -9,8 +9,11 @@ import {
 
 export type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
 import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
+import { isTableMissingError } from './supabaseError'
+import { isSupabaseTableAvailable, resetSupabaseTableProbe } from './supabaseTableProbe'
 
 const LEGACY_STORAGE_KEY = 'contagem-diaria-sessoes-v1'
+const TABELA_CD = 'contagem_diaria_sessoes'
 
 let legacyMigrationPromise: Promise<void> | null = null
 
@@ -24,6 +27,37 @@ function readLegacyLocal(): ContagemDiariaSessao[] {
   } catch {
     return []
   }
+}
+
+function writeLegacyLocal(list: ContagemDiariaSessao[]): void {
+  try {
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(list))
+  } catch {
+    /* ignore */
+  }
+}
+
+function sortContagens(list: ContagemDiariaSessao[]): ContagemDiariaSessao[] {
+  return [...list].sort((a, b) => b.numero - a.numero)
+}
+
+function proximoNumeroLocal(): number {
+  const legacy = readLegacyLocal()
+  if (!legacy.length) return 1
+  return Math.max(...legacy.map((l) => l.numero)) + 1
+}
+
+async function usarSupabaseSessoes(): Promise<boolean> {
+  if (!contagemDiariaSyncHabilitado()) return false
+  return isSupabaseTableAvailable(TABELA_CD)
+}
+
+export function resetContagemDiariaSupabaseProbe(): void {
+  resetSupabaseTableProbe(TABELA_CD)
+}
+
+export async function contagemDiariaUsaArmazenamentoLocal(): Promise<boolean> {
+  return !(await usarSupabaseSessoes())
 }
 
 function normalizeLegacyContagem(raw: Record<string, unknown>): ContagemDiariaSessao {
@@ -47,6 +81,7 @@ function normalizeLegacyContagem(raw: Record<string, unknown>): ContagemDiariaSe
 }
 
 async function migrateLegacyContagensToSupabase(): Promise<void> {
+  if (!(await usarSupabaseSessoes())) return
   const legacy = readLegacyLocal()
   if (!legacy.length) return
   for (const sessao of legacy) {
@@ -84,10 +119,9 @@ function requireSupabase(): void {
 }
 
 function wrapDbError(e: unknown, fallback: string): Error {
-  const msg = e instanceof Error ? e.message : fallback
-  if (/relation.*does not exist|42P01/i.test(msg)) {
+  if (isTableMissingError(e, 'contagem_diaria_sessoes')) {
     return new Error(
-      'Tabela contagem_diaria_sessoes não existe no Supabase. Execute supabase/sql/create_contagem_diaria_sessoes.sql.',
+      'Tabela contagem_diaria_sessoes não existe no Supabase. No SQL Editor, execute supabase/sql/setup_inventario_listas_completo.sql (ou create_contagem_diaria_sessoes.sql).',
     )
   }
   return e instanceof Error ? e : new Error(fallback)
@@ -99,13 +133,16 @@ function withUpdatedAt(sessao: ContagemDiariaSessao): ContagemDiariaSessao {
 
 export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
   requireSupabase()
+  if (!(await usarSupabaseSessoes())) {
+    return sortContagens(readLegacyLocal())
+  }
   try {
     await ensureLegacyContagensMigrated()
     return await fetchContagemDiariaSessoesSupabase()
   } catch (e) {
     const legacy = readLegacyLocal()
     if (legacy.length) {
-      return [...legacy].sort((a, b) => b.numero - a.numero)
+      return sortContagens(legacy)
     }
     throw wrapDbError(e, 'Erro ao listar contagens.')
   }
@@ -113,10 +150,15 @@ export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
 
 export async function getContagemDiaria(id: string): Promise<ContagemDiariaSessao | null> {
   requireSupabase()
+  if (!(await usarSupabaseSessoes())) {
+    return readLegacyLocal().find((l) => l.id === id) ?? null
+  }
   try {
     await ensureLegacyContagensMigrated()
     return await fetchContagemDiariaSessaoByIdSupabase(id)
   } catch (e) {
+    const local = readLegacyLocal().find((l) => l.id === id)
+    if (local) return local
     throw wrapDbError(e, 'Erro ao carregar contagem.')
   }
 }
@@ -128,7 +170,9 @@ export async function criarContagemDiaria(opts?: {
   conferenteNome?: string
 }): Promise<ContagemDiariaSessao> {
   requireSupabase()
-  const numero = await fetchProximoNumeroContagemDiariaSupabase()
+  const numero = (await usarSupabaseSessoes())
+    ? await fetchProximoNumeroContagemDiariaSupabase()
+    : proximoNumeroLocal()
   const now = new Date().toISOString()
   const dataContagem = opts?.dataContagem?.trim() || todayYmdLocal()
   const row: ContagemDiariaSessao = {
@@ -145,13 +189,28 @@ export async function criarContagemDiaria(opts?: {
     createdAt: now,
     updatedAt: now,
   }
-  await upsertContagemDiariaSessaoSupabase(row)
+  if (await usarSupabaseSessoes()) {
+    await upsertContagemDiariaSessaoSupabase(row)
+  } else {
+    const list = readLegacyLocal()
+    list.push(row)
+    writeLegacyLocal(list)
+  }
   return row
 }
 
 export async function saveContagemDiaria(sessao: ContagemDiariaSessao): Promise<void> {
   requireSupabase()
-  await upsertContagemDiariaSessaoSupabase(withUpdatedAt(sessao))
+  const row = withUpdatedAt(sessao)
+  if (await usarSupabaseSessoes()) {
+    await upsertContagemDiariaSessaoSupabase(row)
+    return
+  }
+  const list = readLegacyLocal()
+  const idx = list.findIndex((l) => l.id === row.id)
+  if (idx >= 0) list[idx] = row
+  else list.push(row)
+  writeLegacyLocal(list)
 }
 
 export async function marcarContagemIniciada(id: string): Promise<void> {
@@ -182,7 +241,11 @@ export async function deleteContagemDiaria(id: string): Promise<boolean> {
   requireSupabase()
   const sessao = await getContagemDiaria(id)
   if (!sessao) return false
-  await deleteContagemDiariaSessaoSupabase(id)
+  if (await usarSupabaseSessoes()) {
+    await deleteContagemDiariaSessaoSupabase(id)
+  } else {
+    writeLegacyLocal(readLegacyLocal().filter((l) => l.id !== id))
+  }
   return true
 }
 

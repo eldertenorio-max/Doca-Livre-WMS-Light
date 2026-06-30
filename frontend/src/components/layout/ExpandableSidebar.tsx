@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import logoDis from '../../assets/logo-dis-logistica-inteligente.png'
 
 export type SidebarChild = {
   id: string
@@ -58,10 +59,8 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
   return (
     <aside className="app-sidebar" aria-label="Menu principal">
       <div className="app-sidebar__brand" title="DIS Logística Inteligente">
-        <span className="app-sidebar__brand-icon" aria-hidden>
-          DIS
-        </span>
-        <span className="app-sidebar__brand-text">Logística</span>
+        <img className="app-sidebar__brand-logo" src={logoDis} alt="" aria-hidden />
+        <span className="app-sidebar__brand-text">DIS Logística</span>
       </div>
       <nav className="app-sidebar__nav">
         {items.map((item) => {
@@ -78,11 +77,6 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
                 className={`app-sidebar__item${active ? ' app-sidebar__item--active' : ''}`}
                 onClick={() => onSelect(item.id)}
                 title={item.label}
-                style={
-                  active && item.accent
-                    ? ({ '--sidebar-accent': item.accent } as React.CSSProperties)
-                    : undefined
-                }
               >
                 <span className="app-sidebar__item-icon">{item.icon}</span>
                 <span className="app-sidebar__item-label">{item.label}</span>
@@ -118,11 +112,6 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
                         className={`app-sidebar__subitem${subActive ? ' app-sidebar__subitem--active' : ''}`}
                         onClick={() => onSelect(child.id)}
                         title={child.label}
-                        style={
-                          subActive && item.accent
-                            ? ({ '--sidebar-accent': item.accent } as React.CSSProperties)
-                            : undefined
-                        }
                       >
                         <span className="app-sidebar__subitem-label">{child.label}</span>
                       </button>
