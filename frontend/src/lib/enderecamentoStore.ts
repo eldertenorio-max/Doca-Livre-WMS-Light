@@ -288,6 +288,30 @@ export function normalizeEnderecoCodigo(raw: string): string {
   return out.filter(Boolean).join('-')
 }
 
+/** Extrai câmara, rua, posição e nível de um código de endereço. */
+export function parseEnderecoCodigo(codigo: string): {
+  camara: number | null
+  rua: string
+  posicao: number | null
+  nivel: number | null
+} {
+  const normalized = normalizeEnderecoCodigo(String(codigo ?? '').trim())
+  if (!normalized) {
+    return { camara: null, rua: '', posicao: null, nivel: null }
+  }
+  const parts = normalized.split('-')
+  const camara = Number(parts[0])
+  const rua = (parts[1] ?? '').trim().toUpperCase()
+  const posicao = parts[2] != null && parts[2] !== '' ? Number(parts[2]) : null
+  const nivel = parts[3] != null && parts[3] !== '' ? Number(parts[3]) : null
+  return {
+    camara: Number.isFinite(camara) ? camara : null,
+    rua,
+    posicao: posicao != null && Number.isFinite(posicao) ? posicao : null,
+    nivel: nivel != null && Number.isFinite(nivel) ? nivel : null,
+  }
+}
+
 export type EnderecoLoteInput = {
   camara: number
   rua: string

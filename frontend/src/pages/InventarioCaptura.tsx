@@ -15,7 +15,15 @@ import {
   upsertInventarioCapturaPresenca,
   type InventarioCapturaPresencaRow,
 } from '../lib/inventarioCapturaPresenca'
-import { camaraFromEnderecoCodigo, findEnderecoByCodigo, formatEnderecoCodigoInput, normalizeEnderecoCodigo } from '../lib/enderecamentoStore'
+import { camaraFromEnderecoCodigo, findEnderecoByCodigo, formatEnderecoCodigoInput, normalizeEnderecoCodigo, buildCodigoEndereco } from '../lib/enderecamentoStore'
+import {
+  camarasDosEnderecos,
+  enderecosParaCaptura,
+  niveisDosEnderecos,
+  partesFormDoCodigo,
+  posicoesDosEnderecos,
+  ruasDosEnderecos,
+} from '../lib/enderecamentoCascata'
 import {
   findEnderecoNaLista,
   getEnderecoLista,
@@ -45,6 +53,12 @@ import {
 } from '../lib/sessaoProdutoListaContext'
 import { supabase } from '../lib/supabaseClient'
 import BarcodeCameraScanner, { IconClearField, IconScanBarcode } from '../components/barcode/BarcodeCameraScanner'
+import {
+  clampDataFabricacaoYmd,
+  isFabricacaoAposHoje,
+  isVencimentoAntesFabricacao,
+  maxDataFabricacaoHoje,
+} from '../lib/contagemDatasValidacao'
 
 type Props = {
   inventarioId: string
@@ -103,7 +117,10 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [listaEndereco, setListaEndereco] = useState<EnderecoLista | null>(null)
   const [produtos, setProdutos] = useState<ProductOption[]>([])
   const [produtosCarregando, setProdutosCarregando] = useState(false)
-  const [endereco, setEndereco] = useState('')
+  const [endCamara, setEndCamara] = useState('')
+  const [endRua, setEndRua] = useState('')
+  const [endPosicao, setEndPosicao] = useState('')
+  const [endNivel, setEndNivel] = useState('')
   const [codigoBarras, setCodigoBarras] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [unidade, setUnidade] = useState('')
@@ -122,7 +139,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
   const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
 
-  const enderecoRef = useRef<HTMLInputElement>(null)
+  const camaraRef = useRef<HTMLSelectElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
   const comboRef = useRef<HTMLDivElement>(null)
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -151,6 +168,41 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     const list = sessao?.posicoesCodigos ?? []
     return [...list].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [sessao?.posicoesCodigos])
+
+  const enderecosCaptura = useMemo(
+    () => enderecosParaCaptura(listaEndereco, sessao),
+    [listaEndereco, sessao],
+  )
+
+  const endereco = useMemo(() => {
+    if (!endCamara || !endRua || !endPosicao || !endNivel) return ''
+    const cam = Number(endCamara)
+    const pos = Number(endPosicao)
+    const niv = Number(endNivel)
+    if (!Number.isFinite(cam) || !Number.isFinite(pos) || !Number.isFinite(niv)) return ''
+    return buildCodigoEndereco(cam, endRua, pos, niv)
+  }, [endCamara, endRua, endPosicao, endNivel])
+
+  const camarasOpcoes = useMemo(() => camarasDosEnderecos(enderecosCaptura), [enderecosCaptura])
+
+  const ruasOpcoes = useMemo(() => {
+    const cam = Number(endCamara)
+    if (!Number.isFinite(cam)) return []
+    return ruasDosEnderecos(enderecosCaptura, cam)
+  }, [enderecosCaptura, endCamara])
+
+  const posicoesOpcoes = useMemo(() => {
+    const cam = Number(endCamara)
+    if (!Number.isFinite(cam) || !endRua) return []
+    return posicoesDosEnderecos(enderecosCaptura, cam, endRua)
+  }, [enderecosCaptura, endCamara, endRua])
+
+  const niveisOpcoes = useMemo(() => {
+    const cam = Number(endCamara)
+    const pos = Number(endPosicao)
+    if (!Number.isFinite(cam) || !endRua || !Number.isFinite(pos)) return []
+    return niveisDosEnderecos(enderecosCaptura, cam, endRua, pos)
+  }, [enderecosCaptura, endCamara, endRua, endPosicao])
 
   const loadProdutos = useCallback(async (listaProdutosId?: string | null) => {
     setProdutosCarregando(true)
@@ -327,34 +379,90 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     }
   }
 
-  function handleEnderecoBlur() {
-    aplicarEnderecoLido(endereco)
+  function aplicarPartesEndereco(partes: {
+    camara: string
+    rua: string
+    posicao: string
+    nivel: string
+  }) {
+    setEndCamara(partes.camara)
+    setEndRua(partes.rua)
+    setEndPosicao(partes.posicao)
+    setEndNivel(partes.nivel)
   }
 
-  function aplicarEnderecoLido(codRaw: string) {
-    const cod = normalizeEnderecoCodigo(codRaw.trim())
-    setEndereco(cod)
-    if (!cod) return
-    if (sessao && !enderecoPermitidoNaSessao(sessao, cod)) {
+  function confirmarEnderecoCompleto(cod: string) {
+    const normalized = normalizeEnderecoCodigo(cod.trim())
+    if (!normalized) return
+    if (sessao && !enderecoPermitidoNaSessao(sessao, normalized)) {
       setErr('Endereço fora das posições deste inventário.')
       setMsg('')
       return
     }
-    const found = listaEndereco ? findEnderecoNaLista(listaEndereco, cod) : findEnderecoByCodigo(cod)
+    const found = listaEndereco
+      ? findEnderecoNaLista(listaEndereco, normalized)
+      : findEnderecoByCodigo(normalized)
     if (found) {
-      setMsg(`Endereço: Câm. ${found.camara ?? '—'} · Rua ${found.rua || '—'} · Pos. ${found.posicao ?? '—'}`)
+      setMsg(
+        `Endereço ${normalized} — Câm. ${found.camara ?? '—'} · Rua ${found.rua || '—'} · Pos. ${found.posicao ?? '—'} · Nív. ${found.nivel ?? '—'}`,
+      )
     } else {
-      setMsg('Endereço não cadastrado (será gravado como digitado)')
+      setMsg(`Endereço ${normalized} (não cadastrado na lista)`)
     }
     setErr('')
     barcodeRef.current?.focus()
   }
 
+  function aplicarEnderecoLido(codRaw: string) {
+    const partes = partesFormDoCodigo(formatEnderecoCodigoInput(codRaw))
+    aplicarPartesEndereco(partes)
+    if (partes.camara && partes.rua && partes.posicao && partes.nivel) {
+      const cod = buildCodigoEndereco(
+        Number(partes.camara),
+        partes.rua,
+        Number(partes.posicao),
+        Number(partes.nivel),
+      )
+      confirmarEnderecoCompleto(cod)
+    }
+  }
+
+  function handleCamaraChange(value: string) {
+    setEndCamara(value)
+    setEndRua('')
+    setEndPosicao('')
+    setEndNivel('')
+    setErr('')
+    setMsg('')
+  }
+
+  function handleRuaChange(value: string) {
+    setEndRua(value)
+    setEndPosicao('')
+    setEndNivel('')
+    setErr('')
+    setMsg('')
+  }
+
+  function handlePosicaoChange(value: string) {
+    setEndPosicao(value)
+    setEndNivel('')
+    setErr('')
+    setMsg('')
+  }
+
+  function handleNivelChange(value: string) {
+    setEndNivel(value)
+    if (!value || !endCamara || !endRua || !endPosicao) return
+    const cod = buildCodigoEndereco(Number(endCamara), endRua, Number(endPosicao), Number(value))
+    confirmarEnderecoCompleto(cod)
+  }
+
   function limparCampoEndereco() {
-    setEndereco('')
+    aplicarPartesEndereco({ camara: '', rua: '', posicao: '', nivel: '' })
     setMsg('')
     setErr('')
-    enderecoRef.current?.focus()
+    camaraRef.current?.focus()
   }
 
   function limparCampoProduto() {
@@ -402,7 +510,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   }
 
   function limparFormulario() {
-    setEndereco('')
+    aplicarPartesEndereco({ camara: '', rua: '', posicao: '', nivel: '' })
     setCodigoBarras('')
     setQuantidade('')
     setUnidade('')
@@ -415,7 +523,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     setErr('')
     setSugestoesOpen(false)
     setEditandoLinhaId(null)
-    enderecoRef.current?.focus()
+    camaraRef.current?.focus()
   }
 
   function resolverCamaraEndereco(end: string): number | null {
@@ -427,19 +535,19 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   function iniciarEdicaoLinha(linha: InventarioLinhaCaptura) {
     if (!sessao || sessao.status !== 'aberto') return
     setEditandoLinhaId(linha.id)
-    setEndereco(linha.endereco)
+    aplicarPartesEndereco(partesFormDoCodigo(linha.endereco))
     setCodigoBarras(linha.codigoBarras)
     setQuantidade(String(linha.quantidade))
     setUnidade(linha.unidade)
     setUp(linha.up)
     setLote(linha.lote)
-    setFabricacao(linha.fabricacao)
+    setFabricacao(clampDataFabricacaoYmd(linha.fabricacao ?? ''))
     setValidade(linha.validade)
     setProdutoLabel(linha.descricao)
     setCodigoInterno(linha.codigoInterno)
     setErr('')
     setMsg('Editando linha — altere os campos e salve.')
-    enderecoRef.current?.focus()
+    camaraRef.current?.focus()
   }
 
   async function excluirLinha(linha: InventarioLinhaCaptura) {
@@ -472,7 +580,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     const q = Number(String(quantidade).replace(',', '.'))
     const upStr = up.trim()
     if (!end) {
-      setErr('Informe o endereço.')
+      setErr('Selecione câmara, rua, posição e nível.')
       return
     }
     if (!enderecoPermitidoNaSessao(sessao, end)) {
@@ -493,6 +601,16 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
         setErr('UP inválido.')
         return
       }
+    }
+    const fab = fabricacao.trim()
+    const val = validade.trim()
+    if (fab && isFabricacaoAposHoje(fab)) {
+      setErr('Data de fabricação não pode ser maior que hoje.')
+      return
+    }
+    if (fab && val && isVencimentoAntesFabricacao(fab, val)) {
+      setErr('Data de validade não pode ser menor que a data de fabricação.')
+      return
     }
     try {
       const payload = {
@@ -635,29 +753,83 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     <span className="inv-cap__step">1</span> Endereço
                   </h2>
                   <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--endereco">
-                <label htmlFor="inv-endereco">Endereço</label>
-                <div className="inventario-captura__input-row">
-                  <input
-                    id="inv-endereco"
-                    ref={enderecoRef}
-                    list={posicoesInventario.length > 0 ? 'inv-posicoes-list' : undefined}
-                    value={endereco}
-                    onChange={(e) => setEndereco(formatEnderecoCodigoInput(e.target.value))}
-                    onBlur={handleEnderecoBlur}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        barcodeRef.current?.focus()
-                      }
-                    }}
-                    disabled={readonly}
-                    autoComplete="off"
-                    placeholder="Bipe ou digite o endereço"
-                  />
+                <div className="inv-cap__endereco-grid">
+                  <div className="inv-cap__endereco-item">
+                    <label htmlFor="inv-end-camara">Câmara</label>
+                    <select
+                      id="inv-end-camara"
+                      ref={camaraRef}
+                      value={endCamara}
+                      onChange={(e) => handleCamaraChange(e.target.value)}
+                      disabled={readonly || camarasOpcoes.length === 0}
+                    >
+                      <option value="">—</option>
+                      {camarasOpcoes.map((c) => (
+                        <option key={c} value={String(c)}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="inv-cap__endereco-item">
+                    <label htmlFor="inv-end-rua">Rua</label>
+                    <select
+                      id="inv-end-rua"
+                      value={endRua}
+                      onChange={(e) => handleRuaChange(e.target.value)}
+                      disabled={readonly || !endCamara || ruasOpcoes.length === 0}
+                    >
+                      <option value="">—</option>
+                      {ruasOpcoes.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="inv-cap__endereco-item">
+                    <label htmlFor="inv-end-posicao">Posição</label>
+                    <select
+                      id="inv-end-posicao"
+                      value={endPosicao}
+                      onChange={(e) => handlePosicaoChange(e.target.value)}
+                      disabled={readonly || !endRua || posicoesOpcoes.length === 0}
+                    >
+                      <option value="">—</option>
+                      {posicoesOpcoes.map((p) => (
+                        <option key={p} value={String(p)}>
+                          {String(p).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="inv-cap__endereco-item">
+                    <label htmlFor="inv-end-nivel">Nível</label>
+                    <select
+                      id="inv-end-nivel"
+                      value={endNivel}
+                      onChange={(e) => handleNivelChange(e.target.value)}
+                      disabled={readonly || !endPosicao || niveisOpcoes.length === 0}
+                    >
+                      <option value="">—</option>
+                      {niveisOpcoes.map((n) => (
+                        <option key={n} value={String(n)}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="inv-cap__endereco-acoes">
+                  {endereco ? (
+                    <span className="inv-cap__endereco-codigo" title="Código do endereço">
+                      {endereco}
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
-                    disabled={readonly || !endereco.trim()}
+                    disabled={readonly || !endereco}
                     aria-label="Limpar endereço"
                     title="Limpar"
                     onClick={limparCampoEndereco}
@@ -669,19 +841,12 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
                     disabled={readonly}
                     aria-label="Ler endereço pela câmera"
-                    title="Câmera"
+                    title="Bipar endereço"
                     onClick={() => abrirCameraBarcode('endereco')}
                   >
                     <IconScanBarcode className="inventario-captura__btn-icon" />
                   </button>
                 </div>
-                {posicoesInventario.length > 0 ? (
-                  <datalist id="inv-posicoes-list">
-                    {posicoesInventario.map((c) => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
-                ) : null}
                   </div>
                 </section>
 
@@ -793,7 +958,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   id="inv-produto"
                   value={produtoLabel}
                   readOnly
-                  rows={2}
+                  rows={3}
                   className="inventario-captura__readonly inventario-captura__produto"
                   placeholder="Aguardando leitura do produto…"
                 />
@@ -863,6 +1028,38 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   />
                 </div>
                 <div className="inventario-captura__field inv-cap__field">
+                  <label htmlFor="inv-fabricacao">Fabricação</label>
+                  <div className="inventario-captura__input-row">
+                    <input
+                      id="inv-fabricacao"
+                      type="date"
+                      max={maxDataFabricacaoHoje()}
+                      value={fabricacao}
+                      onChange={(e) => setFabricacao(clampDataFabricacaoYmd(e.target.value))}
+                      disabled={readonly}
+                      title="Fabricação (até hoje)"
+                    />
+                    <button
+                      type="button"
+                      className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only"
+                      disabled={readonly}
+                      title="Abrir calendário"
+                      aria-label="Abrir calendário de fabricação"
+                      onClick={() => {
+                        const el = document.getElementById('inv-fabricacao') as HTMLInputElement | null
+                        el?.focus()
+                        try {
+                          el?.showPicker?.()
+                        } catch {
+                          /* showPicker indisponível */
+                        }
+                      }}
+                    >
+                      📅
+                    </button>
+                  </div>
+                </div>
+                <div className="inventario-captura__field inv-cap__field">
                   <label htmlFor="inv-validade">Validade</label>
                   <div className="inventario-captura__input-row">
                     <input
@@ -881,37 +1078,6 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                       aria-label="Abrir calendário de validade"
                       onClick={() => {
                         const el = document.getElementById('inv-validade') as HTMLInputElement | null
-                        el?.focus()
-                        try {
-                          el?.showPicker?.()
-                        } catch {
-                          /* showPicker indisponível */
-                        }
-                      }}
-                    >
-                      📅
-                    </button>
-                  </div>
-                </div>
-                <div className="inventario-captura__field inv-cap__field">
-                  <label htmlFor="inv-fabricacao">Fabricação</label>
-                  <div className="inventario-captura__input-row">
-                    <input
-                      id="inv-fabricacao"
-                      type="date"
-                      value={fabricacao}
-                      onChange={(e) => setFabricacao(e.target.value)}
-                      disabled={readonly}
-                      title="Fabricação"
-                    />
-                    <button
-                      type="button"
-                      className="inventario-captura__action-btn inventario-captura__action-btn--icon inventario-captura__action-btn--icon-only"
-                      disabled={readonly}
-                      title="Abrir calendário"
-                      aria-label="Abrir calendário de fabricação"
-                      onClick={() => {
-                        const el = document.getElementById('inv-fabricacao') as HTMLInputElement | null
                         el?.focus()
                         try {
                           el?.showPicker?.()
