@@ -20,6 +20,7 @@ import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
+import { clearSessaoProdutoListaContext } from './lib/sessaoProdutoListaContext'
 
 export type AppView =
   | 'produtos'
@@ -218,6 +219,7 @@ export default function App() {
           inventarioId={capturaInventarioId}
           session={session}
           onVoltar={() => {
+            clearSessaoProdutoListaContext()
             setCapturaInventarioId(null)
             setView('inventarios')
           }}
@@ -233,6 +235,7 @@ export default function App() {
           <ContagemEstoque
             contagemSessaoId={capturaContagemId}
             onVoltarLista={() => {
+              clearSessaoProdutoListaContext()
               setCapturaContagemId(null)
               setView('contagem')
             }}

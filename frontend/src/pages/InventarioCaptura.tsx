@@ -39,6 +39,10 @@ import {
   produtoListaParaProductOptions,
 } from '../lib/produtoListaSupabase'
 import { mapRowToProductOption, TABELA_PRODUTOS, type ProductOption } from '../lib/productOptionMapper'
+import {
+  PRODUTO_LISTA_ATUALIZADA_EVENT,
+  setSessaoProdutoListaContext,
+} from '../lib/sessaoProdutoListaContext'
 import { supabase } from '../lib/supabaseClient'
 
 type Props = {
@@ -188,6 +192,43 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
       void loadProdutos(null)
     }
   }, [sessao?.listaProdutosId, sessaoLoading, loadProdutos])
+
+  useEffect(() => {
+    if (!sessao) return
+    setSessaoProdutoListaContext({
+      tipo: 'inventario',
+      sessaoId: inventarioId,
+      listaProdutosId: sessao.listaProdutosId ?? null,
+      listaProdutosNome: sessao.listaProdutosNome,
+    })
+  }, [sessao, inventarioId])
+
+  useEffect(() => {
+    const listaId = sessao?.listaProdutosId
+    if (!listaId) return
+
+    const recarregar = () => {
+      void loadProdutos(listaId)
+    }
+
+    const onListaAtualizada = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ listaIds?: string[] }>).detail
+      if (!detail?.listaIds?.includes(listaId)) return
+      recarregar()
+      setMsg('Lista de produtos atualizada.')
+    }
+
+    const onVisibilidade = () => {
+      if (document.visibilityState === 'visible') recarregar()
+    }
+
+    window.addEventListener(PRODUTO_LISTA_ATUALIZADA_EVENT, onListaAtualizada)
+    document.addEventListener('visibilitychange', onVisibilidade)
+    return () => {
+      window.removeEventListener(PRODUTO_LISTA_ATUALIZADA_EVENT, onListaAtualizada)
+      document.removeEventListener('visibilitychange', onVisibilidade)
+    }
+  }, [sessao?.listaProdutosId, loadProdutos])
 
   useEffect(() => {
     let alive = true
@@ -536,10 +577,17 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
               {enderecoLabel}
             </span>
           ) : null}
-          <span className="inv-cap__chip" title="Lista de produtos">
+          <button
+            type="button"
+            className="inv-cap__chip inv-cap__chip--action"
+            title="Atualizar lista de produtos"
+            disabled={produtosCarregando}
+            onClick={() => void loadProdutos(sessao.listaProdutosId ?? null)}
+          >
             <span className="inv-cap__chip-label">Produtos</span>
-            {produtosLabel}
-          </span>
+            {produtosCarregando ? 'Atualizando…' : produtosLabel}
+            {!produtosCarregando ? <span className="inv-cap__chip-refresh" aria-hidden> ↻</span> : null}
+          </button>
         </div>
 
         {readonly ? (

@@ -345,6 +345,10 @@ type RelatorioContagemProps = {
   lockListColumnMode?: boolean
   /** Só filtros e exportação Excel (sem tabela de prévia). */
   exportOnly?: boolean
+  /** Layout alinhado à aba Consulta do Estoque (page-form-grid). */
+  exportConsultaLayout?: boolean
+  exportTipo?: 'contagem_diaria' | 'inventario'
+  onExportTipoChange?: (tipo: 'contagem_diaria' | 'inventario') => void
 }
 
 const relPanelStyle: React.CSSProperties = {
@@ -416,6 +420,9 @@ export default function RelatorioContagem({
   listColumnPrefsInventario = false,
   lockListColumnMode = false,
   exportOnly = false,
+  exportConsultaLayout = false,
+  exportTipo = 'contagem_diaria',
+  onExportTipoChange,
 }: RelatorioContagemProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
@@ -2279,7 +2286,129 @@ export default function RelatorioContagem({
         </section>
       ) : null}
 
-      <div ref={listaRelatorioRef} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+      <div ref={listaRelatorioRef} style={{ display: 'grid', gap: 12, marginTop: exportConsultaLayout ? 0 : 12 }}>
+        {exportOnly && exportConsultaLayout ? (
+          <section className="page-form-grid page-form-grid--filters">
+            {onExportTipoChange ? (
+              <label>
+                Tipo
+                <select
+                  value={exportTipo}
+                  onChange={(e) =>
+                    onExportTipoChange(e.target.value as 'contagem_diaria' | 'inventario')
+                  }
+                >
+                  <option value="contagem_diaria">Contagem diária</option>
+                  <option value="inventario">Inventário</option>
+                </select>
+              </label>
+            ) : null}
+            <label>
+              Data de
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  const y = e.target.value
+                  setStartDate(y)
+                  if (!allTime && !useSingleDay && y > endDate) setEndDate(y)
+                }}
+                disabled={allTime || useSingleDay}
+              />
+            </label>
+            <label>
+              Data até
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  const y = e.target.value
+                  setEndDate(y)
+                  if (!allTime && !useSingleDay) setSingleDay(y)
+                }}
+                disabled={allTime || useSingleDay}
+              />
+            </label>
+            {useInventarioCols ? (
+              <label>
+                Rodada da contagem
+                {renderRodadaContagemSelect({ disabled: loading || exportExcelLoading })}
+              </label>
+            ) : null}
+            <label className="page-form-grid__check">
+              <input
+                type="checkbox"
+                checked={allTime}
+                disabled={useSingleDay}
+                onChange={(e) => {
+                  const v = e.target.checked
+                  setAllTime(v)
+                  if (v) setUseSingleDay(false)
+                }}
+              />
+              Carregar todas as datas
+            </label>
+            <label className="page-form-grid__check">
+              <input
+                type="checkbox"
+                checked={useSingleDay}
+                onChange={(e) => {
+                  const v = e.target.checked
+                  setUseSingleDay(v)
+                  if (v) {
+                    setAllTime(false)
+                    setStartDate(singleDay)
+                    setEndDate(singleDay)
+                  } else {
+                    setSingleDay(endDate)
+                  }
+                }}
+              />
+              Filtrar por dia
+            </label>
+            <label>
+              Dia
+              <input
+                type="date"
+                value={singleDay}
+                onChange={(e) => {
+                  const y = e.target.value
+                  setSingleDay(y)
+                  if (allTime) return
+                  if (useSingleDay) {
+                    setStartDate(y)
+                    setEndDate(y)
+                  } else {
+                    setEndDate(y)
+                    if (startDate > y) setStartDate(y)
+                  }
+                }}
+                disabled={allTime}
+              />
+            </label>
+            <div className="page-form-grid__actions page-form-grid__actions--wrap page-form-grid__full">
+              {showExportExcel ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportarComAvisoPendencia()}
+                    disabled={loading || exportExcelLoading}
+                  >
+                    {exportExcelLoading ? 'Exportando…' : 'Exportar Excel'}
+                  </button>
+                  <button
+                    type="button"
+                    className="page-btn-ghost"
+                    onClick={() => void exportProdutosBaseExcel()}
+                    disabled={baseExportLoading}
+                  >
+                    {baseExportLoading ? 'Exportando…' : 'Exportar relatório alteração DUN/EAN'}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </section>
+        ) : (
         <section style={{ ...relPanelStyle, marginTop: 0 }}>
           <h3 style={{ margin: '0 0 10px', fontSize: 18 }}>
             {exportOnly
@@ -2555,9 +2684,18 @@ export default function RelatorioContagem({
             ) : null}
           </div>
         </section>
+        )}
 
-        {error ? <div style={{ color: '#b00020' }}>{error}</div> : null}
-        {success ? <div style={{ color: '#0f7a0f' }}>{success}</div> : null}
+        {error ? (
+          <p className={exportConsultaLayout ? 'page-msg page-msg--error' : undefined} style={exportConsultaLayout ? undefined : { color: '#b00020' }}>
+            {error}
+          </p>
+        ) : null}
+        {success ? (
+          <p className={exportConsultaLayout ? 'page-msg page-msg--ok' : undefined} style={exportConsultaLayout ? undefined : { color: '#0f7a0f' }}>
+            {success}
+          </p>
+        ) : null}
         {!exportOnly && conferenteFiltroHistorico ? (
           <div
             style={{
@@ -2783,7 +2921,7 @@ export default function RelatorioContagem({
             ) : null}
             {totalRel > 0 ? relatorioPagination : null}
           </div>
-        ) : (
+        ) : exportOnly ? null : (
           !loading ? <div style={{ marginTop: 8 }}>Sem dados no período.</div> : null
         )}
       </div>

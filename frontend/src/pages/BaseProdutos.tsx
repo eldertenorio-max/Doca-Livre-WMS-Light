@@ -3,11 +3,18 @@ import type React from 'react'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import {
   createProdutoLista,
+  deleteProdutoLista,
   ensureProdutoListaPadrao,
   listProdutoListas,
   saveProdutoLista,
+  sincronizarProdutoNasListas,
   type ProdutoLista,
+  type ProdutoListaItem,
 } from '../lib/produtoListaSupabase'
+import {
+  emitProdutoListaAtualizada,
+  getSessaoProdutoListaContext,
+} from '../lib/sessaoProdutoListaContext'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
 import './BaseProdutos.css'
@@ -114,6 +121,39 @@ function patchUnidadeField(field: UnidadeDbField, unidade: string | null): Recor
   return field === 'unidade_medida' ? { unidade_medida: unidade } : { unidade }
 }
 
+function formatListaAtualizado(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('pt-BR')
+}
+
+function produtoListaItemToRow(p: ProdutoListaItem): ProdutoDbRow {
+  return {
+    id: '',
+    codigo_interno: p.codigo_interno,
+    descricao: p.descricao,
+    unidade: p.unidade ?? null,
+    ean: p.ean ?? null,
+    dun: p.dun ?? null,
+    ean_alterado_em: null,
+    ean_alterado_em_hora: null,
+    ean_alterado_conferente: null,
+    dun_alterado_em: null,
+    dun_alterado_em_hora: null,
+    dun_alterado_conferente: null,
+  }
+}
+
+function rowsToProdutoListaItems(rows: ProdutoDbRow[]): ProdutoListaItem[] {
+  return rows.map((r) => ({
+    codigo_interno: r.codigo_interno,
+    descricao: r.descricao,
+    unidade: r.unidade,
+    ean: r.ean,
+    dun: r.dun,
+  }))
+}
+
 export default function BaseProdutos() {
   const [rows, setRows] = useState<ProdutoDbRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -149,45 +189,108 @@ export default function BaseProdutos() {
   const conferenteSelectRef = useRef<HTMLSelectElement | null>(null)
 
   const [produtoListas, setProdutoListas] = useState<ProdutoLista[]>([])
-  const [listaProdutoId, setListaProdutoId] = useState('')
+  const [editingListaId, setEditingListaId] = useState<string | null>(null)
+  const [editingListaNome, setEditingListaNome] = useState('')
   const [listaProdutoMsg, setListaProdutoMsg] = useState('')
   const [listaProdutoSaving, setListaProdutoSaving] = useState(false)
+  const [listaProdutoLoading, setListaProdutoLoading] = useState(true)
+  const [sessaoListaCtx, setSessaoListaCtx] = useState(() => getSessaoProdutoListaContext())
 
   useEffect(() => {
-    void (async () => {
-      try {
-        await ensureProdutoListaPadrao()
-        const listas = await listProdutoListas()
-        setProdutoListas(listas)
-        setListaProdutoId((prev) => prev || listas[0]?.id || '')
-      } catch (e: unknown) {
-        setListaProdutoMsg(formatUnknownError(e) || 'Erro ao carregar listas de produtos.')
-      }
-    })()
+    const atualizarCtx = () => setSessaoListaCtx(getSessaoProdutoListaContext())
+    window.addEventListener('focus', atualizarCtx)
+    const timer = window.setInterval(atualizarCtx, 3000)
+    return () => {
+      window.removeEventListener('focus', atualizarCtx)
+      window.clearInterval(timer)
+    }
   }, [])
 
+  async function sincronizarProdutoNasListasVinculadas(row: ProdutoDbRow): Promise<string | null> {
+    const item = rowsToProdutoListaItems([row])[0]
+    if (!item) return null
+    const ids = new Set<string>()
+    const ctx = getSessaoProdutoListaContext()
+    if (ctx?.listaProdutosId) ids.add(ctx.listaProdutosId)
+    if (editingListaId) ids.add(editingListaId)
+    if (!ids.size) return null
+    const atualizadas = await sincronizarProdutoNasListas(item, ids)
+    if (atualizadas.length) emitProdutoListaAtualizada(atualizadas)
+    return ctx?.listaProdutosNome ?? produtoListas.find((l) => atualizadas.includes(l.id))?.nome ?? null
+  }
+
+  const carregarListas = useCallback(async () => {
+    setListaProdutoLoading(true)
+    try {
+      await ensureProdutoListaPadrao()
+      const listas = await listProdutoListas()
+      setProdutoListas([...listas].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
+    } catch (e: unknown) {
+      setListaProdutoMsg(formatUnknownError(e) || 'Erro ao carregar listas de produtos.')
+    } finally {
+      setListaProdutoLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void carregarListas()
+  }, [carregarListas])
+
+  function limparAreaTrabalho() {
+    setRows([])
+    setEditingKey(null)
+    setEditSnapshot(null)
+    setBipCodigoBarras('')
+    setListaTab('todos')
+    setPage(1)
+    setEditingListaId(null)
+    setEditingListaNome('')
+    setError('')
+    setSuccess('')
+  }
+
+  function iniciarNovaLista() {
+    limparAreaTrabalho()
+    setListaProdutoMsg('Área de produtos limpa. Monte a lista abaixo e clique em Salvar lista.')
+  }
+
+  function abrirListaSalva(lista: ProdutoLista) {
+    setEditingListaId(lista.id)
+    setEditingListaNome(lista.nome)
+    setRows(lista.produtos.map(produtoListaItemToRow))
+    setEditingKey(null)
+    setEditSnapshot(null)
+    setBipCodigoBarras('')
+    setListaTab('todos')
+    setPage(1)
+    setListaProdutoMsg(
+      `Editando «${lista.nome}» (${lista.produtos.length} produtos). Salve para gravar e limpar a área.`,
+    )
+  }
+
   async function salvarListaProdutosAtual() {
-    const lista = produtoListas.find((l) => l.id === listaProdutoId)
-    if (!lista) return
-    const nome = window.prompt('Nome da lista de produtos:', lista.nome)
+    if (rows.length === 0) {
+      alert('Adicione pelo menos um produto antes de salvar a lista.')
+      return
+    }
+    const nomePadrao = editingListaNome || 'Nova lista de produtos'
+    const nome = window.prompt('Nome da lista de produtos:', nomePadrao)
     if (!nome?.trim()) return
+
     setListaProdutoSaving(true)
     setListaProdutoMsg('')
     try {
-      const produtos = rows.map((r) => ({
-        codigo_interno: r.codigo_interno,
-        descricao: r.descricao,
-        unidade: r.unidade,
-        ean: r.ean,
-        dun: r.dun,
-      }))
-      const saved = await saveProdutoLista({ ...lista, nome: nome.trim(), produtos })
-      setProdutoListas((prev) => {
-        const rest = prev.filter((l) => l.id !== saved.id)
-        return [...rest, saved].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-      })
-      setListaProdutoId(saved.id)
-      setListaProdutoMsg(`Lista «${saved.nome}» salva com ${produtos.length} produto(s).`)
+      const produtos = rowsToProdutoListaItems(rows)
+      const existente = produtoListas.find((l) => l.id === editingListaId)
+      const saved = existente
+        ? await saveProdutoLista({ ...existente, nome: nome.trim(), produtos })
+        : await createProdutoLista(nome.trim(), produtos)
+
+      await carregarListas()
+      const n = rows.length
+      limparAreaTrabalho()
+      emitProdutoListaAtualizada([saved.id])
+      setListaProdutoMsg(`Lista «${saved.nome}» salva com ${n} produto(s). Área de produtos limpa.`)
     } catch (e: unknown) {
       setListaProdutoMsg(formatUnknownError(e) || 'Erro ao salvar lista.')
     } finally {
@@ -195,20 +298,23 @@ export default function BaseProdutos() {
     }
   }
 
-  async function criarNovaListaProdutos() {
-    const nome = window.prompt('Nome da nova lista de produtos:')
-    if (!nome?.trim()) return
+  async function excluirListaSalva(lista: ProdutoLista) {
+    if (
+      !confirm(
+        `Excluir a lista «${lista.nome}» (${lista.produtos.length} produto(s))? Esta ação não pode ser desfeita.`,
+      )
+    ) {
+      return
+    }
     try {
-      const nova = await createProdutoLista(nome.trim())
-      setProdutoListas((prev) => [...prev, nova].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
-      setListaProdutoId(nova.id)
-      setListaProdutoMsg(`Lista «${nova.nome}» criada (vazia). Use «Salvar lista atual» para copiar os produtos da tabela.`)
+      await deleteProdutoLista(lista.id)
+      if (editingListaId === lista.id) limparAreaTrabalho()
+      await carregarListas()
+      setListaProdutoMsg(`Lista «${lista.nome}» excluída.`)
     } catch (e: unknown) {
-      setListaProdutoMsg(formatUnknownError(e) || 'Erro ao criar lista.')
+      setListaProdutoMsg(formatUnknownError(e) || 'Erro ao excluir lista.')
     }
   }
-
-  const listaProdutoAtual = produtoListas.find((l) => l.id === listaProdutoId)
 
   useEffect(() => {
     void (async () => {
@@ -336,10 +442,6 @@ export default function BaseProdutos() {
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
   const abasProduto = useMemo(() => {
     const grupos = new Set<string>()
     for (const r of rows) grupos.add(grupoProdutoTab(r.codigo_interno))
@@ -414,7 +516,7 @@ export default function BaseProdutos() {
       return
     }
     if (rows.length === 0) {
-      setError('Aguarde o carregamento da base.')
+      setError('Nenhum produto no rascunho. Carregue a base do Supabase ou abra uma lista salva.')
       setSuccess('')
       return
     }
@@ -630,10 +732,17 @@ export default function BaseProdutos() {
         msgOk +=
           ' A data foi gravada; hora e conferente exigem as colunas no Supabase (rode supabase/sql/alter_todos_os_produtos_ean_dun_alterado_meta.sql).'
       }
+      try {
+        const listaNome = await sincronizarProdutoNasListasVinculadas(rowSalva)
+        if (listaNome) {
+          msgOk += ` Sincronizado na lista «${listaNome}» — já pode bipar na contagem/inventário.`
+        }
+      } catch {
+        msgOk += ' Não foi possível atualizar a lista do inventário/contagem; use «Atualizar produtos» na captura.'
+      }
       setSuccess(msgOk)
       setEditingKey(null)
       setEditSnapshot(null)
-      await load()
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao salvar.')
     } finally {
@@ -700,7 +809,7 @@ export default function BaseProdutos() {
         setEditingKey(null)
         setEditSnapshot(null)
       }
-      await load()
+      setRows((prev) => prev.filter((x) => rowKey(x) !== k))
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao excluir.')
     } finally {
@@ -780,14 +889,43 @@ export default function BaseProdutos() {
         )
       }
 
-      setSuccess(`Produto ${cod} cadastrado no banco.`)
+      const ret = data[0]
+      const novo: ProdutoDbRow = {
+        id: String(ret.id ?? ''),
+        codigo_interno: String(ret.codigo_interno ?? cod),
+        descricao: desc,
+        unidade,
+        ean,
+        dun,
+        ean_alterado_em: ean != null ? todayYmdLocal() : null,
+        ean_alterado_em_hora: ean != null ? agoraIso : null,
+        ean_alterado_conferente: ean != null ? nomeAlt : null,
+        dun_alterado_em: dun != null ? todayYmdLocal() : null,
+        dun_alterado_em_hora: dun != null ? agoraIso : null,
+        dun_alterado_conferente: dun != null ? nomeAlt : null,
+      }
+      setRows((prev) => {
+        const keyNovo = normalizeCodigoInternoCompareKey(novo.codigo_interno)
+        const semDup = prev.filter((x) => normalizeCodigoInternoCompareKey(x.codigo_interno) !== keyNovo)
+        return [...semDup, novo].sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR'))
+      })
+
+      let msgOk = `Produto ${cod} cadastrado no banco.`
+      try {
+        const listaNome = await sincronizarProdutoNasListasVinculadas(novo)
+        if (listaNome) {
+          msgOk += ` Incluído na lista «${listaNome}» — já pode bipar na contagem/inventário.`
+        }
+      } catch {
+        msgOk += ' Não foi possível incluir na lista do inventário/contagem; use «Atualizar produtos» na captura.'
+      }
+      setSuccess(msgOk)
       setCadastroOpen(false)
       setCadastroCodigo('')
       setCadastroDescricao('')
       setCadastroUnidade('')
       setCadastroEan('')
       setCadastroDun('')
-      await load()
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao cadastrar.')
     } finally {
@@ -808,7 +946,8 @@ export default function BaseProdutos() {
         <div>
           <h1>Produtos</h1>
           <p>
-            Base oficial no Supabase ({TABELA_PRODUTOS}). {rows.length} produto(s) — edite ou exclua na tabela abaixo.
+            Monte listas de produtos para o inventário. A base oficial fica no Supabase ({TABELA_PRODUTOS}) — use
+            «Carregar base» na área abaixo ou cadastre produtos manualmente.
           </p>
         </div>
         <button
@@ -823,47 +962,113 @@ export default function BaseProdutos() {
         </button>
       </header>
 
-      <section className="produtos-page__search" style={{ marginBottom: '1rem' }}>
-        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Listas de produtos para inventário</h2>
-        <p style={{ margin: '0 0 0.75rem', opacity: 0.85 }}>
-          Salve um conjunto de produtos com nome (ex.: CD Ultrapao guarulhos). Na hora de começar o inventário você
-          escolhe qual lista usar.
-        </p>
-        <div className="produtos-page__search-row" style={{ flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
-          <label style={{ flex: '1 1 200px' }}>
-            Lista
-            <select
-              value={listaProdutoId}
-              onChange={(e) => setListaProdutoId(e.target.value)}
-              style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
-            >
-              {produtoListas.length === 0 ? <option value="">— Nenhuma lista —</option> : null}
-              {produtoListas.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.nome} ({l.produtos.length} produtos)
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" onClick={() => void criarNovaListaProdutos()}>
-            Nova lista
-          </button>
-          <button
-            type="button"
-            disabled={!listaProdutoId || listaProdutoSaving || rows.length === 0}
-            onClick={() => void salvarListaProdutosAtual()}
-          >
-            {listaProdutoSaving ? 'Salvando…' : 'Salvar lista atual'}
-          </button>
+      {sessaoListaCtx ? (
+        <div className="produtos-page__sessao-ctx" role="status">
+          {sessaoListaCtx.tipo === 'inventario' ? 'Inventário' : 'Contagem diária'} em andamento
+          {sessaoListaCtx.listaProdutosNome ? (
+            <>
+              {' '}
+              — lista <strong>{sessaoListaCtx.listaProdutosNome}</strong>
+            </>
+          ) : (
+            ' — base «Todos os Produtos»'
+          )}
+          . Produtos cadastrados ou editados aqui entram na lista automaticamente.
         </div>
-        {listaProdutoAtual ? (
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', opacity: 0.8 }}>
-            Lista selecionada: {listaProdutoAtual.nome} — {listaProdutoAtual.produtos.length} produto(s) salvos · tabela
-            abaixo: {rows.length} produto(s)
-          </p>
-        ) : null}
-        {listaProdutoMsg ? <p className="produtos-page__success" style={{ marginTop: '0.5rem' }}>{listaProdutoMsg}</p> : null}
+      ) : null}
+
+      <section className="produtos-listas-salvas">
+        <h2 className="produtos-listas-salvas__title">Listas de produtos salvas</h2>
+        <p className="produtos-listas-salvas__hint">
+          Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar; ao <strong>Salvar lista</strong>,
+          os produtos são gravados e a área de trabalho é limpa.
+        </p>
+        <div className="page-table-wrap">
+          <table className="page-table page-table--compact">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Produtos</th>
+                <th>Atualizado em</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {listaProdutoLoading ? (
+                <tr>
+                  <td colSpan={4}>Carregando listas…</td>
+                </tr>
+              ) : produtoListas.length === 0 ? (
+                <tr>
+                  <td colSpan={4}>
+                    Nenhuma lista salva ainda. Monte os produtos na área abaixo e clique em Salvar lista.
+                  </td>
+                </tr>
+              ) : (
+                produtoListas.map((l) => {
+                  const emEdicao = editingListaId === l.id
+                  return (
+                    <tr key={l.id} className={emEdicao ? 'produtos-listas-salvas__row--ativa' : undefined}>
+                      <td>
+                        {l.nome}
+                        {emEdicao ? <span className="produtos-listas-salvas__badge">em edição</span> : null}
+                      </td>
+                      <td>{l.produtos.length}</td>
+                      <td>{formatListaAtualizado(l.updatedAt)}</td>
+                      <td className="produtos-page__actions-cell">
+                        <button
+                          type="button"
+                          className="page-btn-ghost"
+                          disabled={listaProdutoSaving}
+                          onClick={() => abrirListaSalva(l)}
+                        >
+                          Abrir
+                        </button>
+                        <button
+                          type="button"
+                          className="page-btn-ghost page-btn-danger"
+                          disabled={listaProdutoSaving}
+                          onClick={() => void excluirListaSalva(l)}
+                        >
+                          Excluir
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        {listaProdutoMsg ? <p className="produtos-page__success produtos-listas-salvas__msg">{listaProdutoMsg}</p> : null}
       </section>
+
+      <section className="produtos-area-trabalho">
+        <div className="produtos-area-trabalho__header">
+          <h2 className="produtos-area-trabalho__title">
+            {editingListaId ? `Editando: ${editingListaNome}` : 'Área de produtos'}
+          </h2>
+          <div className="produtos-area-trabalho__actions">
+            <button type="button" disabled={listaProdutoLoading || listaProdutoSaving} onClick={iniciarNovaLista}>
+              Nova lista
+            </button>
+            <button type="button" disabled={loading} onClick={() => void load()}>
+              {loading ? 'Carregando…' : 'Carregar base do Supabase'}
+            </button>
+            <button
+              type="button"
+              disabled={rows.length === 0 || listaProdutoSaving}
+              onClick={() => void salvarListaProdutosAtual()}
+            >
+              {listaProdutoSaving ? 'Salvando…' : 'Salvar lista'}
+            </button>
+          </div>
+        </div>
+        <p className="produtos-area-trabalho__meta">
+          {rows.length === 0
+            ? 'Nenhum produto no rascunho. Carregue a base, cadastre novos ou abra uma lista salva.'
+            : `${rows.length} produto(s) no rascunho — salve para gravar na lista e limpar esta área.`}
+        </p>
 
       <section className="produtos-page__search">
         <label className="produtos-page__search-label" htmlFor="produto-busca">
@@ -1118,11 +1323,7 @@ export default function BaseProdutos() {
         ) : null}
       </section>
 
-      <div className="produtos-page__reload">
-        <button type="button" disabled={loading} onClick={() => void load()}>
-          {loading ? 'Atualizando…' : 'Recarregar base do Supabase'}
-        </button>
-      </div>
+      </section>
 
       {cadastroOpen ? (
         <div

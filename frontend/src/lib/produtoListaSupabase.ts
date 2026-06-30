@@ -96,6 +96,52 @@ export async function deleteProdutoLista(id: string): Promise<void> {
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao excluir lista de produtos.')
 }
 
+/** Inclui ou atualiza um produto na lista salva (por código interno). */
+export async function upsertProdutoNaListaSalva(
+  listaId: string,
+  produto: ProdutoListaItem,
+): Promise<ProdutoLista | null> {
+  const codigo = produto.codigo_interno.trim()
+  if (!codigo) return null
+  const lista = await getProdutoLista(listaId)
+  if (!lista) return null
+
+  const item: ProdutoListaItem = {
+    codigo_interno: codigo,
+    descricao: produto.descricao.trim(),
+    unidade: produto.unidade ?? null,
+    ean: produto.ean ?? null,
+    dun: produto.dun ?? null,
+  }
+
+  const produtos = [...lista.produtos]
+  const idx = produtos.findIndex((p) => p.codigo_interno.trim() === codigo)
+  if (idx >= 0) {
+    produtos[idx] = { ...produtos[idx], ...item }
+  } else {
+    produtos.push(item)
+  }
+  produtos.sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno, 'pt-BR'))
+
+  return saveProdutoLista({ ...lista, produtos })
+}
+
+export async function sincronizarProdutoNasListas(
+  produto: ProdutoListaItem,
+  listaIds: Iterable<string>,
+): Promise<string[]> {
+  const atualizadas: string[] = []
+  const vistos = new Set<string>()
+  for (const id of listaIds) {
+    const trimmed = id.trim()
+    if (!trimmed || vistos.has(trimmed)) continue
+    vistos.add(trimmed)
+    const saved = await upsertProdutoNaListaSalva(trimmed, produto)
+    if (saved) atualizadas.push(saved.id)
+  }
+  return atualizadas
+}
+
 export async function fetchTodosProdutosParaLista(): Promise<ProdutoListaItem[]> {
   const { data, error } = await supabase.from(TABELA_PRODUTOS).select('*').order('codigo_interno').limit(20000)
   if (error) throw new Error(formatUnknownError(error) || `Erro ao ler ${TABELA_PRODUTOS}.`)

@@ -12,10 +12,67 @@ import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessa
 
 const LEGACY_STORAGE_KEY = 'inventario-sessoes-v2'
 
-try {
-  localStorage.removeItem(LEGACY_STORAGE_KEY)
-} catch {
-  /* ignore */
+let legacyMigrationPromise: Promise<void> | null = null
+
+function readLegacyLocal(): InventarioSessao[] {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((item) => normalizeLegacyInventario(item as Record<string, unknown>))
+  } catch {
+    return []
+  }
+}
+
+function normalizeLegacyInventario(raw: Record<string, unknown>): InventarioSessao {
+  const createdAt = String(raw.createdAt ?? raw.dataInicio ?? new Date().toISOString())
+  const linhas = Array.isArray(raw.linhas) ? (raw.linhas as InventarioLinhaCaptura[]) : []
+  return {
+    id: String(raw.id ?? crypto.randomUUID()),
+    numero: typeof raw.numero === 'number' && Number.isFinite(raw.numero) ? raw.numero : 1,
+    titulo: String(raw.titulo ?? 'Inventário'),
+    local: String(raw.local ?? 'ULTRAPAO GUARULHOS DISTRI'),
+    posicoesNome: raw.posicoesNome ? String(raw.posicoesNome).trim() || undefined : undefined,
+    posicoesCodigos: Array.isArray(raw.posicoesCodigos)
+      ? raw.posicoesCodigos.map((c) => String(c).trim()).filter(Boolean)
+      : undefined,
+    catalogoProdutos: raw.catalogoProdutos === 'ultrapao' ? 'ultrapao' : 'ultrapao',
+    listaEnderecamentoId: raw.listaEnderecamentoId ? String(raw.listaEnderecamentoId) : undefined,
+    listaEnderecamentoNome: raw.listaEnderecamentoNome ? String(raw.listaEnderecamentoNome) : undefined,
+    listaProdutosId: raw.listaProdutosId ? String(raw.listaProdutosId) : undefined,
+    listaProdutosNome: raw.listaProdutosNome ? String(raw.listaProdutosNome) : undefined,
+    dataInicio: String(raw.dataInicio ?? createdAt),
+    dataFim: raw.dataFim ? String(raw.dataFim) : null,
+    status: raw.status === 'fechado' ? 'fechado' : 'aberto',
+    linhas,
+    createdAt,
+    updatedAt: String(raw.updatedAt ?? createdAt),
+  }
+}
+
+async function migrateLegacyInventariosToSupabase(): Promise<void> {
+  const legacy = readLegacyLocal()
+  if (!legacy.length) return
+  for (const sessao of legacy) {
+    await upsertInventarioSessaoSupabase(sessao)
+  }
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function ensureLegacyInventariosMigrated(): Promise<void> {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = migrateLegacyInventariosToSupabase().catch((e) => {
+      legacyMigrationPromise = null
+      throw e
+    })
+  }
+  await legacyMigrationPromise
 }
 
 function requireSupabase(): void {
@@ -67,8 +124,13 @@ export function mensagemTituloInventarioEmUso(titulo: string, existente?: Invent
 export async function listInventarios(): Promise<InventarioSessao[]> {
   requireSupabase()
   try {
+    await ensureLegacyInventariosMigrated()
     return await fetchInventarioSessoesSupabase()
   } catch (e) {
+    const legacy = readLegacyLocal()
+    if (legacy.length) {
+      return [...legacy].sort((a, b) => b.numero - a.numero)
+    }
     throw wrapDbError(e, 'Erro ao listar inventários.')
   }
 }
@@ -76,6 +138,7 @@ export async function listInventarios(): Promise<InventarioSessao[]> {
 export async function getInventario(id: string): Promise<InventarioSessao | null> {
   requireSupabase()
   try {
+    await ensureLegacyInventariosMigrated()
     return await fetchInventarioSessaoByIdSupabase(id)
   } catch (e) {
     throw wrapDbError(e, 'Erro ao carregar inventário.')

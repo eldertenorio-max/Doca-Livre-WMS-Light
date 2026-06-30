@@ -142,6 +142,7 @@ import {
   marcarContagemIniciada,
   type ContagemDiariaSessao,
 } from '../lib/contagemDiariaSessaoStore'
+import { setSessaoProdutoListaContext } from '../lib/sessaoProdutoListaContext'
 import {
   calcHistoryKeyForCodigo,
   ChecklistCalculatorModal,
@@ -676,6 +677,16 @@ export default function ContagemEstoque({
       alive = false
     }
   }, [contagemSessaoId, inventario])
+
+  useEffect(() => {
+    if (inventario || !contagemSessaoId) return
+    setSessaoProdutoListaContext({
+      tipo: 'contagem',
+      sessaoId: contagemSessaoId,
+      listaProdutosId: null,
+      listaProdutosNome: contagemSessaoMeta?.titulo,
+    })
+  }, [contagemSessaoId, inventario, contagemSessaoMeta?.titulo])
 
   useEffect(() => {
     if (inventario || !contagemSessaoId) return
@@ -1582,6 +1593,19 @@ export default function ContagemEstoque({
   useEffect(() => {
     void loadProductOptions()
   }, [loadProductOptions])
+
+  useEffect(() => {
+    if (inventario) return
+    const recarregarCatalogo = () => {
+      if (document.visibilityState === 'visible') void loadProductOptions()
+    }
+    window.addEventListener('focus', recarregarCatalogo)
+    document.addEventListener('visibilitychange', recarregarCatalogo)
+    return () => {
+      window.removeEventListener('focus', recarregarCatalogo)
+      document.removeEventListener('visibilitychange', recarregarCatalogo)
+    }
+  }, [inventario, loadProductOptions])
 
   const productByCode = useMemo(() => {
     const map = new Map<string, ProductOption>()

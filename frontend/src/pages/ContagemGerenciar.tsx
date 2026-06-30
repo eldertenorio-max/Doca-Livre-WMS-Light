@@ -12,6 +12,7 @@ import {
   type ContagemDiariaSessao,
 } from '../lib/contagemDiariaSessaoStore'
 import { formatUnknownError } from '../lib/supabaseError'
+import { supabase } from '../lib/supabaseClient'
 
 type Props = {
   onAbrirContagem: (contagemId: string) => void
@@ -45,6 +46,25 @@ function todayYmdLocal(): string {
   return `${y}-${mo}-${da}`
 }
 
+function isoDatePart(iso: string | null): string {
+  if (!iso) return ''
+  return iso.slice(0, 10)
+}
+
+function contagemMatchBusca(c: ContagemDiariaSessao, q: string): boolean {
+  const u = q.trim().toUpperCase()
+  if (!u) return true
+  const campos = [
+    c.titulo,
+    c.local,
+    String(c.numero),
+    c.conferenteNome ?? '',
+    c.dataContagem,
+    formatDataContagemBR(c.dataContagem),
+  ]
+  return campos.some((campo) => campo.toUpperCase().includes(u))
+}
+
 export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const conferenteLogado = usernameFromSession(session)
   const [rows, setRows] = useState<ContagemDiariaSessao[]>([])
@@ -55,19 +75,49 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const [criarTitulo, setCriarTitulo] = useState('')
   const [criarLocal, setCriarLocal] = useState('ULTRAPAO GUARULHOS DISTRI')
   const [criarData, setCriarData] = useState(() => todayYmdLocal())
+  const [criarConferente, setCriarConferente] = useState('')
+  const [conferentes, setConferentes] = useState<Array<{ id: string; nome: string }>>([])
+  const [conferentesLoading, setConferentesLoading] = useState(false)
   const [editarId, setEditarId] = useState<string | null>(null)
   const [editarTitulo, setEditarTitulo] = useState('')
   const [editarLocal, setEditarLocal] = useState('')
   const [editarData, setEditarData] = useState('')
+  const [busca, setBusca] = useState('')
+  const [filtroLocal, setFiltroLocal] = useState('')
+  const [filtroDataDe, setFiltroDataDe] = useState('')
+  const [filtroDataAte, setFiltroDataAte] = useState('')
 
   const abertos = useMemo(() => rows.filter((r) => r.status === 'aberto'), [rows])
   const finalizados = useMemo(() => rows.filter((r) => r.status === 'fechado'), [rows])
 
-  const listaFiltrada = useMemo(() => {
+  const locaisDisponiveis = useMemo(() => {
+    const set = new Set(rows.map((r) => r.local.trim()).filter(Boolean))
+    return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [rows])
+
+  const listaPorTab = useMemo(() => {
     if (listaTab === 'abertos') return abertos
     if (listaTab === 'finalizados') return finalizados
     return rows
   }, [rows, listaTab, abertos, finalizados])
+
+  const filtrosAtivos = Boolean(busca.trim() || filtroLocal || filtroDataDe || filtroDataAte)
+
+  const listaFiltrada = useMemo(() => {
+    let list = listaPorTab
+    if (filtroLocal) list = list.filter((r) => r.local === filtroLocal)
+    if (filtroDataDe) list = list.filter((r) => isoDatePart(r.dataInicio) >= filtroDataDe)
+    if (filtroDataAte) list = list.filter((r) => isoDatePart(r.dataInicio) <= filtroDataAte)
+    if (busca.trim()) list = list.filter((r) => contagemMatchBusca(r, busca))
+    return list
+  }, [listaPorTab, busca, filtroLocal, filtroDataDe, filtroDataAte])
+
+  function limparFiltros() {
+    setBusca('')
+    setFiltroLocal('')
+    setFiltroDataDe('')
+    setFiltroDataAte('')
+  }
 
   async function refresh() {
     setLoading(true)
@@ -86,10 +136,44 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     void refresh()
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    setConferentesLoading(true)
+    void (async () => {
+      try {
+        const { data, error } = await supabase.from('conferentes').select('id,nome').order('nome')
+        if (error) throw error
+        if (alive) setConferentes(data ?? [])
+      } catch {
+        if (alive) setConferentes([])
+      } finally {
+        if (alive) setConferentesLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  function conferentePadraoCriar(): string {
+    const logado = conferenteLogado.trim()
+    if (!logado) return conferentes[0]?.nome ?? ''
+    const alvo = logado.toLowerCase()
+    const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === alvo)
+    if (exato) return exato.nome
+    const parcial = conferentes.find(
+      (c) =>
+        c.nome.trim().toLowerCase().includes(alvo) ||
+        alvo.includes(c.nome.trim().toLowerCase()),
+    )
+    return parcial?.nome ?? logado
+  }
+
   function abrirModalCriar() {
     setCriarTitulo('')
     setCriarLocal('ULTRAPAO GUARULHOS DISTRI')
     setCriarData(todayYmdLocal())
+    setCriarConferente(conferentePadraoCriar())
     setCriarOpen(true)
   }
 
@@ -99,12 +183,17 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
       alert('Informe o nome da contagem.')
       return
     }
+    const conferenteNome = criarConferente.trim()
+    if (!conferenteNome) {
+      alert('Informe o conferente.')
+      return
+    }
     try {
       await criarContagemDiaria({
         titulo,
         local: criarLocal,
         dataContagem: criarData,
-        conferenteNome: conferenteLogado,
+        conferenteNome,
       })
       setCriarOpen(false)
       setListaTab('abertos')
@@ -233,13 +322,20 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
       <h1 className="page-panel__title">Contagem diária</h1>
       <p className="page-panel__subtitle">
         Crie uma contagem com nome — ela aparecerá na lista. Depois clique em <strong>Começar contagem</strong> na
-        linha para abrir a checklist.
+        linha para abrir a checklist. Os dados ficam salvos no <strong>Supabase</strong> e aparecem em qualquer
+        dispositivo.
       </p>
+
+      {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
+      {loading ? <p className="page-panel__meta">Carregando contagens…</p> : null}
 
       <div className="page-form-grid inv-gerenciar__criar">
         <div className="page-form-grid__actions">
-          <button type="button" onClick={abrirModalCriar}>
+          <button type="button" onClick={abrirModalCriar} disabled={loading}>
             Criar contagem
+          </button>
+          <button type="button" className="page-btn-ghost" disabled={loading} onClick={() => void refresh()}>
+            {loading ? 'Carregando…' : 'Atualizar lista'}
           </button>
         </div>
       </div>
@@ -274,13 +370,56 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
         </button>
       </div>
 
+      <section className="page-form-grid page-form-grid--filters inv-gerenciar__filters" aria-label="Busca e filtros">
+        <label className="page-form-grid__full">
+          Buscar contagem
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Nome, local, nº, conferente, dia da contagem…"
+          />
+        </label>
+        <label>
+          Local / unidade
+          <select value={filtroLocal} onChange={(e) => setFiltroLocal(e.target.value)}>
+            <option value="">Todos</option>
+            {locaisDisponiveis.map((local) => (
+              <option key={local} value={local}>
+                {local}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Início de
+          <input type="date" value={filtroDataDe} onChange={(e) => setFiltroDataDe(e.target.value)} />
+        </label>
+        <label>
+          Início até
+          <input type="date" value={filtroDataAte} onChange={(e) => setFiltroDataAte(e.target.value)} />
+        </label>
+        <div className="page-form-grid__actions page-form-grid__actions--wrap">
+          <button type="button" className="page-btn-ghost" disabled={!filtrosAtivos} onClick={limparFiltros}>
+            Limpar filtros
+          </button>
+        </div>
+      </section>
+
+      <p className="page-panel__meta inv-gerenciar__resultado">
+        {listaFiltrada.length === listaPorTab.length
+          ? `${listaFiltrada.length} contagem(ns) nesta lista`
+          : `Mostrando ${listaFiltrada.length} de ${listaPorTab.length} contagem(ns)`}
+      </p>
+
       {abertos.length > 0 ? (
         <p className="inv-gerenciar__hint">{abertos.length} contagem(ns) aberta(s)</p>
       ) : null}
 
       <div className="inv-list-cards">
         {listaFiltrada.length === 0 ? (
-          <p className="inv-list-empty">Nenhuma contagem nesta lista.</p>
+          <p className="inv-list-empty">
+            {filtrosAtivos ? 'Nenhuma contagem encontrada com estes filtros.' : 'Nenhuma contagem nesta lista.'}
+          </p>
         ) : (
           listaFiltrada.map((c) => (
             <article key={c.id} className="inv-card">
@@ -329,7 +468,9 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
           <tbody>
             {listaFiltrada.length === 0 ? (
               <tr>
-                <td colSpan={8}>Nenhuma contagem nesta lista.</td>
+                <td colSpan={8}>
+                  {filtrosAtivos ? 'Nenhuma contagem encontrada com estes filtros.' : 'Nenhuma contagem nesta lista.'}
+                </td>
               </tr>
             ) : (
               listaFiltrada.map((c) => (
@@ -396,7 +537,18 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
               </label>
               <label className="page-form-grid__full">
                 Conferente
-                <input value={conferenteLogado} readOnly aria-readonly="true" />
+                <input
+                  list="contagem-conferente-sugestoes"
+                  value={criarConferente}
+                  onChange={(e) => setCriarConferente(e.target.value)}
+                  placeholder={conferentesLoading ? 'Carregando conferentes…' : 'Selecione na lista ou digite o nome'}
+                  disabled={conferentesLoading}
+                />
+                <datalist id="contagem-conferente-sugestoes">
+                  {conferentes.map((c) => (
+                    <option key={c.id} value={c.nome} />
+                  ))}
+                </datalist>
               </label>
               <label className="page-form-grid__full">
                 Local / unidade

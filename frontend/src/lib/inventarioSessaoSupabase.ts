@@ -1,6 +1,6 @@
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import { isSupabaseConfigured, supabase } from './supabaseClient'
-import { formatUnknownError } from './supabaseError'
+import { formatUnknownError, isColumnMissingError } from './supabaseError'
 
 const TABELA = 'inventario_sessoes'
 
@@ -73,35 +73,56 @@ function sessaoToRow(s: InventarioSessao): DbRow {
   }
 }
 
+const SELECT_BASE =
+  'id,numero,titulo,local,posicoes_nome,posicoes_codigos,catalogo_produtos'
+const SELECT_LISTA =
+  'lista_enderecamento_id,lista_enderecamento_nome,lista_produtos_id,lista_produtos_nome'
+const SELECT_TAIL = 'data_inicio,data_fim,status,linhas,created_at,updated_at'
+
+const SELECT_COLS_CANDIDATES = [`${SELECT_BASE},${SELECT_LISTA},${SELECT_TAIL}`, `${SELECT_BASE},${SELECT_TAIL}`]
+
+async function queryInventarioSessoes(id?: string): Promise<DbRow[] | DbRow | null> {
+  let lastError: unknown = null
+  for (const cols of SELECT_COLS_CANDIDATES) {
+    const res = id
+      ? await supabase.from(TABELA).select(cols).eq('id', id).maybeSingle()
+      : await supabase.from(TABELA).select(cols).order('numero', { ascending: false })
+    if (!res.error) {
+      return (res.data as DbRow[] | DbRow | null) ?? (id ? null : [])
+    }
+    lastError = res.error
+    if (!isColumnMissingError(res.error)) break
+  }
+  throw new Error(formatUnknownError(lastError) || 'Erro ao buscar inventários no banco.')
+}
+
 export async function fetchInventarioSessoesSupabase(): Promise<InventarioSessao[]> {
   if (!inventarioSyncHabilitado()) return []
-  const { data, error } = await supabase
-    .from(TABELA)
-    .select(
-      'id,numero,titulo,local,posicoes_nome,posicoes_codigos,catalogo_produtos,lista_enderecamento_id,lista_enderecamento_nome,lista_produtos_id,lista_produtos_nome,data_inicio,data_fim,status,linhas,created_at,updated_at',
-    )
-    .order('numero', { ascending: false })
-  if (error) throw new Error(formatUnknownError(error) || 'Erro ao buscar inventários no banco.')
-  return (data as DbRow[] | null)?.map(rowToSessao) ?? []
+  const data = await queryInventarioSessoes()
+  return Array.isArray(data) ? data.map(rowToSessao) : []
 }
 
 export async function fetchInventarioSessaoByIdSupabase(id: string): Promise<InventarioSessao | null> {
   if (!inventarioSyncHabilitado()) return null
-  const { data, error } = await supabase
-    .from(TABELA)
-    .select(
-      'id,numero,titulo,local,posicoes_nome,posicoes_codigos,catalogo_produtos,lista_enderecamento_id,lista_enderecamento_nome,lista_produtos_id,lista_produtos_nome,data_inicio,data_fim,status,linhas,created_at,updated_at',
-    )
-    .eq('id', id)
-    .maybeSingle()
-  if (error) throw new Error(formatUnknownError(error) || 'Erro ao buscar inventário no banco.')
-  return data ? rowToSessao(data as DbRow) : null
+  const data = await queryInventarioSessoes(id)
+  return data && !Array.isArray(data) ? rowToSessao(data as DbRow) : null
 }
 
 export async function upsertInventarioSessaoSupabase(sessao: InventarioSessao): Promise<void> {
   if (!inventarioSyncHabilitado()) return
   const row = sessaoToRow(sessao)
-  const { error } = await supabase.from(TABELA).upsert(row, { onConflict: 'id' })
+  let { error } = await supabase.from(TABELA).upsert(row, { onConflict: 'id' })
+  if (error && isColumnMissingError(error)) {
+    const {
+      lista_enderecamento_id: _a,
+      lista_enderecamento_nome: _b,
+      lista_produtos_id: _c,
+      lista_produtos_nome: _d,
+      ...legacyRow
+    } = row
+    const res = await supabase.from(TABELA).upsert(legacyRow, { onConflict: 'id' })
+    error = res.error
+  }
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao salvar inventário no banco.')
 }
 

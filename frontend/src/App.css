@@ -981,6 +981,19 @@
   flex-wrap: wrap;
 }
 
+.page-form-grid__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  align-self: end;
+}
+
+.page-form-grid__check input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
 .page-pagination {
   display: flex;
   align-items: center;
@@ -1115,6 +1128,49 @@
   margin: 12px 0 0;
   font-size: 13px;
   color: #86efac;
+}
+
+.endereco-listas-salvas__row--ativa td {
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.endereco-listas-salvas__badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.15);
+  border-radius: 4px;
+}
+
+.endereco-area-trabalho {
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.endereco-area-trabalho__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.endereco-area-trabalho__header .page-panel__section-title {
+  margin: 0;
+}
+
+.endereco-area-trabalho__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .page-alert {
@@ -2049,6 +2105,28 @@
 
 .inv-cap__chip--wide {
   flex: 1 1 140px;
+}
+
+.inv-cap__chip--action {
+  cursor: pointer;
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.1);
+  font: inherit;
+  text-align: left;
+}
+
+.inv-cap__chip--action:hover:not(:disabled) {
+  background: rgba(250, 204, 21, 0.18);
+}
+
+.inv-cap__chip--action:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.inv-cap__chip-refresh {
+  color: #facc15;
+  font-weight: 700;
 }
 
 .inv-cap__chip-label {

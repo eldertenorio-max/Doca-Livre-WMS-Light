@@ -12,10 +12,61 @@ import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
 
 const LEGACY_STORAGE_KEY = 'contagem-diaria-sessoes-v1'
 
-try {
-  localStorage.removeItem(LEGACY_STORAGE_KEY)
-} catch {
-  /* ignore */
+let legacyMigrationPromise: Promise<void> | null = null
+
+function readLegacyLocal(): ContagemDiariaSessao[] {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((item) => normalizeLegacyContagem(item as Record<string, unknown>))
+  } catch {
+    return []
+  }
+}
+
+function normalizeLegacyContagem(raw: Record<string, unknown>): ContagemDiariaSessao {
+  const createdAt = String(raw.createdAt ?? raw.dataInicio ?? new Date().toISOString())
+  const dataContagemRaw = String(raw.dataContagem ?? '').slice(0, 10)
+  const dataContagem = /^\d{4}-\d{2}-\d{2}$/.test(dataContagemRaw) ? dataContagemRaw : todayYmdLocal()
+  return {
+    id: String(raw.id ?? crypto.randomUUID()),
+    numero: typeof raw.numero === 'number' && Number.isFinite(raw.numero) ? raw.numero : 1,
+    titulo: String(raw.titulo ?? 'Contagem diária'),
+    local: String(raw.local ?? 'ULTRAPAO GUARULHOS DISTRI'),
+    dataContagem,
+    conferenteNome: raw.conferenteNome ? String(raw.conferenteNome) : undefined,
+    dataInicio: String(raw.dataInicio ?? createdAt),
+    dataFim: raw.dataFim ? String(raw.dataFim) : null,
+    status: raw.status === 'fechado' ? 'fechado' : 'aberto',
+    iniciada: Boolean(raw.iniciada),
+    createdAt,
+    updatedAt: String(raw.updatedAt ?? createdAt),
+  }
+}
+
+async function migrateLegacyContagensToSupabase(): Promise<void> {
+  const legacy = readLegacyLocal()
+  if (!legacy.length) return
+  for (const sessao of legacy) {
+    await upsertContagemDiariaSessaoSupabase(sessao)
+  }
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function ensureLegacyContagensMigrated(): Promise<void> {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = migrateLegacyContagensToSupabase().catch((e) => {
+      legacyMigrationPromise = null
+      throw e
+    })
+  }
+  await legacyMigrationPromise
 }
 
 function todayYmdLocal(): string {
@@ -49,8 +100,13 @@ function withUpdatedAt(sessao: ContagemDiariaSessao): ContagemDiariaSessao {
 export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
   requireSupabase()
   try {
+    await ensureLegacyContagensMigrated()
     return await fetchContagemDiariaSessoesSupabase()
   } catch (e) {
+    const legacy = readLegacyLocal()
+    if (legacy.length) {
+      return [...legacy].sort((a, b) => b.numero - a.numero)
+    }
     throw wrapDbError(e, 'Erro ao listar contagens.')
   }
 }
@@ -58,6 +114,7 @@ export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
 export async function getContagemDiaria(id: string): Promise<ContagemDiariaSessao | null> {
   requireSupabase()
   try {
+    await ensureLegacyContagensMigrated()
     return await fetchContagemDiariaSessaoByIdSupabase(id)
   } catch (e) {
     throw wrapDbError(e, 'Erro ao carregar contagem.')

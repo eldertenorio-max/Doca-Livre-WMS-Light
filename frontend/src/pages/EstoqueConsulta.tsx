@@ -13,7 +13,7 @@ import RelatorioContagem from './RelatorioContagem'
 const PAGE_SIZE = 50
 
 type EstoqueTab = 'consulta' | 'exportar'
-type ExportarTab = 'contagem_diaria' | 'inventario'
+type ExportarTipo = 'contagem_diaria' | 'inventario'
 
 function formatDataBR(ymd: string) {
   if (!ymd || ymd.length < 10) return '—'
@@ -34,7 +34,7 @@ function tipoLabel(fonte: EstoqueLinha['fonte']) {
 
 export default function EstoqueConsulta() {
   const [estoqueTab, setEstoqueTab] = useState<EstoqueTab>('consulta')
-  const [exportarTab, setExportarTab] = useState<ExportarTab>('contagem_diaria')
+  const [exportTipo, setExportTipo] = useState<ExportarTipo>('contagem_diaria')
   const [filtros, setFiltros] = useState<EstoqueConsultaFiltros>(() => estoqueFiltrosPadrao())
   const [draft, setDraft] = useState<EstoqueConsultaFiltros>(() => estoqueFiltrosPadrao())
   const [rows, setRows] = useState<EstoqueLinha[]>([])
@@ -132,48 +132,21 @@ export default function EstoqueConsulta() {
       </div>
 
       {estoqueTab === 'exportar' ? (
-        <div className="page-tabs__panel" role="tabpanel">
+        <>
           <p className="page-panel__subtitle" style={{ marginTop: 0 }}>
-            Escolha o tipo de exportação. O arquivo .xlsx usa as mesmas colunas e abas do antigo painel de relatórios.
+            Escolha o tipo, o período e exporte a planilha Excel com as mesmas colunas dos relatórios.
           </p>
-          <div className="page-tabs" role="tablist" aria-label="Tipo de exportação">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={exportarTab === 'contagem_diaria'}
-              className={`page-tabs__btn${exportarTab === 'contagem_diaria' ? ' page-tabs__btn--active' : ''}`}
-              onClick={() => setExportarTab('contagem_diaria')}
-            >
-              Contagem diária
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={exportarTab === 'inventario'}
-              className={`page-tabs__btn${exportarTab === 'inventario' ? ' page-tabs__btn--active' : ''}`}
-              onClick={() => setExportarTab('inventario')}
-            >
-              Inventário
-            </button>
-          </div>
-          <div className="page-tabs__panel">
-            {exportarTab === 'contagem_diaria' ? (
-              <RelatorioContagem
-                key="est-export-cd"
-                exportOnly
-                lockListColumnMode
-                listColumnPrefsInventario={false}
-              />
-            ) : (
-              <RelatorioContagem
-                key="est-export-inv"
-                exportOnly
-                lockListColumnMode
-                listColumnPrefsInventario
-              />
-            )}
-          </div>
-        </div>
+
+          <RelatorioContagem
+            key={exportTipo}
+            exportOnly
+            exportConsultaLayout
+            exportTipo={exportTipo}
+            onExportTipoChange={setExportTipo}
+            lockListColumnMode
+            listColumnPrefsInventario={exportTipo === 'inventario'}
+          />
+        </>
       ) : (
         <>
       <p className="page-panel__subtitle">
