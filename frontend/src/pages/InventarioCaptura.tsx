@@ -753,6 +753,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     <span className="inv-cap__step">1</span> Endereço
                   </h2>
                   <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--endereco">
+                <div className="inv-cap__endereco-row">
                 <div className="inv-cap__endereco-grid">
                   <div className="inv-cap__endereco-item">
                     <label htmlFor="inv-end-camara">Câmara</label>
@@ -846,6 +847,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   >
                     <IconScanBarcode className="inventario-captura__btn-icon" />
                   </button>
+                </div>
                 </div>
                   </div>
                 </section>
@@ -958,7 +960,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   id="inv-produto"
                   value={produtoLabel}
                   readOnly
-                  rows={3}
+                  rows={1}
+                  title={produtoLabel || undefined}
                   className="inventario-captura__readonly inventario-captura__produto"
                   placeholder="Aguardando leitura do produto…"
                 />
