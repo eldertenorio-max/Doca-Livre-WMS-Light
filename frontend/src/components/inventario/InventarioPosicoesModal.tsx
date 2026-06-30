@@ -1,14 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getRuasPorCamara, INVENTARIO_CAMARAS } from './inventarioPlanilhaModel'
 import {
   atualizarInventarioPosicoes,
   type InventarioSessao,
 } from '../../lib/inventarioSessaoStore'
 import {
+  enderecosAtivosDaLista,
+  getEnderecoLista,
+  saveEnderecoLista,
+  type EnderecoLista,
+} from '../../lib/enderecamentoListaSupabase'
+import {
   buildCodigoEndereco,
   listEnderecos,
   planejarEnderecosEmLote,
-  saveEnderecosEmLote,
+  saveEnderecosEmLoteEm,
   type EnderecoCadastro,
 } from '../../lib/enderecamentoStore'
 
@@ -34,7 +40,9 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
   const [selecionados, setSelecionados] = useState<Set<string>>(
     () => new Set((inventario.posicoesCodigos ?? []).map((c) => c.toUpperCase())),
   )
-  const [enderecos, setEnderecos] = useState<EnderecoCadastro[]>(() => listEnderecos())
+  const [listaEndereco, setListaEndereco] = useState<EnderecoLista | null>(null)
+  const [enderecos, setEnderecos] = useState<EnderecoCadastro[]>([])
+  const [enderecosLoading, setEnderecosLoading] = useState(true)
   const [filtroCamara, setFiltroCamara] = useState('')
   const [filtroRua, setFiltroRua] = useState('')
   const [busca, setBusca] = useState('')
@@ -85,8 +93,44 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
     return getRuasPorCamara(Number(filtroCamara))
   }, [filtroCamara])
 
-  function refreshEnderecos() {
-    setEnderecos(listEnderecos())
+  useEffect(() => {
+    let alive = true
+    setEnderecosLoading(true)
+    void (async () => {
+      try {
+        const listaId = inventario.listaEnderecamentoId
+        if (listaId) {
+          const lista = await getEnderecoLista(listaId)
+          if (!alive) return
+          setListaEndereco(lista)
+          setEnderecos(lista ? enderecosAtivosDaLista(lista) : [])
+        } else {
+          setListaEndereco(null)
+          setEnderecos(listEnderecos())
+        }
+      } catch {
+        if (alive) {
+          setListaEndereco(null)
+          setEnderecos(listEnderecos())
+        }
+      } finally {
+        if (alive) setEnderecosLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [inventario.listaEnderecamentoId])
+
+  function refreshEnderecosFromLista(lista: EnderecoLista) {
+    setListaEndereco(lista)
+    setEnderecos(enderecosAtivosDaLista(lista))
+  }
+
+  async function persistListaEnderecos(nextEnderecos: EnderecoCadastro[]) {
+    if (!listaEndereco) return
+    const saved = await saveEnderecoLista({ ...listaEndereco, enderecos: nextEnderecos })
+    refreshEnderecosFromLista(saved)
   }
 
   function toggleCodigo(codigo: string) {
@@ -124,7 +168,7 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
     }
   }
 
-  function handleLoteSubmit(e: React.FormEvent) {
+  async function handleLoteSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoteMsg('')
     const camara = Number(lote.camara)
@@ -136,7 +180,8 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
       setLoteMsg('Informe câmara e rua.')
       return
     }
-    const res = saveEnderecosEmLote({
+    const base = listaEndereco?.enderecos ?? enderecos
+    const { all, resultado: res } = saveEnderecosEmLoteEm(base, {
       camara,
       rua: lote.rua,
       nivelDe,
@@ -146,7 +191,16 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
       observacao: lote.observacao || posicoesNome.trim(),
       substituirExistentes: lote.substituirExistentes,
     })
-    refreshEnderecos()
+    if (listaEndereco) {
+      try {
+        await persistListaEnderecos(all)
+      } catch (err: unknown) {
+        setLoteMsg(err instanceof Error ? err.message : 'Erro ao salvar endereços na lista.')
+        return
+      }
+    } else {
+      setEnderecos(all.filter((r) => r.ativo))
+    }
     setSelecionados((prev) => {
       const next = new Set(prev)
       for (const p of previewLote) next.add(p.codigo.toUpperCase())
@@ -159,14 +213,19 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
     setLoteMsg(`Lote concluído: ${partes.join(', ')}. Posições já marcadas para este inventário.`)
   }
 
-  function handleSalvar() {
-    atualizarInventarioPosicoes(inventario.id, {
-      posicoesNome: posicoesNome.trim(),
-      posicoesCodigos: Array.from(selecionados),
-    })
-    setMsg('Posições salvas neste inventário.')
-    onSaved()
-    onClose()
+  async function handleSalvar() {
+    setMsg('')
+    try {
+      await atualizarInventarioPosicoes(inventario.id, {
+        posicoesNome: posicoesNome.trim(),
+        posicoesCodigos: Array.from(selecionados),
+      })
+      setMsg('Posições salvas neste inventário.')
+      onSaved()
+      onClose()
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao salvar posições.')
+    }
   }
 
   const exemploCodigo =
@@ -192,9 +251,13 @@ export default function InventarioPosicoesModal({ inventario, onClose, onSaved }
 
         <div className="page-modal__body inv-posicoes-modal">
           <p className="inv-posicoes-modal__intro">
-            Crie e nomeie as <strong>posições</strong> (endereços) deste inventário. Os <strong>produtos Ultrapao</strong>{' '}
-            vêm da aba Produtos → Todos os Produtos — separados das posições, para inventariar em qualquer lugar.
+            Selecione as <strong>posições</strong> (endereços) deste inventário
+            {inventario.listaEnderecamentoNome || listaEndereco?.nome
+              ? ` — lista «${inventario.listaEnderecamentoNome ?? listaEndereco?.nome}»`
+              : ''}
+            . Os produtos vêm da lista escolhida ao começar o inventário.
           </p>
+          {enderecosLoading ? <p className="inv-posicoes-modal__intro">Carregando endereços…</p> : null}
 
           <label className="page-form-grid__full">
             Nome do conjunto de posições

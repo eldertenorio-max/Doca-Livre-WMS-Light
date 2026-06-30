@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
+import {
+  createProdutoLista,
+  ensureProdutoListaPadrao,
+  listProdutoListas,
+  saveProdutoLista,
+  type ProdutoLista,
+} from '../lib/produtoListaSupabase'
 import { formatUnknownError, isColumnMissingError } from '../lib/supabaseError'
 import { supabase } from '../lib/supabaseClient'
 import './BaseProdutos.css'
@@ -140,6 +147,68 @@ export default function BaseProdutos() {
   const rowRefs = useRef<Map<string, HTMLElement | null>>(new Map())
 
   const conferenteSelectRef = useRef<HTMLSelectElement | null>(null)
+
+  const [produtoListas, setProdutoListas] = useState<ProdutoLista[]>([])
+  const [listaProdutoId, setListaProdutoId] = useState('')
+  const [listaProdutoMsg, setListaProdutoMsg] = useState('')
+  const [listaProdutoSaving, setListaProdutoSaving] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        await ensureProdutoListaPadrao()
+        const listas = await listProdutoListas()
+        setProdutoListas(listas)
+        setListaProdutoId((prev) => prev || listas[0]?.id || '')
+      } catch (e: unknown) {
+        setListaProdutoMsg(formatUnknownError(e) || 'Erro ao carregar listas de produtos.')
+      }
+    })()
+  }, [])
+
+  async function salvarListaProdutosAtual() {
+    const lista = produtoListas.find((l) => l.id === listaProdutoId)
+    if (!lista) return
+    const nome = window.prompt('Nome da lista de produtos:', lista.nome)
+    if (!nome?.trim()) return
+    setListaProdutoSaving(true)
+    setListaProdutoMsg('')
+    try {
+      const produtos = rows.map((r) => ({
+        codigo_interno: r.codigo_interno,
+        descricao: r.descricao,
+        unidade: r.unidade,
+        ean: r.ean,
+        dun: r.dun,
+      }))
+      const saved = await saveProdutoLista({ ...lista, nome: nome.trim(), produtos })
+      setProdutoListas((prev) => {
+        const rest = prev.filter((l) => l.id !== saved.id)
+        return [...rest, saved].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+      })
+      setListaProdutoId(saved.id)
+      setListaProdutoMsg(`Lista «${saved.nome}» salva com ${produtos.length} produto(s).`)
+    } catch (e: unknown) {
+      setListaProdutoMsg(formatUnknownError(e) || 'Erro ao salvar lista.')
+    } finally {
+      setListaProdutoSaving(false)
+    }
+  }
+
+  async function criarNovaListaProdutos() {
+    const nome = window.prompt('Nome da nova lista de produtos:')
+    if (!nome?.trim()) return
+    try {
+      const nova = await createProdutoLista(nome.trim())
+      setProdutoListas((prev) => [...prev, nova].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
+      setListaProdutoId(nova.id)
+      setListaProdutoMsg(`Lista «${nova.nome}» criada (vazia). Use «Salvar lista atual» para copiar os produtos da tabela.`)
+    } catch (e: unknown) {
+      setListaProdutoMsg(formatUnknownError(e) || 'Erro ao criar lista.')
+    }
+  }
+
+  const listaProdutoAtual = produtoListas.find((l) => l.id === listaProdutoId)
 
   useEffect(() => {
     void (async () => {
@@ -753,6 +822,48 @@ export default function BaseProdutos() {
           + Cadastrar
         </button>
       </header>
+
+      <section className="produtos-page__search" style={{ marginBottom: '1rem' }}>
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Listas de produtos para inventário</h2>
+        <p style={{ margin: '0 0 0.75rem', opacity: 0.85 }}>
+          Salve um conjunto de produtos com nome (ex.: CD Ultrapao guarulhos). Na hora de começar o inventário você
+          escolhe qual lista usar.
+        </p>
+        <div className="produtos-page__search-row" style={{ flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+          <label style={{ flex: '1 1 200px' }}>
+            Lista
+            <select
+              value={listaProdutoId}
+              onChange={(e) => setListaProdutoId(e.target.value)}
+              style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
+            >
+              {produtoListas.length === 0 ? <option value="">— Nenhuma lista —</option> : null}
+              {produtoListas.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.nome} ({l.produtos.length} produtos)
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={() => void criarNovaListaProdutos()}>
+            Nova lista
+          </button>
+          <button
+            type="button"
+            disabled={!listaProdutoId || listaProdutoSaving || rows.length === 0}
+            onClick={() => void salvarListaProdutosAtual()}
+          >
+            {listaProdutoSaving ? 'Salvando…' : 'Salvar lista atual'}
+          </button>
+        </div>
+        {listaProdutoAtual ? (
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', opacity: 0.8 }}>
+            Lista selecionada: {listaProdutoAtual.nome} — {listaProdutoAtual.produtos.length} produto(s) salvos · tabela
+            abaixo: {rows.length} produto(s)
+          </p>
+        ) : null}
+        {listaProdutoMsg ? <p className="produtos-page__success" style={{ marginTop: '0.5rem' }}>{listaProdutoMsg}</p> : null}
+      </section>
 
       <section className="produtos-page__search">
         <label className="produtos-page__search-label" htmlFor="produto-busca">

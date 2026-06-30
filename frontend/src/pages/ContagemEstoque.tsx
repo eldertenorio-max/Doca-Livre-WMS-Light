@@ -140,6 +140,7 @@ import {
   formatDataContagemBR,
   getContagemDiaria,
   marcarContagemIniciada,
+  type ContagemDiariaSessao,
 } from '../lib/contagemDiariaSessaoStore'
 import {
   calcHistoryKeyForCodigo,
@@ -561,10 +562,7 @@ export default function ContagemEstoque({
   onVoltarLista?: () => void
 }) {
   const sessionMode: OfflineSessionMode = inventario ? 'inventario' : 'contagem'
-  const contagemSessaoMeta = useMemo(
-    () => (contagemSessaoId ? getContagemDiaria(contagemSessaoId) : undefined),
-    [contagemSessaoId],
-  )
+  const [contagemSessaoMeta, setContagemSessaoMeta] = useState<ContagemDiariaSessao | undefined>()
   const tContagens = tableContagens(inventario)
   const tPlanilhaFk = planilhaFkContagemColumn(inventario)
   const [conferentes, setConferentes] = useState<Conferente[]>([])
@@ -666,14 +664,30 @@ export default function ContagemEstoque({
   }, [offlineSession])
 
   useEffect(() => {
-    if (inventario || !contagemSessaoId) return
-    const meta = getContagemDiaria(contagemSessaoId)
-    if (!meta) return
-    marcarContagemIniciada(contagemSessaoId)
-    if (meta.dataContagem) {
-      setContagemDiaYmd(meta.dataContagem)
-      setPreviewConsultaDiaYmd(meta.dataContagem)
+    if (!contagemSessaoId || inventario) {
+      setContagemSessaoMeta(undefined)
+      return
     }
+    let alive = true
+    void getContagemDiaria(contagemSessaoId).then((meta) => {
+      if (alive) setContagemSessaoMeta(meta ?? undefined)
+    })
+    return () => {
+      alive = false
+    }
+  }, [contagemSessaoId, inventario])
+
+  useEffect(() => {
+    if (inventario || !contagemSessaoId) return
+    void (async () => {
+      const meta = await getContagemDiaria(contagemSessaoId)
+      if (!meta) return
+      await marcarContagemIniciada(contagemSessaoId)
+      if (meta.dataContagem) {
+        setContagemDiaYmd(meta.dataContagem)
+        setPreviewConsultaDiaYmd(meta.dataContagem)
+      }
+    })()
   }, [contagemSessaoId, inventario])
 
   useEffect(() => {
@@ -4158,7 +4172,7 @@ export default function ContagemEstoque({
           elapsedLabel: formatSessionInterval(sessionStartedAtIso, sessionEndedAtIso),
         })
         setSaveSuccess(`Contagem salva no Supabase.${msgCadastroEanDun}`)
-        if (contagemSessaoId) fecharContagemDiaria(contagemSessaoId)
+        if (contagemSessaoId) await fecharContagemDiaria(contagemSessaoId)
       }
       if (browserNotificationAllowed) {
         notifyContagemFinalizada({

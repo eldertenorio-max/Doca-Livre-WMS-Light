@@ -1,21 +1,22 @@
-export type ContagemDiariaSessao = {
-  id: string
-  numero: number
-  titulo: string
-  local: string
-  /** Dia civil da contagem (YYYY-MM-DD). */
-  dataContagem: string
-  /** Nome do conferente (usuário logado na criação). */
-  conferenteNome?: string
-  dataInicio: string
-  dataFim: string | null
-  status: 'aberto' | 'fechado'
-  /** Usuário já abriu a tela de coleta pelo menos uma vez. */
-  iniciada: boolean
-  createdAt: string
-}
+import {
+  contagemDiariaSyncHabilitado,
+  deleteContagemDiariaSessaoSupabase,
+  fetchContagemDiariaSessaoByIdSupabase,
+  fetchContagemDiariaSessoesSupabase,
+  fetchProximoNumeroContagemDiariaSupabase,
+  upsertContagemDiariaSessaoSupabase,
+} from './contagemDiariaSessaoSupabase'
 
-const STORAGE_KEY = 'contagem-diaria-sessoes-v1'
+export type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
+import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
+
+const LEGACY_STORAGE_KEY = 'contagem-diaria-sessoes-v1'
+
+try {
+  localStorage.removeItem(LEGACY_STORAGE_KEY)
+} catch {
+  /* ignore */
+}
 
 function todayYmdLocal(): string {
   const d = new Date()
@@ -25,43 +26,52 @@ function todayYmdLocal(): string {
   return `${y}-${mo}-${da}`
 }
 
-function readAll(): ContagemDiariaSessao[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as ContagemDiariaSessao[]) : []
-  } catch {
-    return []
+function requireSupabase(): void {
+  if (!contagemDiariaSyncHabilitado()) {
+    throw new Error('Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.')
   }
 }
 
-function writeAll(rows: ContagemDiariaSessao[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rows))
+function wrapDbError(e: unknown, fallback: string): Error {
+  const msg = e instanceof Error ? e.message : fallback
+  if (/relation.*does not exist|42P01/i.test(msg)) {
+    return new Error(
+      'Tabela contagem_diaria_sessoes não existe no Supabase. Execute supabase/sql/create_contagem_diaria_sessoes.sql.',
+    )
+  }
+  return e instanceof Error ? e : new Error(fallback)
 }
 
-export function listContagensDiarias(): ContagemDiariaSessao[] {
-  return readAll().sort((a, b) => b.numero - a.numero)
+function withUpdatedAt(sessao: ContagemDiariaSessao): ContagemDiariaSessao {
+  return { ...sessao, updatedAt: new Date().toISOString() }
 }
 
-export function getContagemDiaria(id: string): ContagemDiariaSessao | undefined {
-  return readAll().find((r) => r.id === id)
+export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
+  requireSupabase()
+  try {
+    return await fetchContagemDiariaSessoesSupabase()
+  } catch (e) {
+    throw wrapDbError(e, 'Erro ao listar contagens.')
+  }
 }
 
-function nextNumero(): number {
-  const all = readAll()
-  if (!all.length) return 1
-  return Math.max(...all.map((r) => r.numero)) + 1
+export async function getContagemDiaria(id: string): Promise<ContagemDiariaSessao | null> {
+  requireSupabase()
+  try {
+    return await fetchContagemDiariaSessaoByIdSupabase(id)
+  } catch (e) {
+    throw wrapDbError(e, 'Erro ao carregar contagem.')
+  }
 }
 
-export function criarContagemDiaria(opts?: {
+export async function criarContagemDiaria(opts?: {
   titulo?: string
   local?: string
   dataContagem?: string
   conferenteNome?: string
-}): ContagemDiariaSessao {
-  const all = readAll()
-  const numero = nextNumero()
+}): Promise<ContagemDiariaSessao> {
+  requireSupabase()
+  const numero = await fetchProximoNumeroContagemDiariaSupabase()
   const now = new Date().toISOString()
   const dataContagem = opts?.dataContagem?.trim() || todayYmdLocal()
   const row: ContagemDiariaSessao = {
@@ -76,58 +86,54 @@ export function criarContagemDiaria(opts?: {
     status: 'aberto',
     iniciada: false,
     createdAt: now,
+    updatedAt: now,
   }
-  all.push(row)
-  writeAll(all)
+  await upsertContagemDiariaSessaoSupabase(row)
   return row
 }
 
-export function saveContagemDiaria(sessao: ContagemDiariaSessao) {
-  const all = readAll()
-  const idx = all.findIndex((r) => r.id === sessao.id)
-  if (idx >= 0) all[idx] = sessao
-  else all.push(sessao)
-  writeAll(all)
+export async function saveContagemDiaria(sessao: ContagemDiariaSessao): Promise<void> {
+  requireSupabase()
+  await upsertContagemDiariaSessaoSupabase(withUpdatedAt(sessao))
 }
 
-export function marcarContagemIniciada(id: string) {
-  const sessao = getContagemDiaria(id)
+export async function marcarContagemIniciada(id: string): Promise<void> {
+  const sessao = await getContagemDiaria(id)
   if (!sessao || sessao.iniciada) return
   sessao.iniciada = true
-  saveContagemDiaria(sessao)
+  await saveContagemDiaria(sessao)
 }
 
-export function fecharContagemDiaria(id: string) {
-  const sessao = getContagemDiaria(id)
+export async function fecharContagemDiaria(id: string): Promise<void> {
+  const sessao = await getContagemDiaria(id)
   if (!sessao) return
   sessao.status = 'fechado'
   sessao.dataFim = new Date().toISOString()
-  saveContagemDiaria(sessao)
+  await saveContagemDiaria(sessao)
 }
 
-export function reabrirContagemDiaria(id: string): ContagemDiariaSessao | null {
-  const sessao = getContagemDiaria(id)
+export async function reabrirContagemDiaria(id: string): Promise<ContagemDiariaSessao | null> {
+  const sessao = await getContagemDiaria(id)
   if (!sessao) return null
   sessao.status = 'aberto'
   sessao.dataFim = null
-  saveContagemDiaria(sessao)
+  await saveContagemDiaria(sessao)
   return sessao
 }
 
-export function deleteContagemDiaria(id: string): boolean {
-  const all = readAll()
-  const idx = all.findIndex((r) => r.id === id)
-  if (idx < 0) return false
-  all.splice(idx, 1)
-  writeAll(all)
+export async function deleteContagemDiaria(id: string): Promise<boolean> {
+  requireSupabase()
+  const sessao = await getContagemDiaria(id)
+  if (!sessao) return false
+  await deleteContagemDiariaSessaoSupabase(id)
   return true
 }
 
-export function atualizarContagemDiariaMeta(
+export async function atualizarContagemDiariaMeta(
   id: string,
   patch: { titulo?: string; local?: string; dataContagem?: string },
-): ContagemDiariaSessao | null {
-  const sessao = getContagemDiaria(id)
+): Promise<ContagemDiariaSessao | null> {
+  const sessao = await getContagemDiaria(id)
   if (!sessao) return null
   if (patch.titulo !== undefined) {
     const t = patch.titulo.trim()
@@ -141,7 +147,7 @@ export function atualizarContagemDiariaMeta(
     const d = patch.dataContagem.trim()
     if (/^\d{4}-\d{2}-\d{2}$/.test(d)) sessao.dataContagem = d
   }
-  saveContagemDiaria(sessao)
+  await saveContagemDiaria(sessao)
   return sessao
 }
 
@@ -150,3 +156,5 @@ export function formatDataContagemBR(ymd: string): string {
   if (!m) return ymd
   return `${m[3]}/${m[2]}/${m[1]}`
 }
+
+export { contagemDiariaSyncHabilitado } from './contagemDiariaSessaoSupabase'

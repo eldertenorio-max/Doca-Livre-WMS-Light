@@ -1,15 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import InventarioPosicoesModal from '../components/inventario/InventarioPosicoesModal'
+import InventarioIniciarModal from '../components/inventario/InventarioIniciarModal'
 import {
   atualizarInventarioMeta,
+  configurarInventarioListas,
   criarInventario,
   deleteInventario,
   fecharInventario,
   inventarioAbertoComMesmoTitulo,
+  inventarioListasConfiguradas,
   listInventarios,
   mensagemTituloInventarioEmUso,
+  reabrirInventario,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
+import { formatUnknownError } from '../lib/supabaseError'
 
 type Props = {
   onAbrirCaptura: (inventarioId: string) => void
@@ -35,8 +40,29 @@ function labelPosicoes(inv: InventarioSessao) {
   return nome ? `${nome} (${n})` : `${n} posição(ões)`
 }
 
+function isoDatePart(iso: string | null): string {
+  if (!iso) return ''
+  return iso.slice(0, 10)
+}
+
+function inventarioMatchBusca(inv: InventarioSessao, q: string): boolean {
+  const u = q.trim().toUpperCase()
+  if (!u) return true
+  const campos = [
+    inv.titulo,
+    inv.local,
+    String(inv.numero),
+    inv.listaEnderecamentoNome ?? '',
+    inv.listaProdutosNome ?? '',
+    inv.posicoesNome ?? '',
+  ]
+  return campos.some((c) => c.toUpperCase().includes(u))
+}
+
 export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
-  const [rows, setRows] = useState<InventarioSessao[]>(() => listInventarios())
+  const [rows, setRows] = useState<InventarioSessao[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [listaTab, setListaTab] = useState<ListaTab>('todos')
   const [criarOpen, setCriarOpen] = useState(false)
   const [criarTitulo, setCriarTitulo] = useState('')
@@ -45,6 +71,11 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const [editarTitulo, setEditarTitulo] = useState('')
   const [editarLocal, setEditarLocal] = useState('')
   const [posicoesInvId, setPosicoesInvId] = useState<string | null>(null)
+  const [iniciarInv, setIniciarInv] = useState<InventarioSessao | null>(null)
+  const [busca, setBusca] = useState('')
+  const [filtroLocal, setFiltroLocal] = useState('')
+  const [filtroDataDe, setFiltroDataDe] = useState('')
+  const [filtroDataAte, setFiltroDataAte] = useState('')
 
   const inventarioPosicoes = useMemo(
     () => (posicoesInvId ? rows.find((r) => r.id === posicoesInvId) : undefined),
@@ -54,15 +85,51 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
   const abertos = useMemo(() => rows.filter((r) => r.status === 'aberto'), [rows])
   const finalizados = useMemo(() => rows.filter((r) => r.status === 'fechado'), [rows])
 
-  const listaFiltrada = useMemo(() => {
+  const locaisDisponiveis = useMemo(() => {
+    const set = new Set(rows.map((r) => r.local.trim()).filter(Boolean))
+    return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [rows])
+
+  const listaPorTab = useMemo(() => {
     if (listaTab === 'abertos') return abertos
     if (listaTab === 'finalizados') return finalizados
     return rows
   }, [rows, listaTab, abertos, finalizados])
 
-  function refresh() {
-    setRows(listInventarios())
+  const filtrosAtivos = Boolean(busca.trim() || filtroLocal || filtroDataDe || filtroDataAte)
+
+  const listaFiltrada = useMemo(() => {
+    let list = listaPorTab
+    if (filtroLocal) list = list.filter((r) => r.local === filtroLocal)
+    if (filtroDataDe) list = list.filter((r) => isoDatePart(r.dataInicio) >= filtroDataDe)
+    if (filtroDataAte) list = list.filter((r) => isoDatePart(r.dataInicio) <= filtroDataAte)
+    if (busca.trim()) list = list.filter((r) => inventarioMatchBusca(r, busca))
+    return list
+  }, [listaPorTab, busca, filtroLocal, filtroDataDe, filtroDataAte])
+
+  function limparFiltros() {
+    setBusca('')
+    setFiltroLocal('')
+    setFiltroDataDe('')
+    setFiltroDataAte('')
   }
+
+  async function refresh() {
+    setLoading(true)
+    setLoadError('')
+    try {
+      setRows(await listInventarios())
+    } catch (e: unknown) {
+      setLoadError(formatUnknownError(e) || 'Erro ao carregar inventários.')
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
 
   function abrirModalCriar() {
     setCriarTitulo('')
@@ -70,25 +137,29 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     setCriarOpen(true)
   }
 
-  function handleCriar() {
+  async function handleCriar() {
     const titulo = criarTitulo.trim()
     if (!titulo) {
       alert('Informe o nome do inventário.')
       return
     }
-    const dup = inventarioAbertoComMesmoTitulo(titulo)
+    const dup = inventarioAbertoComMesmoTitulo(rows, titulo)
     if (dup) {
       alert(mensagemTituloInventarioEmUso(titulo, dup))
       return
     }
-    const created = criarInventario({ titulo, local: criarLocal })
-    if (!created) {
-      alert(mensagemTituloInventarioEmUso(titulo))
-      return
+    try {
+      const created = await criarInventario({ titulo, local: criarLocal })
+      if (!created) {
+        alert(mensagemTituloInventarioEmUso(titulo))
+        return
+      }
+      setCriarOpen(false)
+      setListaTab('abertos')
+      await refresh()
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao criar inventário.')
     }
-    setCriarOpen(false)
-    setListaTab('abertos')
-    refresh()
   }
 
   function abrirModalEditar(inv: InventarioSessao) {
@@ -97,42 +168,89 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     setEditarLocal(inv.local)
   }
 
-  function salvarEdicaoMeta() {
+  async function salvarEdicaoMeta() {
     if (!editarId) return
     const titulo = editarTitulo.trim()
     if (!titulo) {
       alert('Informe o nome do inventário.')
       return
     }
-    const dup = inventarioAbertoComMesmoTitulo(titulo, editarId)
+    const dup = inventarioAbertoComMesmoTitulo(rows, titulo, editarId)
     if (dup) {
       alert(mensagemTituloInventarioEmUso(titulo, dup))
       return
     }
-    const updated = atualizarInventarioMeta(editarId, { titulo, local: editarLocal })
-    if (!updated) {
-      alert(mensagemTituloInventarioEmUso(titulo))
-      return
+    try {
+      const updated = await atualizarInventarioMeta(editarId, { titulo, local: editarLocal })
+      if (!updated) {
+        alert(mensagemTituloInventarioEmUso(titulo))
+        return
+      }
+      setEditarId(null)
+      await refresh()
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao salvar inventário.')
     }
-    setEditarId(null)
-    refresh()
   }
 
-  function handleExcluir(inv: InventarioSessao) {
+  async function handleExcluir(inv: InventarioSessao) {
     const n = inv.linhas.length
     const msg =
       n > 0
         ? `Excluir o inventário "${inv.titulo}"? As ${n} linha(s) coletadas serão perdidas permanentemente.`
         : `Excluir o inventário "${inv.titulo}"?`
     if (!confirm(msg)) return
-    deleteInventario(inv.id)
-    if (editarId === inv.id) setEditarId(null)
-    if (posicoesInvId === inv.id) setPosicoesInvId(null)
-    refresh()
+    try {
+      await deleteInventario(inv.id)
+      if (editarId === inv.id) setEditarId(null)
+      if (posicoesInvId === inv.id) setPosicoesInvId(null)
+      await refresh()
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao excluir inventário.')
+    }
   }
 
-  function continuarInventario(id: string) {
-    onAbrirCaptura(id)
+  function continuarInventario(inv: InventarioSessao) {
+    if (!inventarioListasConfiguradas(inv)) {
+      setIniciarInv(inv)
+      return
+    }
+    onAbrirCaptura(inv.id)
+  }
+
+  async function entrarEAlterarInventario(inv: InventarioSessao) {
+    if (
+      !confirm(
+        `O inventário «${inv.titulo}» está finalizado.\n\nDeseja reabrir para entrar e alterar?`,
+      )
+    ) {
+      return
+    }
+    try {
+      await reabrirInventario(inv.id)
+      await refresh()
+      onAbrirCaptura(inv.id)
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao reabrir inventário.')
+    }
+  }
+
+  async function confirmarIniciarInventario(opts: {
+    listaEnderecamentoId: string
+    listaEnderecamentoNome: string
+    listaProdutosId: string
+    listaProdutosNome: string
+  }) {
+    if (!iniciarInv) return
+    try {
+      await configurarInventarioListas(iniciarInv.id, opts)
+      const id = iniciarInv.id
+      setIniciarInv(null)
+      await refresh()
+      onAbrirCaptura(id)
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao configurar inventário.')
+    }
   }
 
   function renderAcoes(r: InventarioSessao, layout: 'table' | 'card') {
@@ -146,7 +264,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
     if (r.status === 'aberto') {
       return (
         <>
-          <button type="button" className={btnClass} onClick={() => continuarInventario(r.id)}>
+          <button type="button" className={btnClass} onClick={() => continuarInventario(r)}>
             {labelColeta(r)}
           </button>
           <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
@@ -160,8 +278,7 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
             className={ghostClass}
             onClick={() => {
               if (confirm('Finalizar este inventário?')) {
-                fecharInventario(r.id)
-                refresh()
+                void fecharInventario(r.id).then(() => refresh())
               }
             }}
           >
@@ -176,11 +293,17 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
 
     return (
       <>
+        <span className="inv-status inv-status--closed inv-actions-finalizado" title="Inventário finalizado">
+          Finalizado
+        </span>
         <button type="button" className={ghostClass} onClick={() => abrirModalEditar(r)}>
           Editar
         </button>
         <button type="button" className={ghostClass} onClick={() => setPosicoesInvId(r.id)}>
           Posições
+        </button>
+        <button type="button" className={btnClass} onClick={() => void entrarEAlterarInventario(r)}>
+          Entrar e alterar
         </button>
         <button type="button" className={ghostClass} onClick={() => onAbrirCaptura(r.id)}>
           Ver
@@ -198,13 +321,19 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
       <p className="page-panel__subtitle">
         Crie um inventário com nome — configure as <strong>posições</strong> (endereços) e use a lista de produtos{' '}
         <strong>Ultrapao</strong> (aba Produtos → Todos os Produtos). Depois clique em <strong>Começar inventário</strong>{' '}
-        para coletar.
+        para coletar. Os dados ficam salvos no <strong>Supabase</strong> e aparecem em qualquer dispositivo.
       </p>
+
+      {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
+      {loading ? <p className="page-panel__meta">Carregando inventários…</p> : null}
 
       <div className="page-form-grid inv-gerenciar__criar">
         <div className="page-form-grid__actions">
-          <button type="button" onClick={abrirModalCriar}>
+          <button type="button" onClick={abrirModalCriar} disabled={loading}>
             Criar inventário
+          </button>
+          <button type="button" className="page-btn-ghost" disabled={loading} onClick={() => void refresh()}>
+            {loading ? 'Carregando…' : 'Atualizar lista'}
           </button>
         </div>
       </div>
@@ -239,13 +368,56 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
         </button>
       </div>
 
+      <section className="page-form-grid page-form-grid--filters inv-gerenciar__filters" aria-label="Busca e filtros">
+        <label className="page-form-grid__full">
+          Buscar inventário
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Nome, local, nº, listas de endereço ou produtos…"
+          />
+        </label>
+        <label>
+          Local / unidade
+          <select value={filtroLocal} onChange={(e) => setFiltroLocal(e.target.value)}>
+            <option value="">Todos</option>
+            {locaisDisponiveis.map((local) => (
+              <option key={local} value={local}>
+                {local}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Início de
+          <input type="date" value={filtroDataDe} onChange={(e) => setFiltroDataDe(e.target.value)} />
+        </label>
+        <label>
+          Início até
+          <input type="date" value={filtroDataAte} onChange={(e) => setFiltroDataAte(e.target.value)} />
+        </label>
+        <div className="page-form-grid__actions page-form-grid__actions--wrap">
+          <button type="button" className="page-btn-ghost" disabled={!filtrosAtivos} onClick={limparFiltros}>
+            Limpar filtros
+          </button>
+        </div>
+      </section>
+
+      <p className="page-panel__meta inv-gerenciar__resultado">
+        {listaFiltrada.length === listaPorTab.length
+          ? `${listaFiltrada.length} inventário(s) nesta lista`
+          : `Mostrando ${listaFiltrada.length} de ${listaPorTab.length} inventário(s)`}
+      </p>
+
       {abertos.length > 0 ? (
         <p className="inv-gerenciar__hint">{abertos.length} inventário(s) aberto(s)</p>
       ) : null}
 
       <div className="inv-list-cards">
         {listaFiltrada.length === 0 ? (
-          <p className="inv-list-empty">Nenhum inventário nesta lista.</p>
+          <p className="inv-list-empty">
+            {filtrosAtivos ? 'Nenhum inventário encontrado com estes filtros.' : 'Nenhum inventário nesta lista.'}
+          </p>
         ) : (
           listaFiltrada.map((r) => (
             <article key={r.id} className="inv-card">
@@ -298,7 +470,9 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
           <tbody>
             {listaFiltrada.length === 0 ? (
               <tr>
-                <td colSpan={9}>Nenhum inventário nesta lista.</td>
+                <td colSpan={9}>
+                  {filtrosAtivos ? 'Nenhum inventário encontrado com estes filtros.' : 'Nenhum inventário nesta lista.'}
+                </td>
               </tr>
             ) : (
               listaFiltrada.map((r) => (
@@ -431,6 +605,14 @@ export default function InventarioGerenciar({ onAbrirCaptura }: Props) {
           inventario={inventarioPosicoes}
           onClose={() => setPosicoesInvId(null)}
           onSaved={refresh}
+        />
+      ) : null}
+
+      {iniciarInv ? (
+        <InventarioIniciarModal
+          inventario={iniciarInv}
+          onClose={() => setIniciarInv(null)}
+          onConfirm={(opts) => void confirmarIniciarInventario(opts)}
         />
       ) : null}
     </div>

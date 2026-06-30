@@ -35,6 +35,13 @@ export function listEnderecosTodos(): EnderecoCadastro[] {
   return readAll().sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR'))
 }
 
+/** Primeiro segmento numérico do código de endereço (ex.: 11-A-01-1 → 11). */
+export function camaraFromEnderecoCodigo(codigo: string): number | null {
+  const parts = normalizeEnderecoCodigo(String(codigo ?? '').trim()).split('-')
+  const n = Number(parts[0])
+  return Number.isFinite(n) ? n : null
+}
+
 export function findEnderecoByCodigo(codigo: string): EnderecoCadastro | undefined {
   const q = String(codigo ?? '').trim().toUpperCase()
   if (!q) return undefined
@@ -98,6 +105,108 @@ function matchEnderecoFiltro(r: EnderecoCadastro, filtro: EnderecoDeleteFiltro):
   }
   if (filtro.nivel != null && r.nivel !== filtro.nivel) return false
   return true
+}
+
+/** Quantos endereços seriam removidos pelo filtro (em uma lista em memória). */
+export function contarEnderecosPorFiltroEm(all: EnderecoCadastro[], filtro: EnderecoDeleteFiltro): number {
+  return all.filter((r) => matchEnderecoFiltro(r, filtro)).length
+}
+
+/** Remove endereços que batem com o filtro (em memória). */
+export function deleteEnderecosPorFiltroEm(all: EnderecoCadastro[], filtro: EnderecoDeleteFiltro): EnderecoCadastro[] {
+  return all.filter((r) => !matchEnderecoFiltro(r, filtro))
+}
+
+export function deleteEnderecoEm(all: EnderecoCadastro[], id: string): EnderecoCadastro[] {
+  return all.filter((r) => r.id !== id)
+}
+
+export function deleteTodosEnderecosEm(): EnderecoCadastro[] {
+  return []
+}
+
+export function saveEnderecoEm(
+  all: EnderecoCadastro[],
+  input: Omit<EnderecoCadastro, 'id' | 'createdAt'> & { id?: string },
+): { all: EnderecoCadastro[]; row: EnderecoCadastro } {
+  const next = [...all]
+  const now = new Date().toISOString()
+  if (input.id) {
+    const idx = next.findIndex((r) => r.id === input.id)
+    const row: EnderecoCadastro = {
+      id: input.id,
+      codigo: input.codigo.trim(),
+      camara: input.camara,
+      rua: input.rua.trim(),
+      posicao: input.posicao,
+      nivel: input.nivel,
+      observacao: input.observacao.trim(),
+      ativo: input.ativo,
+      createdAt: idx >= 0 ? next[idx]!.createdAt : now,
+    }
+    if (idx >= 0) next[idx] = row
+    else next.push(row)
+    return { all: next, row }
+  }
+  const row: EnderecoCadastro = {
+    id: crypto.randomUUID(),
+    codigo: input.codigo.trim(),
+    camara: input.camara,
+    rua: input.rua.trim(),
+    posicao: input.posicao,
+    nivel: input.nivel,
+    observacao: input.observacao.trim(),
+    ativo: input.ativo,
+    createdAt: now,
+  }
+  next.push(row)
+  return { all: next, row }
+}
+
+export function saveEnderecosEmLoteEm(
+  all: EnderecoCadastro[],
+  input: EnderecoLoteInput,
+): { all: EnderecoCadastro[]; resultado: EnderecoLoteResultado } {
+  const planejados = planejarEnderecosEmLote(input)
+  const next = [...all]
+  const byCodigo = new Map(next.map((r) => [r.codigo.trim().toUpperCase(), r]))
+  const now = new Date().toISOString()
+  let criados = 0
+  let atualizados = 0
+  let ignorados = 0
+
+  for (const p of planejados) {
+    const key = p.codigo.trim().toUpperCase()
+    const existente = byCodigo.get(key)
+    if (existente) {
+      if (input.substituirExistentes) {
+        existente.camara = p.camara
+        existente.rua = p.rua
+        existente.posicao = p.posicao
+        existente.nivel = p.nivel
+        existente.observacao = p.observacao
+        existente.ativo = true
+        atualizados++
+      } else {
+        ignorados++
+      }
+      continue
+    }
+    const row: EnderecoCadastro = {
+      id: crypto.randomUUID(),
+      ...p,
+      createdAt: now,
+    }
+    next.push(row)
+    byCodigo.set(key, row)
+    criados++
+  }
+
+  return { all: next, resultado: { criados, atualizados, ignorados, total: planejados.length } }
+}
+
+export function listEnderecosAtivosDe(all: EnderecoCadastro[]): EnderecoCadastro[] {
+  return [...all].filter((r) => r.ativo).sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR'))
 }
 
 /** Quantos endereços seriam removidos pelo filtro. */

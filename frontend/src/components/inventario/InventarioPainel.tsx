@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import WmsBarChart from '../dashboard/WmsBarChart'
 import WmsKpiCard from '../dashboard/WmsKpiCard'
 import { buildPainelInventario } from '../../lib/painelInventarioData'
 import { listInventarios } from '../../lib/inventarioSessaoStore'
+import type { InventarioSessao } from '../../lib/inventarioSessaoTypes'
 import '../dashboard/wmsDashboard.css'
 
 type Props = {
@@ -10,16 +11,21 @@ type Props = {
 }
 
 export default function InventarioPainel({ refreshKey = 0 }: Props) {
-  const data = useMemo(() => {
-    void refreshKey
-    return buildPainelInventario()
+  const [invs, setInvs] = useState<InventarioSessao[]>([])
+
+  useEffect(() => {
+    void listInventarios()
+      .then(setInvs)
+      .catch(() => setInvs([]))
   }, [refreshKey])
 
-  const fechados = useMemo(() => listInventarios().filter((i) => i.status === 'fechado').length, [refreshKey])
+  const data = useMemo(() => buildPainelInventario(invs), [invs])
+
+  const fechados = useMemo(() => invs.filter((i) => i.status === 'fechado').length, [invs])
 
   const porCamara = useMemo(() => {
     const map = new Map<string, number>()
-    for (const inv of listInventarios()) {
+    for (const inv of invs) {
       for (const ln of inv.linhas) {
         const cam = ln.endereco.trim().split('-')[0] || '—'
         map.set(cam, (map.get(cam) ?? 0) + 1)
@@ -29,13 +35,13 @@ export default function InventarioPainel({ refreshKey = 0 }: Props) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([label, value]) => ({ label: `C${label}`, value }))
-  }, [refreshKey])
+  }, [invs])
 
   return (
     <section className="wms-dashboard wms-dashboard--inventario">
       <header className="wms-dashboard__header">
         <h2 className="wms-dashboard__heading">Painel — Inventário</h2>
-        <p className="wms-dashboard__hint">Indicadores das sessões de inventário (captura local)</p>
+        <p className="wms-dashboard__hint">Indicadores das sessões de inventário (Supabase)</p>
       </header>
 
       <div className="wms-dashboard__top">
@@ -113,11 +119,7 @@ export default function InventarioPainel({ refreshKey = 0 }: Props) {
             barColor="#c62828"
           />
           {porCamara.length > 0 ? (
-            <WmsBarChart
-              title="Linhas por câmara (top)"
-              points={porCamara}
-              barColor="#00695c"
-            />
+            <WmsBarChart title="Linhas por câmara (top)" points={porCamara} barColor="#00695c" />
           ) : null}
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { listEnderecos } from './enderecamentoStore'
-import { listInventarios } from './inventarioSessaoStore'
+import type { InventarioSessao } from './inventarioSessaoTypes'
 
 export type PainelInventario = {
   inventariosAbertos: number
@@ -24,9 +24,8 @@ function ymdFromIso(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d)
 }
 
-export function buildPainelInventario(): PainelInventario {
+export function buildPainelInventario(invs: InventarioSessao[]): PainelInventario {
   const hoje = todaySpYmd()
-  const invs = listInventarios()
   const abertos = invs.filter((i) => i.status === 'aberto')
   let linhasHoje = 0
   let linhasTotal = 0

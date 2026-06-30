@@ -1,17 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getRuasPorCamara, INVENTARIO_CAMARAS } from '../components/inventario/inventarioPlanilhaModel'
 import {
+  createEnderecoLista,
+  ensureEnderecoListaPadrao,
+  listEnderecoListas,
+  saveEnderecoLista,
+  type EnderecoLista,
+} from '../lib/enderecamentoListaSupabase'
+import {
   buildCodigoEndereco,
-  contarEnderecosPorFiltro,
-  deleteEndereco,
-  deleteEnderecosPorFiltro,
-  deleteTodosEnderecos,
-  listEnderecosTodos,
+  contarEnderecosPorFiltroEm,
+  deleteEnderecoEm,
+  deleteEnderecosPorFiltroEm,
+  deleteTodosEnderecosEm,
   planejarEnderecosEmLote,
-  saveEndereco,
-  saveEnderecosEmLote,
+  saveEnderecoEm,
+  saveEnderecosEmLoteEm,
   type EnderecoCadastro,
 } from '../lib/enderecamentoStore'
+import { formatUnknownError } from '../lib/supabaseError'
 
 const PAGE_SIZE = 30
 
@@ -43,7 +50,12 @@ const emptyExclusao = () => ({
 })
 
 export default function CadastroEnderecamento() {
-  const [rows, setRows] = useState<EnderecoCadastro[]>(() => listEnderecosTodos())
+  const [listas, setListas] = useState<EnderecoLista[]>([])
+  const [listaAtual, setListaAtual] = useState<EnderecoLista | null>(null)
+  const [rows, setRows] = useState<EnderecoCadastro[]>([])
+  const [listaLoading, setListaLoading] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [listaMsg, setListaMsg] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [lote, setLote] = useState(emptyLote)
   const [loteAberto, setLoteAberto] = useState(true)
@@ -53,6 +65,99 @@ export default function CadastroEnderecamento() {
   const [busca, setBusca] = useState('')
   const [page, setPage] = useState(1)
   const [loteMsg, setLoteMsg] = useState('')
+
+  const sortRows = useCallback(
+    (list: EnderecoCadastro[]) => [...list].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR')),
+    [],
+  )
+
+  const carregarListas = useCallback(
+    async (selectId?: string) => {
+      setListaLoading(true)
+      setListaMsg('')
+      try {
+        await ensureEnderecoListaPadrao()
+        const all = await listEnderecoListas()
+        setListas(all)
+        const id = selectId ?? listaAtual?.id ?? all[0]?.id ?? ''
+        const lista = all.find((l) => l.id === id) ?? all[0] ?? null
+        setListaAtual(lista)
+        setRows(lista ? sortRows(lista.enderecos) : [])
+      } catch (e: unknown) {
+        setListaMsg(formatUnknownError(e) || 'Erro ao carregar listas de endereçamento.')
+      } finally {
+        setListaLoading(false)
+      }
+    },
+    [listaAtual?.id, sortRows],
+  )
+
+  useEffect(() => {
+    void carregarListas()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const persistRows = useCallback(
+    async (newRows: EnderecoCadastro[]) => {
+      if (!listaAtual) return
+      setSalvando(true)
+      setListaMsg('')
+      try {
+        const saved = await saveEnderecoLista({ ...listaAtual, enderecos: newRows })
+        setListaAtual(saved)
+        const sorted = sortRows(saved.enderecos)
+        setRows(sorted)
+        setListas((prev) => prev.map((l) => (l.id === saved.id ? saved : l)))
+      } catch (e: unknown) {
+        setListaMsg(formatUnknownError(e) || 'Erro ao salvar lista.')
+        throw e
+      } finally {
+        setSalvando(false)
+      }
+    },
+    [listaAtual, sortRows],
+  )
+
+  function selecionarLista(id: string) {
+    const lista = listas.find((l) => l.id === id)
+    if (!lista) return
+    setListaAtual(lista)
+    setRows(sortRows(lista.enderecos))
+    setPage(1)
+    setForm(emptyForm())
+    setListaMsg('')
+  }
+
+  async function criarNovaLista() {
+    const nome = window.prompt('Nome da nova lista de endereçamento:')
+    if (!nome?.trim()) return
+    try {
+      const nova = await createEnderecoLista(nome.trim())
+      await carregarListas(nova.id)
+      setListaMsg(`Lista «${nova.nome}» criada.`)
+    } catch (e: unknown) {
+      setListaMsg(formatUnknownError(e) || 'Erro ao criar lista.')
+    }
+  }
+
+  async function salvarListaAtual() {
+    if (!listaAtual) return
+    const nome = window.prompt('Nome da lista de endereçamento:', listaAtual.nome)
+    if (!nome?.trim()) return
+    setSalvando(true)
+    try {
+      const saved = await saveEnderecoLista({ ...listaAtual, nome: nome.trim(), enderecos: rows })
+      setListaAtual(saved)
+      setListas((prev) => {
+        const rest = prev.filter((l) => l.id !== saved.id)
+        return [...rest, saved].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+      })
+      setListaMsg(`Lista «${saved.nome}» salva (${rows.length} endereço(s)).`)
+    } catch (e: unknown) {
+      setListaMsg(formatUnknownError(e) || 'Erro ao salvar lista.')
+    } finally {
+      setSalvando(false)
+    }
+  }
 
   const ruasLote = useMemo(() => {
     const c = Number(lote.camara)
@@ -114,26 +219,22 @@ export default function CadastroEnderecamento() {
     const camara = Number(exclusao.camara)
     const nivel = Number(exclusao.nivel)
     if (!Number.isFinite(camara) || !exclusao.rua.trim() || !Number.isFinite(nivel)) return 0
-    return contarEnderecosPorFiltro({ camara, rua: exclusao.rua, nivel })
-  }, [exclusao])
+    return contarEnderecosPorFiltroEm(rows, { camara, rua: exclusao.rua, nivel })
+  }, [exclusao, rows])
 
   const previewExclusaoRua = useMemo(() => {
     const camara = Number(exclusao.camara)
     if (!Number.isFinite(camara) || !exclusao.rua.trim()) return 0
-    return contarEnderecosPorFiltro({ camara, rua: exclusao.rua })
-  }, [exclusao.camara, exclusao.rua])
+    return contarEnderecosPorFiltroEm(rows, { camara, rua: exclusao.rua })
+  }, [exclusao.camara, exclusao.rua, rows])
 
   const previewExclusaoCamara = useMemo(() => {
     const camara = Number(exclusao.camara)
     if (!Number.isFinite(camara)) return 0
-    return contarEnderecosPorFiltro({ camara })
-  }, [exclusao.camara])
+    return contarEnderecosPorFiltroEm(rows, { camara })
+  }, [exclusao.camara, rows])
 
-  function refresh() {
-    setRows(listEnderecosTodos())
-  }
-
-  function executarExclusao(tipo: 'nivel' | 'rua' | 'camara' | 'todos') {
+  async function executarExclusao(tipo: 'nivel' | 'rua' | 'camara' | 'todos') {
     setExclusaoMsg('')
     const camara = Number(exclusao.camara)
 
@@ -143,12 +244,15 @@ export default function CadastroEnderecamento() {
         setExclusaoMsg('Não há endereços para excluir.')
         return
       }
-      if (!confirm(`Excluir TODOS os ${n} endereços? Esta ação não pode ser desfeita.`)) return
-      if (!confirm('Confirme novamente: apagar toda a base de endereços?')) return
-      const removidos = deleteTodosEnderecos()
-      refresh()
-      setPage(1)
-      setExclusaoMsg(`${removidos} endereço(s) excluído(s).`)
+      if (!confirm(`Excluir TODOS os ${n} endereços desta lista? Esta ação não pode ser desfeita.`)) return
+      if (!confirm('Confirme novamente: apagar todos os endereços desta lista?')) return
+      try {
+        await persistRows(deleteTodosEnderecosEm())
+        setPage(1)
+        setExclusaoMsg(`${n} endereço(s) excluído(s).`)
+      } catch {
+        setExclusaoMsg('Erro ao excluir endereços.')
+      }
       return
     }
 
@@ -164,10 +268,14 @@ export default function CadastroEnderecamento() {
         return
       }
       if (!confirm(`Excluir ${n} endereço(s) da câmara ${camara}?`)) return
-      const removidos = deleteEnderecosPorFiltro({ camara })
-      refresh()
-      setPage(1)
-      setExclusaoMsg(`${removidos} endereço(s) da câmara ${camara} excluído(s).`)
+      try {
+        const next = deleteEnderecosPorFiltroEm(rows, { camara })
+        await persistRows(next)
+        setPage(1)
+        setExclusaoMsg(`${n} endereço(s) da câmara ${camara} excluído(s).`)
+      } catch {
+        setExclusaoMsg('Erro ao excluir endereços.')
+      }
       return
     }
 
@@ -183,10 +291,14 @@ export default function CadastroEnderecamento() {
         return
       }
       if (!confirm(`Excluir ${n} endereço(s) da câmara ${camara}, rua ${exclusao.rua}?`)) return
-      const removidos = deleteEnderecosPorFiltro({ camara, rua: exclusao.rua })
-      refresh()
-      setPage(1)
-      setExclusaoMsg(`${removidos} endereço(s) da rua ${exclusao.rua} (câm. ${camara}) excluído(s).`)
+      try {
+        const next = deleteEnderecosPorFiltroEm(rows, { camara, rua: exclusao.rua })
+        await persistRows(next)
+        setPage(1)
+        setExclusaoMsg(`${n} endereço(s) da rua ${exclusao.rua} (câm. ${camara}) excluído(s).`)
+      } catch {
+        setExclusaoMsg('Erro ao excluir endereços.')
+      }
       return
     }
 
@@ -207,12 +319,16 @@ export default function CadastroEnderecamento() {
     ) {
       return
     }
-    const removidos = deleteEnderecosPorFiltro({ camara, rua: exclusao.rua, nivel })
-    refresh()
-    setPage(1)
-    setExclusaoMsg(
-      `${removidos} endereço(s) do nível ${nivel} (câm. ${camara}, rua ${exclusao.rua}) excluído(s).`,
-    )
+    try {
+      const next = deleteEnderecosPorFiltroEm(rows, { camara, rua: exclusao.rua, nivel })
+      await persistRows(next)
+      setPage(1)
+      setExclusaoMsg(
+        `${n} endereço(s) do nível ${nivel} (câm. ${camara}, rua ${exclusao.rua}) excluído(s).`,
+      )
+    } catch {
+      setExclusaoMsg('Erro ao excluir endereços.')
+    }
   }
 
   function editar(r: EnderecoCadastro) {
@@ -233,8 +349,8 @@ export default function CadastroEnderecamento() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.codigo.trim()) return
-    saveEndereco({
+    if (!form.codigo.trim() || !listaAtual) return
+    const { all } = saveEnderecoEm(rows, {
       id: form.id || undefined,
       codigo: form.codigo,
       camara: form.camara ? Number(form.camara) : null,
@@ -244,8 +360,7 @@ export default function CadastroEnderecamento() {
       observacao: form.observacao,
       ativo: true,
     })
-    limpar()
-    refresh()
+    void persistRows(all).then(() => limpar())
   }
 
   function handleLoteSubmit(e: React.FormEvent) {
@@ -277,7 +392,7 @@ export default function CadastroEnderecamento() {
       return
     }
 
-    const res = saveEnderecosEmLote({
+    const { all, resultado: res } = saveEnderecosEmLoteEm(rows, {
       camara,
       rua: lote.rua,
       nivelDe,
@@ -287,11 +402,12 @@ export default function CadastroEnderecamento() {
       observacao: lote.observacao,
       substituirExistentes: lote.substituirExistentes,
     })
-    refresh()
-    const partes = [`${res.criados} criado(s)`]
-    if (res.atualizados) partes.push(`${res.atualizados} atualizado(s)`)
-    if (res.ignorados) partes.push(`${res.ignorados} já existente(s) — ignorado(s)`)
-    setLoteMsg(`Lote concluído: ${partes.join(', ')} (total ${res.total} endereços no intervalo).`)
+    void persistRows(all).then(() => {
+      const partes = [`${res.criados} criado(s)`]
+      if (res.atualizados) partes.push(`${res.atualizados} atualizado(s)`)
+      if (res.ignorados) partes.push(`${res.ignorados} já existente(s) — ignorado(s)`)
+      setLoteMsg(`Lote concluído: ${partes.join(', ')} (total ${res.total} endereços no intervalo).`)
+    })
   }
 
   const exemploCodigo =
@@ -306,6 +422,33 @@ export default function CadastroEnderecamento() {
         Endereços usados na contagem do inventário (câmara, rua, posição, nível). O código é o que o conferente bipa na
         tela de captura — formato padrão: <strong>{exemploCodigo}</strong> (câmara-rua-posição-nível).
       </p>
+
+      <section className="page-form-grid endereco-lista-toolbar" style={{ marginBottom: '1rem' }}>
+        <label className="page-form-grid__full">
+          Lista de endereçamento
+          <select
+            value={listaAtual?.id ?? ''}
+            disabled={listaLoading || salvando}
+            onChange={(e) => selecionarLista(e.target.value)}
+          >
+            {listas.length === 0 ? <option value="">— Carregando —</option> : null}
+            {listas.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.nome} ({l.enderecos.filter((e) => e.ativo !== false).length} endereços)
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="page-form-grid__full" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" disabled={listaLoading || salvando} onClick={() => void criarNovaLista()}>
+            Nova lista
+          </button>
+          <button type="button" disabled={!listaAtual || salvando} onClick={() => void salvarListaAtual()}>
+            {salvando ? 'Salvando…' : 'Salvar lista'}
+          </button>
+        </div>
+        {listaMsg ? <p className="page-form-grid__full page-msg">{listaMsg}</p> : null}
+      </section>
 
       <section className="endereco-lote-panel">
         <button
@@ -633,9 +776,10 @@ export default function CadastroEnderecamento() {
                         className="page-btn-ghost page-btn-danger"
                         onClick={() => {
                           if (confirm(`Excluir o endereço ${r.codigo}?`)) {
-                            deleteEndereco(r.id)
-                            if (form.id === r.id) limpar()
-                            refresh()
+                            const next = deleteEnderecoEm(rows, r.id)
+                            void persistRows(next).then(() => {
+                              if (form.id === r.id) limpar()
+                            })
                           }
                         }}
                       >

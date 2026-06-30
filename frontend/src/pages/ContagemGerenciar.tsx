@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { usernameFromSession } from '../lib/authUser'
 import {
@@ -11,6 +11,7 @@ import {
   reabrirContagemDiaria,
   type ContagemDiariaSessao,
 } from '../lib/contagemDiariaSessaoStore'
+import { formatUnknownError } from '../lib/supabaseError'
 
 type Props = {
   onAbrirContagem: (contagemId: string) => void
@@ -46,7 +47,9 @@ function todayYmdLocal(): string {
 
 export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const conferenteLogado = usernameFromSession(session)
-  const [rows, setRows] = useState<ContagemDiariaSessao[]>(() => listContagensDiarias())
+  const [rows, setRows] = useState<ContagemDiariaSessao[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [listaTab, setListaTab] = useState<ListaTab>('todos')
   const [criarOpen, setCriarOpen] = useState(false)
   const [criarTitulo, setCriarTitulo] = useState('')
@@ -66,9 +69,22 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     return rows
   }, [rows, listaTab, abertos, finalizados])
 
-  function refresh() {
-    setRows(listContagensDiarias())
+  async function refresh() {
+    setLoading(true)
+    setLoadError('')
+    try {
+      setRows(await listContagensDiarias())
+    } catch (e: unknown) {
+      setLoadError(formatUnknownError(e) || 'Erro ao carregar contagens.')
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
   }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
 
   function abrirModalCriar() {
     setCriarTitulo('')
@@ -77,21 +93,25 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     setCriarOpen(true)
   }
 
-  function handleCriar() {
+  async function handleCriar() {
     const titulo = criarTitulo.trim()
     if (!titulo) {
       alert('Informe o nome da contagem.')
       return
     }
-    criarContagemDiaria({
-      titulo,
-      local: criarLocal,
-      dataContagem: criarData,
-      conferenteNome: conferenteLogado,
-    })
-    setCriarOpen(false)
-    setListaTab('abertos')
-    refresh()
+    try {
+      await criarContagemDiaria({
+        titulo,
+        local: criarLocal,
+        dataContagem: criarData,
+        conferenteNome: conferenteLogado,
+      })
+      setCriarOpen(false)
+      setListaTab('abertos')
+      await refresh()
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao criar contagem.')
+    }
   }
 
   function abrirModalEditar(c: ContagemDiariaSessao) {
@@ -101,38 +121,55 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     setEditarData(c.dataContagem)
   }
 
-  function salvarEdicaoMeta() {
+  async function salvarEdicaoMeta() {
     if (!editarId) return
     const titulo = editarTitulo.trim()
     if (!titulo) {
       alert('Informe o nome da contagem.')
       return
     }
-    atualizarContagemDiariaMeta(editarId, { titulo, local: editarLocal, dataContagem: editarData })
-    setEditarId(null)
-    refresh()
+    try {
+      await atualizarContagemDiariaMeta(editarId, { titulo, local: editarLocal, dataContagem: editarData })
+      setEditarId(null)
+      await refresh()
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao salvar contagem.')
+    }
   }
 
-  function continuarContagem(id: string, reabrir: boolean) {
-    if (reabrir) {
-      const c = rows.find((r) => r.id === id)
-      if (c?.status === 'fechado') {
-        if (!confirm('Reabrir esta contagem finalizada para continuar?')) return
-        reabrirContagemDiaria(id)
-        refresh()
-      }
-    }
+  async function continuarContagem(id: string) {
     onAbrirContagem(id)
   }
 
-  function handleExcluir(c: ContagemDiariaSessao) {
+  async function entrarEAlterarContagem(c: ContagemDiariaSessao) {
+    if (
+      !confirm(
+        `A contagem «${c.titulo}» está finalizada.\n\nDeseja reabrir para entrar e alterar?`,
+      )
+    ) {
+      return
+    }
+    try {
+      await reabrirContagemDiaria(c.id)
+      await refresh()
+      onAbrirContagem(c.id)
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao reabrir contagem.')
+    }
+  }
+
+  async function handleExcluir(c: ContagemDiariaSessao) {
     const msg = c.iniciada
       ? `Excluir a contagem "${c.titulo}"? Ela já foi iniciada e deixará de aparecer na lista.`
       : `Excluir a contagem "${c.titulo}"?`
     if (!confirm(msg)) return
-    deleteContagemDiaria(c.id)
-    if (editarId === c.id) setEditarId(null)
-    refresh()
+    try {
+      await deleteContagemDiaria(c.id)
+      if (editarId === c.id) setEditarId(null)
+      await refresh()
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao excluir contagem.')
+    }
   }
 
   function renderAcoes(c: ContagemDiariaSessao, layout: 'table' | 'card') {
@@ -146,7 +183,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     if (c.status === 'aberto') {
       return (
         <>
-          <button type="button" className={btnClass} onClick={() => continuarContagem(c.id, false)}>
+          <button type="button" className={btnClass} onClick={() => void continuarContagem(c.id)}>
             {labelColeta(c)}
           </button>
           <button type="button" className={ghostClass} onClick={() => abrirModalEditar(c)}>
@@ -157,8 +194,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
             className={ghostClass}
             onClick={() => {
               if (confirm('Finalizar esta contagem?')) {
-                fecharContagemDiaria(c.id)
-                refresh()
+                void fecharContagemDiaria(c.id).then(() => refresh())
               }
             }}
           >
@@ -173,11 +209,14 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
 
     return (
       <>
-        <button type="button" className={btnClass} onClick={() => continuarContagem(c.id, true)}>
-          Continuar contagem
-        </button>
+        <span className="inv-status inv-status--closed inv-actions-finalizado" title="Contagem finalizada">
+          Finalizado
+        </span>
         <button type="button" className={ghostClass} onClick={() => abrirModalEditar(c)}>
           Editar
+        </button>
+        <button type="button" className={btnClass} onClick={() => void entrarEAlterarContagem(c)}>
+          Entrar e alterar
         </button>
         <button type="button" className={ghostClass} onClick={() => onAbrirContagem(c.id)}>
           Ver
