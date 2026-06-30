@@ -551,14 +551,12 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
       setErr('Contagem finalizada — somente leitura.')
       return
     }
-    const end = normalizeEnderecoCodigo(endereco.trim())
+    const end =
+      normalizeEnderecoCodigo(endereco.trim()) ||
+      normalizeEnderecoCodigo(enderecoCodigoInput.trim())
     const bar = codigoBarras.trim()
     const q = Number(String(quantidade).replace(',', '.'))
     const upStr = up.trim()
-    if (!end) {
-      setErr('Selecione câmara, rua, posição e nível.')
-      return
-    }
     if (!bar || !codigoInterno) {
       setErr('Informe EAN, código do produto ou descrição válida.')
       return
@@ -597,7 +595,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
         lote: lote.trim(),
         fabricacao: fab,
         validade: val,
-        camara: resolverCamaraEndereco(end),
+        camara: end ? resolverCamaraEndereco(end) : null,
         conferenteNome: usuarioLogado.trim() || undefined,
       }
       if (editandoLinhaId) {
