@@ -142,11 +142,9 @@ export default function ProdutoClassificacaoPage({
         </div>
       </form>
 
-      <div style={{ marginTop: 20, maxWidth: 420 }}>
-        <label>
-          Buscar
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código ou nome" />
-        </label>
+      <div className="page-field-label" style={{ marginTop: 20, maxWidth: 420 }}>
+        <span>Buscar</span>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código ou nome" />
       </div>
 
       <div className="page-table-wrap" style={{ marginTop: 16 }}>

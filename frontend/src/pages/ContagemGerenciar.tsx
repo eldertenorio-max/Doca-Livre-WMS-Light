@@ -14,7 +14,8 @@ import {
   type ContagemDiariaSessao,
 } from '../lib/contagemDiariaSessaoStore'
 import { formatUnknownError } from '../lib/supabaseError'
-import { supabase } from '../lib/supabaseClient'
+import { listConferentes } from '../lib/conferentesStore'
+import CadastroConferenteModal from '../components/conferente/CadastroConferenteModal'
 
 type Props = {
   onAbrirContagem: (contagemId: string) => void
@@ -37,7 +38,8 @@ function formatData(iso: string | null) {
 }
 
 function labelColeta(c: ContagemDiariaSessao) {
-  return c.iniciada ? 'Continuar contagem' : 'Começar contagem'
+  if (c.status === 'aberto') return 'Continuar contagem'
+  return 'Começar contagem'
 }
 
 function todayYmdLocal(): string {
@@ -88,6 +90,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const [filtroDataDe, setFiltroDataDe] = useState('')
   const [filtroDataAte, setFiltroDataAte] = useState('')
   const [modoLocal, setModoLocal] = useState(false)
+  const [cadastroConferenteOpen, setCadastroConferenteOpen] = useState(false)
 
   const conferenteLogadoResolvido = useMemo(
     () => resolveConferenteDoUsuarioLogado(session, conferentes),
@@ -151,9 +154,8 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     setConferentesLoading(true)
     void (async () => {
       try {
-        const { data, error } = await supabase.from('conferentes').select('id,nome').order('nome')
-        if (error) throw error
-        if (alive) setConferentes(data ?? [])
+        const data = await listConferentes()
+        if (alive) setConferentes(data)
       } catch {
         if (alive) setConferentes([])
       } finally {
@@ -164,6 +166,17 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
       alive = false
     }
   }, [])
+
+  async function recarregarConferentes() {
+    setConferentesLoading(true)
+    try {
+      setConferentes(await listConferentes())
+    } catch {
+      setConferentes([])
+    } finally {
+      setConferentesLoading(false)
+    }
+  }
 
   function abrirModalCriar() {
     setCriarTitulo('')
@@ -339,6 +352,14 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
           </button>
           <button type="button" className="page-btn-ghost" disabled={loading} onClick={() => void refresh()}>
             {loading ? 'Carregando…' : 'Atualizar lista'}
+          </button>
+          <button
+            type="button"
+            className="page-btn-ghost"
+            disabled={loading}
+            onClick={() => setCadastroConferenteOpen(true)}
+          >
+            Cadastrar conferente
           </button>
         </div>
       </div>
@@ -626,6 +647,12 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
           </div>
         </div>
       ) : null}
+
+      <CadastroConferenteModal
+        open={cadastroConferenteOpen}
+        onClose={() => setCadastroConferenteOpen(false)}
+        onSaved={() => void recarregarConferentes()}
+      />
     </div>
   )
 }

@@ -19,6 +19,7 @@ import {
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
 import { formatUnknownError } from '../lib/supabaseError'
+import CadastroConferenteModal from '../components/conferente/CadastroConferenteModal'
 
 type Props = {
   onAbrirCaptura: (inventarioId: string) => void
@@ -35,7 +36,8 @@ function formatData(iso: string | null) {
 }
 
 function labelColeta(inv: InventarioSessao) {
-  return inv.linhas.length === 0 ? 'Começar inventário' : 'Continuar'
+  if (inv.status === 'aberto') return 'Continuar'
+  return 'Começar inventário'
 }
 
 function labelPosicoes(inv: InventarioSessao) {
@@ -83,6 +85,7 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
   const [filtroDataDe, setFiltroDataDe] = useState('')
   const [filtroDataAte, setFiltroDataAte] = useState('')
   const [modoLocal, setModoLocal] = useState(false)
+  const [cadastroConferenteOpen, setCadastroConferenteOpen] = useState(false)
 
   const inventarioPosicoes = useMemo(
     () => (posicoesInvId ? rows.find((r) => r.id === posicoesInvId) : undefined),
@@ -351,6 +354,14 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
           </button>
           <button type="button" className="page-btn-ghost" disabled={loading} onClick={() => void refresh()}>
             {loading ? 'Carregando…' : 'Atualizar lista'}
+          </button>
+          <button
+            type="button"
+            className="page-btn-ghost"
+            disabled={loading}
+            onClick={() => setCadastroConferenteOpen(true)}
+          >
+            Cadastrar conferente
           </button>
         </div>
       </div>
@@ -641,6 +652,11 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
           onConfirm={(opts) => void confirmarIniciarInventario(opts)}
         />
       ) : null}
+
+      <CadastroConferenteModal
+        open={cadastroConferenteOpen}
+        onClose={() => setCadastroConferenteOpen(false)}
+      />
     </div>
   )
 }
