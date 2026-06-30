@@ -352,6 +352,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
       return
     }
     try {
+      const qtdAntes = sessao.linhas.length
       const payload = {
         codigoBarras: bar,
         codigoInterno,
@@ -365,13 +366,32 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
         conferenteNome: usuarioLogado.trim() || undefined,
       }
       if (editandoLinhaId) {
-        await updateLinhaContagemDiaria(sessao.id, editandoLinhaId, payload)
+        const ok = await updateLinhaContagemDiaria(sessao.id, editandoLinhaId, payload)
+        if (!ok) {
+          setErr('Não foi possível atualizar a linha.')
+          return
+        }
       } else {
-        await addLinhaContagemDiaria(sessao.id, payload)
+        const row = await addLinhaContagemDiaria(sessao.id, payload)
+        if (!row) {
+          setErr('Não foi possível salvar a linha.')
+          return
+        }
       }
       const atualizado = await getContagemDiaria(contagemId)
+      if (!atualizado) {
+        setErr('Contagem não encontrada após salvar.')
+        return
+      }
+    if (!editandoLinhaId && atualizado.linhas.length <= qtdAntes) {
+      setErr(
+        'A linha não foi gravada. Execute supabase/sql/alter_contagem_diaria_sessoes_linhas.sql no Supabase ou verifique a conexão.',
+      )
+        setMsg('')
+        return
+      }
       setSessao(atualizado)
-      setMsg(editandoLinhaId ? 'Linha atualizada.' : `Linha salva (${atualizado?.linhas.length ?? 0} no total)`)
+      setMsg(editandoLinhaId ? 'Linha atualizada.' : `Linha salva (${atualizado.linhas.length} no total)`)
       setErr('')
       setLinhasPage(1)
       limparFormulario()
@@ -651,7 +671,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                       type="button"
                       className="inventario-captura__save-icon"
                       onClick={() => void handleSalvar()}
-                      disabled={readonly}
+                      disabled={readonly || !codigoInterno.trim()}
                       aria-label="Salvar linha"
                     >
                       <IconSave />
@@ -661,7 +681,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                     type="button"
                     className="inventario-captura__save inventario-captura__save--desktop"
                     onClick={() => void handleSalvar()}
-                    disabled={readonly}
+                    disabled={readonly || !codigoInterno.trim()}
                   >
                     {editandoLinhaId ? 'Atualizar linha' : 'Salvar linha'}
                   </button>

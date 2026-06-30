@@ -1,15 +1,17 @@
 import {
   getGrupoArmazemFromCamaraRua,
+  getInventarioRuaArmazem,
   planilhaOrdemFromPosNivel,
 } from '../components/inventario/inventarioPlanilhaModel'
 import { parseEnderecoCodigo } from './enderecamentoStore'
 import { listConferentes, type Conferente } from './conferentesStore'
-import { TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
+import { planilhaFkContagemColumn, TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
 import {
   insertInventarioContagensRows,
   replaceInventarioExistentePorEndereco,
 } from './inventarioUpsertOnFinalize'
-import { fetchInventarioSessoesSupabase, inventarioSyncHabilitado } from './inventarioSessaoSupabase'
+import { deleteInventarioPlanilhaLinhasForContagensIds } from './inventarioPlanilhaLinhasDelete'
+import { fetchInventarioSessoesSupabase, fetchInventarioSessaoByIdSupabase, inventarioSyncHabilitado } from './inventarioSessaoSupabase'
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import { supabase } from './supabaseClient'
 
@@ -23,9 +25,14 @@ type PlanilhaMeta = {
   grupo: number | null
   ordem: number | null
   repeticao: number
+  rua: string | null
+  posicao: number
+  nivel: number
 }
 
-function buildPlanilhaMetaPorLinha(linhas: InventarioLinhaCaptura[]): Map<string, PlanilhaMeta> {
+export function buildPlanilhaMetaPorLinhaCaptura(
+  linhas: InventarioLinhaCaptura[],
+): Map<string, PlanilhaMeta> {
   const porEndereco = new Map<string, InventarioLinhaCaptura[]>()
   for (const ln of linhas) {
     const key = String(ln.endereco ?? '').trim().toUpperCase()
@@ -49,10 +56,147 @@ function buildPlanilhaMetaPorLinha(linhas: InventarioLinhaCaptura[]): Map<string
         camara != null && rua ? getGrupoArmazemFromCamaraRua(camara, rua) : null
       const ordem =
         grupo != null ? planilhaOrdemFromPosNivel(pos, nivel, repeticao) : null
-      out.set(ln.id, { grupo, ordem, repeticao })
+      out.set(ln.id, { grupo, ordem, repeticao, rua: rua || null, posicao: pos, nivel })
     })
   }
   return out
+}
+
+function buildPlanilhaMetaPorLinha(linhas: InventarioLinhaCaptura[]): Map<string, PlanilhaMeta> {
+  return buildPlanilhaMetaPorLinhaCaptura(linhas)
+}
+
+/** Linhas da captura de inventário no formato usado pelo relatório / Excel. */
+export function inventarioCapturaLinhasToRelatorioRows(
+  sessao: InventarioSessao,
+  conferentes?: Conferente[],
+): Array<Record<string, unknown>> {
+  const dataContagemYmd = ymdSpFromIso(sessao.dataFim ?? sessao.dataInicio)
+  const metaMap = buildPlanilhaMetaPorLinha(sessao.linhas)
+  const conf = conferentes ?? []
+  return sessao.linhas.map((ln) => {
+    const parsed = parseEnderecoCodigo(ln.endereco)
+    const meta = metaMap.get(ln.id) ?? {
+      grupo: null,
+      ordem: null,
+      repeticao: 1,
+      rua: parsed.rua || null,
+      posicao: parsed.posicao ?? 1,
+      nivel: parsed.nivel ?? 1,
+    }
+    const grupo =
+      meta.grupo ??
+      (parsed.camara != null && parsed.rua
+        ? getGrupoArmazemFromCamaraRua(parsed.camara, parsed.rua)
+        : null)
+    const rua =
+      meta.rua ??
+      (parsed.rua || (grupo != null ? getInventarioRuaArmazem(grupo) : null))
+    const pos = meta.posicao ?? parsed.posicao ?? 1
+    const nivel = meta.nivel ?? parsed.nivel ?? 1
+    const df = String(ln.fabricacao ?? '').trim()
+    const dv = String(ln.validade ?? '').trim()
+    return {
+      id: ln.id,
+      data_contagem: dataContagemYmd,
+      data_hora_contagem: ln.createdAt || sessao.dataFim || new Date().toISOString(),
+      conferente_id: resolveConferenteId(ln.conferenteNome, conf),
+      codigo_interno: String(ln.codigoInterno ?? '').trim(),
+      descricao: String(ln.descricao ?? '').trim(),
+      unidade_medida: String(ln.unidade ?? '').trim() || null,
+      quantidade_up: ln.quantidade,
+      up_adicional: parseUpAdicional(ln.up),
+      lote: String(ln.lote ?? '').trim() || null,
+      observacao: `Inventário #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}`,
+      data_fabricacao: df || null,
+      data_validade: dv || null,
+      ean: String(ln.codigoBarras ?? '').trim() || null,
+      dun: null,
+      inventario_repeticao: meta.repeticao,
+      inventario_numero_contagem: 1,
+      finalizacao_sessao_id: sessao.id,
+      planilha_grupo_armazem: grupo,
+      planilha_ordem_na_aba: meta.ordem,
+      planilha_rua: rua && rua !== '—' ? rua : null,
+      planilha_posicao: pos,
+      planilha_nivel: nivel,
+    }
+  })
+}
+
+function inventarioCapturaMatchKey(
+  sessaoId: string,
+  codigo: string,
+  quantidade: number,
+  lote: string | null | undefined,
+): string {
+  return `${sessaoId}|${String(codigo).trim().toLowerCase()}|${quantidade}|${String(lote ?? '').trim()}`
+}
+
+/** Completa Câmara/Rua/POS/Nível a partir das linhas da captura quando o banco não tem planilha. */
+export async function enrichInventarioRowsFromSessaoCaptura<
+  T extends {
+    finalizacao_sessao_id?: string | null
+    codigo_interno: string
+    quantidade_up: number
+    lote?: string | null
+    planilha_grupo_armazem?: number | null
+    planilha_rua?: string | null
+    planilha_posicao?: number | null
+    planilha_nivel?: number | null
+    planilha_ordem_na_aba?: number | null
+  },
+>(rows: T[]): Promise<T[]> {
+  const precisa = rows.some((r) => {
+    const sid = String(r.finalizacao_sessao_id ?? '').trim()
+    if (!sid) return false
+    const temRua = r.planilha_rua != null && String(r.planilha_rua).trim() !== ''
+    const temGrupo = r.planilha_grupo_armazem != null && Number.isFinite(Number(r.planilha_grupo_armazem))
+    return !temRua || !temGrupo
+  })
+  if (!precisa) return rows
+
+  const sessaoIds = [
+    ...new Set(rows.map((r) => String(r.finalizacao_sessao_id ?? '').trim()).filter(Boolean)),
+  ]
+  const capturaByKey = new Map<string, Record<string, unknown>>()
+  for (const sid of sessaoIds) {
+    const s = await fetchInventarioSessaoByIdSupabase(sid)
+    if (!s?.linhas.length) continue
+    for (const cap of inventarioCapturaLinhasToRelatorioRows(s)) {
+      capturaByKey.set(
+        inventarioCapturaMatchKey(
+          sid,
+          String(cap.codigo_interno ?? ''),
+          Number(cap.quantidade_up ?? 0),
+          cap.lote as string | null,
+        ),
+        cap,
+      )
+    }
+  }
+
+  return rows.map((r) => {
+    const sid = String(r.finalizacao_sessao_id ?? '').trim()
+    if (!sid) return r
+    const cap = capturaByKey.get(
+      inventarioCapturaMatchKey(sid, r.codigo_interno, r.quantidade_up, r.lote),
+    )
+    if (!cap) return r
+    return {
+      ...r,
+      planilha_grupo_armazem:
+        r.planilha_grupo_armazem ?? (cap.planilha_grupo_armazem as number | null) ?? null,
+      planilha_rua:
+        r.planilha_rua != null && String(r.planilha_rua).trim() !== ''
+          ? r.planilha_rua
+          : (cap.planilha_rua as string | null) ?? null,
+      planilha_posicao: r.planilha_posicao ?? (cap.planilha_posicao as number | null) ?? null,
+      planilha_nivel: r.planilha_nivel ?? (cap.planilha_nivel as number | null) ?? null,
+      planilha_ordem_na_aba:
+        r.planilha_ordem_na_aba ?? (cap.planilha_ordem_na_aba as number | null) ?? null,
+    }
+  })
 }
 
 function resolveConferenteId(nome: string | undefined, conferentes: Conferente[]): string {
@@ -169,13 +313,86 @@ export async function syncInventarioSessaoParaContagens(
   const conferentes = await listConferentes()
   const metaMap = buildPlanilhaMetaPorLinha(sessao.linhas)
   const rows = sessao.linhas.map((ln) =>
-    linhaToPayload(sessao, ln, dataContagemYmd, metaMap.get(ln.id) ?? { grupo: null, ordem: null, repeticao: 1 }, conferentes),
+    linhaToPayload(
+      sessao,
+      ln,
+      dataContagemYmd,
+      metaMap.get(ln.id) ?? {
+        grupo: null,
+        ordem: null,
+        repeticao: 1,
+        rua: null,
+        posicao: 1,
+        nivel: 1,
+      },
+      conferentes,
+    ),
   )
 
   await deleteContagensDaSessao(sessao.id)
   await replaceInventarioExistentePorEndereco(dataContagemYmd, rows)
   const { ids } = await insertInventarioContagensRows(rows)
+  await insertPlanilhaLinhasInventarioSessao(
+    dataContagemYmd,
+    sessao,
+    sessao.linhas,
+    metaMap,
+    rows,
+    ids,
+  )
   return { inserted: ids.length }
+}
+
+async function insertPlanilhaLinhasInventarioSessao(
+  dataContagemYmd: string,
+  sessao: InventarioSessao,
+  linhas: InventarioLinhaCaptura[],
+  metaMap: Map<string, PlanilhaMeta>,
+  rows: Record<string, unknown>[],
+  contagensIds: string[],
+): Promise<void> {
+  if (contagensIds.length !== linhas.length) return
+  const fkCol = planilhaFkContagemColumn(true)
+  const planilhaRows: Record<string, unknown>[] = []
+  for (let i = 0; i < linhas.length; i++) {
+    const ln = linhas[i]!
+    const meta = metaMap.get(ln.id)
+    if (!meta?.grupo) continue
+    const conferenteId = String(rows[i]?.conferente_id ?? '').trim()
+    if (!conferenteId) continue
+    planilhaRows.push({
+      conferente_id: conferenteId,
+      data_inventario: dataContagemYmd,
+      grupo_armazem: meta.grupo,
+      rua: meta.rua,
+      posicao: meta.posicao,
+      nivel: meta.nivel,
+      numero_contagem: 1,
+      codigo_interno: String(ln.codigoInterno ?? '').trim(),
+      descricao: String(ln.descricao ?? '').trim(),
+      inventario_repeticao: meta.repeticao,
+      quantidade: ln.quantidade,
+      data_fabricacao: String(ln.fabricacao ?? '').trim() || null,
+      data_validade: String(ln.validade ?? '').trim() || null,
+      lote: String(ln.lote ?? '').trim() || null,
+      up_quantidade: parseUpAdicional(ln.up),
+      observacao: `Inventário #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}`,
+      [fkCol]: contagensIds[i],
+    })
+  }
+  if (!planilhaRows.length) return
+  await deleteInventarioPlanilhaLinhasForContagensIds(supabase, contagensIds)
+  const CHUNK = 250
+  for (let i = 0; i < planilhaRows.length; i += CHUNK) {
+    const { error } = await supabase
+      .from('inventario_planilha_linhas')
+      .insert(planilhaRows.slice(i, i + CHUNK))
+    if (error) {
+      const msg = String(error.message ?? '').toLowerCase()
+      if (msg.includes('inventario_planilha_linhas') && msg.includes('does not exist')) return
+      throw error
+    }
+  }
 }
 
 export type EnsureInventariosSyncResult = {

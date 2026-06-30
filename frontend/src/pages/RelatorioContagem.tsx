@@ -3,7 +3,7 @@ import type React from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabaseClient'
 import { loadChecklistVisibleColsFromStorage } from '../lib/checklistVisibleCols'
-import { enrichContagemRowsWithPlanilhaLinhas } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
+import { enrichContagemRowsWithPlanilhaLinhas, enrichPlanilhaFieldsFromGrupoOrdem } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
 import { fetchConferentesNomesPorIds } from '../lib/conferentesNomesBatch'
 import {
@@ -29,9 +29,12 @@ import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
 import {
   ensureInventariosSessaoSincronizados,
+  enrichInventarioRowsFromSessaoCaptura,
+  inventarioCapturaLinhasToRelatorioRows,
   syncInventarioSessaoParaContagens,
   ymdSpFromIso,
 } from '../lib/inventarioSessaoFinalizeSync'
+import { getInventario } from '../lib/inventarioSessaoStore'
 import {
   ensureContagensDiariaSessaoSincronizadas,
   syncContagemDiariaSessaoParaContagens,
@@ -225,7 +228,9 @@ async function enrichRelatorioRowsConferenteNomes(rows: ContagemRow[]): Promise<
 async function enrichPlanilhaEConferente(rows: ContagemRow[]): Promise<ContagemRow[]> {
   const withNames = await enrichRelatorioRowsConferenteNomes(rows)
   const withPlanilha = await enrichContagemRowsWithPlanilhaLinhas(withNames, 'RelatorioContagem')
-  return enrichContagemRowsEanDunFromTodosOsProdutos(withPlanilha, 'RelatorioContagem')
+  const withCaptura = await enrichInventarioRowsFromSessaoCaptura(withPlanilha)
+  const withGrupoOrdem = enrichPlanilhaFieldsFromGrupoOrdem(withCaptura) as ContagemRow[]
+  return enrichContagemRowsEanDunFromTodosOsProdutos(withGrupoOrdem, 'RelatorioContagem')
 }
 
 function mergeContagemRowsById(
@@ -2095,16 +2100,25 @@ export default function RelatorioContagem({
     setExportSessaoIdLoading(sessao.id)
     setError('')
     try {
-      await syncInventarioSessaoParaContagens(sessao, { force: false })
-      const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
-        finalizacaoSessaoId: sessao.id,
-      })
-      let exportRows = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
-      if (contagensHasFinalizacaoSessaoIdRef.current) {
-        exportRows = exportRows.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+      await syncInventarioSessaoParaContagens(sessao, { force: true })
+      const fresh = await getInventario(sessao.id)
+      const source = fresh ?? sessao
+      let exportRows: ContagemRow[]
+      if (source.linhas.length > 0) {
+        const fromCaptura = inventarioCapturaLinhasToRelatorioRows(source) as ContagemRow[]
+        exportRows = await enrichPlanilhaEConferente(fromCaptura)
       } else {
-        const marcador = `Inventário #${sessao.numero}`
-        exportRows = exportRows.filter((r) => String(r.observacao ?? '').includes(marcador))
+        const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
+          finalizacaoSessaoId: sessao.id,
+        })
+        let rowsDb = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
+        if (contagensHasFinalizacaoSessaoIdRef.current) {
+          rowsDb = rowsDb.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+        } else {
+          const marcador = `Inventário #${sessao.numero}`
+          rowsDb = rowsDb.filter((r) => String(r.observacao ?? '').includes(marcador))
+        }
+        exportRows = rowsDb
       }
       if (!exportRows.length) {
         setError('Nenhuma linha para exportar neste inventário.')

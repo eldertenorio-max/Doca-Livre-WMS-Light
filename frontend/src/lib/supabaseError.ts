@@ -54,5 +54,6 @@ export function isColumnMissingError(e: unknown): boolean {
   if (msg.includes('does not exist')) return true
   if (msg.includes('schema cache') && msg.includes('column')) return true
   if (msg.includes('could not find') && msg.includes('column')) return true
+  if (msg.includes("'column'") || (msg.includes('column') && msg.includes('schema cache'))) return true
   return false
 }

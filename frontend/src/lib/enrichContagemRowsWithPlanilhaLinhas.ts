@@ -1,4 +1,8 @@
 import { supabase } from './supabaseClient'
+import {
+  getInventarioRuaArmazem,
+  inventarioPlanilhaPosNivelFromIndex,
+} from '../components/inventario/inventarioPlanilhaModel'
 
 export const PLANILHA_ENRICH_CHUNK = 200
 
@@ -136,5 +140,39 @@ export async function enrichContagemRowsWithPlanilhaLinhas<T extends { id: strin
       out.up_adicional = p.up_quantidade
     }
     return out as T & PlanilhaLinhasFields
+  })
+}
+
+/** Preenche Rua/POS/Nível a partir de `planilha_grupo_armazem` + `planilha_ordem_na_aba` quando o join da planilha não trouxe. */
+export function enrichPlanilhaFieldsFromGrupoOrdem<
+  T extends {
+    planilha_grupo_armazem?: number | null
+    planilha_ordem_na_aba?: number | null
+    planilha_rua?: string | null
+    planilha_posicao?: number | null
+    planilha_nivel?: number | null
+  },
+>(rows: T[]): T[] {
+  return rows.map((r) => {
+    const grupoRaw = r.planilha_grupo_armazem
+    const ordemRaw = r.planilha_ordem_na_aba
+    const grupo =
+      grupoRaw != null && Number.isFinite(Number(grupoRaw)) ? Number(grupoRaw) : null
+    const ordem =
+      ordemRaw != null && Number.isFinite(Number(ordemRaw)) ? Number(ordemRaw) : null
+    const needsRua = r.planilha_rua == null || String(r.planilha_rua).trim() === ''
+    const needsPos = r.planilha_posicao == null || !Number.isFinite(Number(r.planilha_posicao))
+    const needsNivel = r.planilha_nivel == null || !Number.isFinite(Number(r.planilha_nivel))
+    if (grupo == null && ordem == null) return r
+    if (!needsRua && !needsPos && !needsNivel) return r
+    const { pos, nivel } =
+      ordem != null ? inventarioPlanilhaPosNivelFromIndex(ordem) : { pos: null as number | null, nivel: null as number | null }
+    const ruaFromGrupo = grupo != null ? getInventarioRuaArmazem(grupo) : '—'
+    return {
+      ...r,
+      ...(needsRua && ruaFromGrupo !== '—' ? { planilha_rua: ruaFromGrupo } : {}),
+      ...(needsPos && pos != null ? { planilha_posicao: pos } : {}),
+      ...(needsNivel && nivel != null ? { planilha_nivel: nivel } : {}),
+    }
   })
 }

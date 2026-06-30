@@ -14,6 +14,7 @@ import { isTableMissingError } from './supabaseError'
 import { isSupabaseTableAvailable, resetSupabaseTableProbe } from './supabaseTableProbe'
 
 const LEGACY_STORAGE_KEY = 'contagem-diaria-sessoes-v1'
+const LINHAS_OVERLAY_KEY = 'contagem-diaria-linhas-overlay-v1'
 const TABELA_CD = 'contagem_diaria_sessoes'
 
 let legacyMigrationPromise: Promise<void> | null = null
@@ -36,6 +37,41 @@ function writeLegacyLocal(list: ContagemDiariaSessao[]): void {
   } catch {
     /* ignore */
   }
+}
+
+function readLinhasOverlayMap(): Record<string, ContagemDiariaLinhaCaptura[]> {
+  try {
+    const raw = localStorage.getItem(LINHAS_OVERLAY_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, ContagemDiariaLinhaCaptura[]>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLinhasOverlay(sessaoId: string, linhas: ContagemDiariaLinhaCaptura[]): void {
+  try {
+    const map = readLinhasOverlayMap()
+    if (linhas.length === 0) delete map[sessaoId]
+    else map[sessaoId] = linhas
+    localStorage.setItem(LINHAS_OVERLAY_KEY, JSON.stringify(map))
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearLinhasOverlay(sessaoId: string): void {
+  writeLinhasOverlay(sessaoId, [])
+}
+
+function mergeLinhasOverlay(sessao: ContagemDiariaSessao): ContagemDiariaSessao {
+  const overlay = readLinhasOverlayMap()[sessao.id]
+  if (!overlay?.length) return sessao
+  if (sessao.linhas.length === 0 || overlay.length >= sessao.linhas.length) {
+    return { ...sessao, linhas: overlay }
+  }
+  return sessao
 }
 
 function sortContagens(list: ContagemDiariaSessao[]): ContagemDiariaSessao[] {
@@ -143,7 +179,8 @@ export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
   }
   try {
     await ensureLegacyContagensMigrated()
-    return await fetchContagemDiariaSessoesSupabase()
+    const list = await fetchContagemDiariaSessoesSupabase()
+    return sortContagens(list.map(mergeLinhasOverlay))
   } catch (e) {
     const legacy = readLegacyLocal()
     if (legacy.length) {
@@ -160,7 +197,8 @@ export async function getContagemDiaria(id: string): Promise<ContagemDiariaSessa
   }
   try {
     await ensureLegacyContagensMigrated()
-    return await fetchContagemDiariaSessaoByIdSupabase(id)
+    const s = await fetchContagemDiariaSessaoByIdSupabase(id)
+    return s ? mergeLinhasOverlay(s) : null
   } catch (e) {
     const local = readLegacyLocal().find((l) => l.id === id)
     if (local) return local
@@ -209,7 +247,12 @@ export async function saveContagemDiaria(sessao: ContagemDiariaSessao): Promise<
   requireSupabase()
   const row = withUpdatedAt(sessao)
   if (await usarSupabaseSessoes()) {
-    await upsertContagemDiariaSessaoSupabase(row)
+    const { linhasNoBanco } = await upsertContagemDiariaSessaoSupabase(row)
+    if (linhasNoBanco) {
+      clearLinhasOverlay(row.id)
+    } else if (row.linhas.length > 0) {
+      writeLinhasOverlay(row.id, row.linhas)
+    }
     return
   }
   const list = readLegacyLocal()
@@ -256,6 +299,7 @@ export async function deleteContagemDiaria(id: string): Promise<boolean> {
   if (!sessao) return false
   if (await usarSupabaseSessoes()) {
     await deleteContagemDiariaSessaoSupabase(id)
+    clearLinhasOverlay(id)
   } else {
     writeLegacyLocal(readLegacyLocal().filter((l) => l.id !== id))
   }
