@@ -2660,9 +2660,39 @@
 
 .inv-cap__endereco-row {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   min-width: 0;
+}
+
+.inv-cap__endereco-codigo-field {
+  width: 100%;
+  min-width: 0;
+}
+
+.inv-cap__endereco-codigo-field label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  min-height: 14px;
+  line-height: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.inv-cap__endereco-codigo-field .inventario-captura__input-row {
+  align-items: stretch;
+  min-height: 40px;
+}
+
+.inv-cap__endereco-codigo-field input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.02em;
 }
 
 .inv-cap__endereco-grid {
@@ -3352,6 +3382,49 @@
     height: 22px;
   }
 
+  .inv-cap__form-line--primary .inv-cap__endereco-codigo-field label {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    min-height: 14px;
+    line-height: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .inv-cap__form-line--primary .inv-cap__endereco-codigo-field input {
+    height: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .inv-cap__form-line--primary .inv-cap__endereco-codigo-field .inventario-captura__input-row {
+    align-items: stretch;
+    min-height: 40px;
+  }
+
+  .inv-cap__cell--endereco .inventario-captura__action-btn--limpar {
+    min-width: 56px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .inv-cap__cell--endereco .inventario-captura__action-btn--limpar .inventario-captura__btn-text {
+    display: inline;
+  }
+
+  .inv-cap__cell--endereco .inventario-captura__action-btn--scan {
+    min-width: 40px;
+    padding: 0 6px;
+  }
+
   .inv-cap__form-line--primary .inv-cap__endereco-codigo {
     display: none;
   }
@@ -4023,6 +4096,21 @@
 
   .captura--contagem .inv-cap__grid > .inventario-captura__field:nth-child(2) {
     display: none;
+  }
+
+  .inv-cap__endereco-codigo-field .inventario-captura__action-btn--limpar .inventario-captura__btn-text {
+    display: none;
+  }
+
+  .inv-cap__endereco-codigo-field input {
+    min-height: 36px;
+    height: 36px;
+    max-height: 36px;
+    font-size: 14px;
+  }
+
+  .inv-cap__endereco-codigo-field .inventario-captura__input-row {
+    min-height: 36px;
   }
 
   .inv-cap__endereco-grid {

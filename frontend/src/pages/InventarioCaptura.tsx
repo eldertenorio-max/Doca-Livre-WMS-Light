@@ -123,6 +123,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [endRua, setEndRua] = useState('')
   const [endPosicao, setEndPosicao] = useState('')
   const [endNivel, setEndNivel] = useState('')
+  const [enderecoCodigoInput, setEnderecoCodigoInput] = useState('')
   const [codigoBarras, setCodigoBarras] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [unidade, setUnidade] = useState('')
@@ -143,6 +144,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
 
   const camaraRef = useRef<HTMLSelectElement>(null)
+  const enderecoCodigoRef = useRef<HTMLInputElement>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
   const comboRef = useRef<HTMLDivElement>(null)
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -420,16 +422,35 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     }
   }
 
-  function aplicarPartesEndereco(partes: {
-    camara: string
-    rua: string
-    posicao: string
-    nivel: string
-  }) {
+  function aplicarPartesEndereco(
+    partes: {
+      camara: string
+      rua: string
+      posicao: string
+      nivel: string
+    },
+    codigoExibido?: string,
+  ) {
     setEndCamara(partes.camara)
     setEndRua(partes.rua)
     setEndPosicao(partes.posicao)
     setEndNivel(partes.nivel)
+    if (codigoExibido !== undefined) {
+      setEnderecoCodigoInput(codigoExibido)
+      return
+    }
+    if (partes.camara && partes.rua && partes.posicao && partes.nivel) {
+      setEnderecoCodigoInput(
+        buildCodigoEndereco(
+          Number(partes.camara),
+          partes.rua,
+          Number(partes.posicao),
+          Number(partes.nivel),
+        ),
+      )
+    } else if (!partes.camara && !partes.rua && !partes.posicao && !partes.nivel) {
+      setEnderecoCodigoInput('')
+    }
   }
 
   function confirmarEnderecoCompleto(cod: string) {
@@ -455,8 +476,9 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   }
 
   function aplicarEnderecoLido(codRaw: string) {
-    const partes = partesFormDoCodigo(formatEnderecoCodigoInput(codRaw))
-    aplicarPartesEndereco(partes)
+    const formatted = formatEnderecoCodigoInput(codRaw.trim())
+    const partes = partesFormDoCodigo(formatted)
+    aplicarPartesEndereco(partes, formatted)
     if (partes.camara && partes.rua && partes.posicao && partes.nivel) {
       const cod = buildCodigoEndereco(
         Number(partes.camara),
@@ -468,11 +490,25 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     }
   }
 
+  function handleEnderecoCodigoChange(value: string) {
+    setEnderecoCodigoInput(formatEnderecoCodigoInput(value))
+    setErr('')
+    setMsg('')
+  }
+
+  function commitEnderecoCodigoInput() {
+    const raw = enderecoCodigoInput.trim()
+    if (!raw) return
+    aplicarEnderecoLido(raw)
+    barcodeRef.current?.focus()
+  }
+
   function handleCamaraChange(value: string) {
     setEndCamara(value)
     setEndRua('')
     setEndPosicao('')
     setEndNivel('')
+    setEnderecoCodigoInput('')
     setErr('')
     setMsg('')
   }
@@ -481,6 +517,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     setEndRua(value)
     setEndPosicao('')
     setEndNivel('')
+    setEnderecoCodigoInput('')
     setErr('')
     setMsg('')
   }
@@ -488,22 +525,27 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   function handlePosicaoChange(value: string) {
     setEndPosicao(value)
     setEndNivel('')
+    setEnderecoCodigoInput('')
     setErr('')
     setMsg('')
   }
 
   function handleNivelChange(value: string) {
     setEndNivel(value)
-    if (!value || !endCamara || !endRua || !endPosicao) return
+    if (!value || !endCamara || !endRua || !endPosicao) {
+      setEnderecoCodigoInput('')
+      return
+    }
     const cod = buildCodigoEndereco(Number(endCamara), endRua, Number(endPosicao), Number(value))
+    setEnderecoCodigoInput(cod)
     confirmarEnderecoCompleto(cod)
   }
 
   function limparCampoEndereco() {
-    aplicarPartesEndereco({ camara: '', rua: '', posicao: '', nivel: '' })
+    aplicarPartesEndereco({ camara: '', rua: '', posicao: '', nivel: '' }, '')
     setMsg('')
     setErr('')
-    camaraRef.current?.focus()
+    enderecoCodigoRef.current?.focus()
   }
 
   function limparCampoProduto() {
@@ -576,7 +618,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   function iniciarEdicaoLinha(linha: InventarioLinhaCaptura) {
     if (!sessao || sessao.status !== 'aberto') return
     setEditandoLinhaId(linha.id)
-    aplicarPartesEndereco(partesFormDoCodigo(linha.endereco))
+    const codEnd = normalizeEnderecoCodigo(linha.endereco)
+    aplicarPartesEndereco(partesFormDoCodigo(codEnd), codEnd)
     setCodigoBarras(linha.codigoBarras)
     setQuantidade(String(linha.quantidade))
     setUnidade(linha.unidade)
@@ -796,6 +839,54 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   </h2>
                   <div className="inventario-captura__field inventario-captura__field--full inv-cap__field inv-cap__cell inv-cap__cell--endereco">
                 <div className="inv-cap__endereco-row">
+                <div className="inv-cap__endereco-codigo-field">
+                  <label htmlFor="inv-end-codigo">Código endereço</label>
+                  <div className="inventario-captura__input-row">
+                    <input
+                      id="inv-end-codigo"
+                      ref={enderecoCodigoRef}
+                      value={enderecoCodigoInput}
+                      onChange={(e) => handleEnderecoCodigoChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          commitEnderecoCodigoInput()
+                        }
+                      }}
+                      onBlur={() => {
+                        if (enderecoCodigoInput.trim()) commitEnderecoCodigoInput()
+                      }}
+                      disabled={readonly}
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      placeholder="Bipar ou digitar — ex.: 21-A-03-2"
+                    />
+                    <button
+                      type="button"
+                      className="inventario-captura__action-btn inventario-captura__action-btn--limpar"
+                      disabled={readonly || (!enderecoCodigoInput.trim() && !endereco)}
+                      aria-label="Limpar endereço"
+                      title="Limpar"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={limparCampoEndereco}
+                    >
+                      <span className="inventario-captura__btn-text">Limpar</span>
+                      <IconClearField className="inventario-captura__btn-icon" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      className="inventario-captura__action-btn inventario-captura__action-btn--icon-only inventario-captura__action-btn--scan"
+                      disabled={readonly}
+                      aria-label="Ler código de endereço pela câmera"
+                      title="Ler endereço"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => abrirCameraBarcode('endereco')}
+                    >
+                      <IconScanBarcode className="inventario-captura__btn-icon" />
+                    </button>
+                  </div>
+                </div>
                 <div className="inv-cap__endereco-grid">
                   <div className="inv-cap__endereco-item">
                     <label htmlFor="inv-end-camara">Câmara</label>
@@ -862,33 +953,6 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                       ))}
                     </select>
                   </div>
-                </div>
-                <div className="inv-cap__endereco-acoes">
-                  {endereco ? (
-                    <span className="inv-cap__endereco-codigo" title="Código do endereço">
-                      {endereco}
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
-                    disabled={readonly || !endereco}
-                    aria-label="Limpar endereço"
-                    title="Limpar"
-                    onClick={limparCampoEndereco}
-                  >
-                    <IconClearField className="inventario-captura__btn-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className="inventario-captura__action-btn inventario-captura__action-btn--icon-only"
-                    disabled={readonly}
-                    aria-label="Ler endereço pela câmera"
-                    title="Bipar endereço"
-                    onClick={() => abrirCameraBarcode('endereco')}
-                  >
-                    <IconScanBarcode className="inventario-captura__btn-icon" />
-                  </button>
                 </div>
                 </div>
                   </div>
