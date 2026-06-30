@@ -27,7 +27,19 @@ import { normalizeCodigoInternoCompareKey } from '../lib/codigoInternoCompare'
 import { getArmazemContagem, getArmazemPos } from '../lib/armazemInventarioMap'
 import { contagemLinhaAVenceB } from '../lib/contagemOrdemLinha'
 import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
-import { ensureInventariosSessaoSincronizados } from '../lib/inventarioSessaoFinalizeSync'
+import {
+  ensureInventariosSessaoSincronizados,
+  syncInventarioSessaoParaContagens,
+  ymdSpFromIso,
+} from '../lib/inventarioSessaoFinalizeSync'
+import {
+  ensureContagensDiariaSessaoSincronizadas,
+  syncContagemDiariaSessaoParaContagens,
+} from '../lib/contagemDiariaFinalizeSync'
+import { listContagensDiarias } from '../lib/contagemDiariaSessaoStore'
+import { listInventarios } from '../lib/inventarioSessaoStore'
+import type { ContagemDiariaSessao } from '../lib/contagemDiariaSessaoTypes'
+import type { InventarioSessao } from '../lib/inventarioSessaoTypes'
 
 type ContagemRow = {
   id: string
@@ -325,6 +337,56 @@ type AvaliacaoUmDiaContagem =
   | { kind: 'pendente'; aviso: AvisoCargaPendente }
   | { kind: 'ok' }
 
+function filtrarInventariosFechadosPeriodo(
+  sessoes: InventarioSessao[],
+  opts: {
+    allTime: boolean
+    startDate: string
+    endDate: string
+    useSingleDay: boolean
+    singleDay: string
+  },
+): InventarioSessao[] {
+  return sessoes
+    .filter((s) => {
+      if (s.status !== 'fechado' || s.linhas.length === 0) return false
+      if (opts.allTime) return true
+      const ymd = ymdSpFromIso(s.dataFim ?? s.dataInicio)
+      if (!ymd) return false
+      if (opts.useSingleDay) return ymd === opts.singleDay
+      return ymd >= opts.startDate && ymd <= opts.endDate
+    })
+    .sort((a, b) =>
+      (b.dataFim ?? b.dataInicio ?? '').localeCompare(a.dataFim ?? a.dataInicio ?? ''),
+    )
+}
+
+function filtrarContagensDiariasFechadasPeriodo(
+  sessoes: ContagemDiariaSessao[],
+  opts: {
+    allTime: boolean
+    startDate: string
+    endDate: string
+    useSingleDay: boolean
+    singleDay: string
+  },
+): ContagemDiariaSessao[] {
+  return sessoes
+    .filter((s) => {
+      if (s.status !== 'fechado' || s.linhas.length === 0) return false
+      const ymd = s.dataContagem
+      if (!ymd) return false
+      if (opts.allTime) return true
+      if (opts.useSingleDay) return ymd === opts.singleDay
+      return ymd >= opts.startDate && ymd <= opts.endDate
+    })
+    .sort((a, b) =>
+      (b.dataFim ?? b.dataInicio ?? b.dataContagem ?? '').localeCompare(
+        a.dataFim ?? a.dataInicio ?? a.dataContagem ?? '',
+      ),
+    )
+}
+
 function computeMinMaxYmdDataContagemOnly(rows: ContagemRow[]): { minY: string; maxY: string } {
   let minY = '9999-12-31'
   let maxY = '1970-01-01'
@@ -450,6 +512,9 @@ export default function RelatorioContagem({
     setSuccess('')
     setError('')
     setConferenteFiltroHistorico(null)
+    setExportInventarioSessoes([])
+    setExportContagemDiariaSessoes([])
+    setExportSessoesListaCarregada(false)
   }, [listColumnPrefsInventario])
 
   const modoListagem: ModoListagemContagem = useInventarioCols ? 'inventario' : 'contagem_diaria'
@@ -502,6 +567,10 @@ export default function RelatorioContagem({
   const prevLoadingRef = useRef(false)
   const [baseExportLoading, setBaseExportLoading] = useState(false)
   const [exportExcelLoading, setExportExcelLoading] = useState(false)
+  const [exportInventarioSessoes, setExportInventarioSessoes] = useState<InventarioSessao[]>([])
+  const [exportContagemDiariaSessoes, setExportContagemDiariaSessoes] = useState<ContagemDiariaSessao[]>([])
+  const [exportSessoesListaCarregada, setExportSessoesListaCarregada] = useState(false)
+  const [exportSessaoIdLoading, setExportSessaoIdLoading] = useState<string | null>(null)
   const [avisoCargaPendente, setAvisoCargaPendente] = useState<AvisoCargaPendente | null>(null)
   const [avisoDiaSemContagem, setAvisoDiaSemContagem] = useState<{ diaYmd: string } | null>(null)
   const [avisoExportPendente, setAvisoExportPendente] = useState<AvisoExportPendente | null>(null)
@@ -669,6 +738,8 @@ export default function RelatorioContagem({
     allTimeOverride?: boolean
     /** Inclui linhas rascunho (`contagem_rascunho = true`) no resultado. */
     includeRascunho?: boolean
+    /** Exportação de um inventário fechado específico. */
+    finalizacaoSessaoId?: string
   }): Promise<{
     rows: ContagemRow[]
     successMessage?: string
@@ -679,6 +750,7 @@ export default function RelatorioContagem({
     const useSd = opts?.singleDayYmd != null ? true : useSingleDay
     const singleDayVal = opts?.singleDayYmd ?? singleDay
     const includeRascunho = opts?.includeRascunho ?? false
+    const sessaoIdFilter = String(opts?.finalizacaoSessaoId ?? '').trim() || null
     const applyRascunhoPolicy = <T extends { contagem_rascunho?: boolean | null }>(data: T[]): T[] =>
       includeRascunho ? data : semLinhasRascunhoRelatorio(data)
 
@@ -936,8 +1008,8 @@ export default function RelatorioContagem({
     }
 
     async function fetchRows(selectCompact: string, withNumeroFilter: boolean): Promise<ContagemRow[]> {
-      const base = () =>
-        applyNumeroInventario(
+      const base = () => {
+        let q = applyNumeroInventario(
           supabase
             .from(tContagens)
             .select(selectCompact)
@@ -945,6 +1017,15 @@ export default function RelatorioContagem({
             .order('data_hora_contagem', { ascending: true }),
           withNumeroFilter,
         )
+        if (sessaoIdFilter && contagensHasFinalizacaoSessaoIdRef.current) {
+          q = q.eq('finalizacao_sessao_id', sessaoIdFilter)
+        }
+        return q
+      }
+
+      if (sessaoIdFilter) {
+        return fetchAllPaged(() => base())
+      }
 
       if (allT) {
         return fetchAllPaged(() => base())
@@ -1551,6 +1632,11 @@ export default function RelatorioContagem({
     setError('')
     setSuccess('')
     setRows([])
+    if (exportOnly) {
+      setExportInventarioSessoes([])
+      setExportContagemDiariaSessoes([])
+      setExportSessoesListaCarregada(false)
+    }
     try {
       if (useInventarioCols) {
         const sync = await ensureInventariosSessaoSincronizados({
@@ -1563,6 +1649,41 @@ export default function RelatorioContagem({
             `${sync.linhas} linha(s) de ${sync.sessoes} inventário(s) sincronizada(s) para exportação.`,
           )
         }
+      } else if (exportOnly) {
+        const sync = await ensureContagensDiariaSessaoSincronizadas({
+          allTime,
+          startYmd: startDate,
+          endYmd: endDate,
+        })
+        if (sync.linhas > 0) {
+          setSuccess(
+            `${sync.linhas} linha(s) de ${sync.sessoes} contagem(ns) diária(s) sincronizada(s) para exportação.`,
+          )
+        }
+      }
+      if (exportOnly && useInventarioCols) {
+        const filtradas = filtrarInventariosFechadosPeriodo(await listInventarios(), {
+          allTime,
+          startDate,
+          endDate,
+          useSingleDay,
+          singleDay,
+        })
+        setExportInventarioSessoes(filtradas)
+        setExportSessoesListaCarregada(true)
+        return
+      }
+      if (exportOnly && !useInventarioCols) {
+        const filtradas = filtrarContagensDiariasFechadasPeriodo(await listContagensDiarias(), {
+          allTime,
+          startDate,
+          endDate,
+          useSingleDay,
+          singleDay,
+        })
+        setExportContagemDiariaSessoes(filtradas)
+        setExportSessoesListaCarregada(true)
+        return
       }
       const { rows: data, successMessage, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
         includeRascunho: true,
@@ -1969,6 +2090,71 @@ export default function RelatorioContagem({
     }
   }
 
+/** Exporta um inventário fechado (lista da aba Exportar Excel). */
+  async function exportInventarioSessaoExcel(sessao: InventarioSessao) {
+    setExportSessaoIdLoading(sessao.id)
+    setError('')
+    try {
+      await syncInventarioSessaoParaContagens(sessao, { force: false })
+      const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
+        finalizacaoSessaoId: sessao.id,
+      })
+      let exportRows = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
+      if (contagensHasFinalizacaoSessaoIdRef.current) {
+        exportRows = exportRows.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+      } else {
+        const marcador = `Inventário #${sessao.numero}`
+        exportRows = exportRows.filter((r) => String(r.observacao ?? '').includes(marcador))
+      }
+      if (!exportRows.length) {
+        setError('Nenhuma linha para exportar neste inventário.')
+        return
+      }
+      const wb = workbookInventarioComAbasPorRodada(exportRows)
+      const safeFile = `${sessao.numero}-${sessao.titulo || 'inventario'}`
+        .replace(/[/\\?*[\]:]/g, '-')
+        .replace(/\s+/g, '_')
+        .slice(0, 80)
+      XLSX.writeFile(wb, `inventario_${safeFile}.xlsx`)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao exportar inventário.')
+    } finally {
+      setExportSessaoIdLoading(null)
+    }
+  }
+
+  async function exportContagemDiariaSessaoExcel(sessao: ContagemDiariaSessao) {
+    setExportSessaoIdLoading(sessao.id)
+    setError('')
+    try {
+      await syncContagemDiariaSessaoParaContagens(sessao, { force: false })
+      const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
+        finalizacaoSessaoId: sessao.id,
+      })
+      let exportRows = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
+      if (contagensHasFinalizacaoSessaoIdRef.current) {
+        exportRows = exportRows.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+      } else {
+        const marcador = `Contagem #${sessao.numero}`
+        exportRows = exportRows.filter((r) => String(r.observacao ?? '').includes(marcador))
+      }
+      if (!exportRows.length) {
+        setError('Nenhuma linha para exportar nesta contagem diária.')
+        return
+      }
+      const wb = workbookContagemDiariaComAbasPorData(exportRows)
+      const safeFile = `${sessao.numero}-${sessao.titulo || 'contagem'}`
+        .replace(/[/\\?*[\]:]/g, '-')
+        .replace(/\s+/g, '_')
+        .slice(0, 80)
+      XLSX.writeFile(wb, `contagem-diaria_${safeFile}.xlsx`)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao exportar contagem diária.')
+    } finally {
+      setExportSessaoIdLoading(null)
+    }
+  }
+
   async function handleExportarComAvisoPendencia() {
     if (loading || exportExcelLoading) return
     try {
@@ -2351,12 +2537,6 @@ export default function RelatorioContagem({
                 disabled={allTime || useSingleDay}
               />
             </label>
-            {useInventarioCols ? (
-              <label>
-                Rodada da contagem
-                {renderRodadaContagemSelect({ disabled: loading || exportExcelLoading })}
-              </label>
-            ) : null}
             <label className="page-form-grid__check">
               <input
                 type="checkbox"
@@ -2725,6 +2905,115 @@ export default function RelatorioContagem({
             {success}
           </p>
         ) : null}
+
+        {exportOnly && exportConsultaLayout && exportSessoesListaCarregada ? (
+          useInventarioCols ? (
+          <>
+            <p className="page-panel__meta">
+              {exportInventarioSessoes.length} inventário(s) finalizado(s) no período
+              {allTime ? ' (todas as datas)' : useSingleDay ? ` — dia ${formatDateBR(singleDay)}` : ` — ${formatDateBR(startDate)} a ${formatDateBR(endDate)}`}
+            </p>
+            <div className="page-table-wrap">
+              <table className="page-table page-table--compact">
+                <thead>
+                  <tr>
+                    <th>Nº</th>
+                    <th>Inventário</th>
+                    <th>Local</th>
+                    <th>Data fechamento</th>
+                    <th>Linhas</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6}>Carregando…</td>
+                    </tr>
+                  ) : exportInventarioSessoes.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>Nenhum inventário finalizado no período.</td>
+                    </tr>
+                  ) : (
+                    exportInventarioSessoes.map((s) => (
+                      <tr key={s.id}>
+                        <td>{s.numero}</td>
+                        <td>{s.titulo || '—'}</td>
+                        <td>{s.local || '—'}</td>
+                        <td>{formatDateBRFromYmd(ymdSpFromIso(s.dataFim ?? s.dataInicio))}</td>
+                        <td>{s.linhas.length}</td>
+                        <td>
+                          <button
+                            type="button"
+                            disabled={exportSessaoIdLoading === s.id || exportExcelLoading}
+                            onClick={() => void exportInventarioSessaoExcel(s)}
+                          >
+                            {exportSessaoIdLoading === s.id ? 'Exportando…' : 'Exportar Excel'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+          ) : (
+          <>
+            <p className="page-panel__meta">
+              {exportContagemDiariaSessoes.length} contagem(ns) diária(s) finalizada(s) no período
+              {allTime ? ' (todas as datas)' : useSingleDay ? ` — dia ${formatDateBR(singleDay)}` : ` — ${formatDateBR(startDate)} a ${formatDateBR(endDate)}`}
+            </p>
+            <div className="page-table-wrap">
+              <table className="page-table page-table--compact">
+                <thead>
+                  <tr>
+                    <th>Nº</th>
+                    <th>Contagem</th>
+                    <th>Local</th>
+                    <th>Data contagem</th>
+                    <th>Conferente</th>
+                    <th>Linhas</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7}>Carregando…</td>
+                    </tr>
+                  ) : exportContagemDiariaSessoes.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>Nenhuma contagem diária finalizada no período.</td>
+                    </tr>
+                  ) : (
+                    exportContagemDiariaSessoes.map((s) => (
+                      <tr key={s.id}>
+                        <td>{s.numero}</td>
+                        <td>{s.titulo || '—'}</td>
+                        <td>{s.local || '—'}</td>
+                        <td>{formatDateBRFromYmd(s.dataContagem)}</td>
+                        <td>{s.conferenteNome || '—'}</td>
+                        <td>{s.linhas.length}</td>
+                        <td>
+                          <button
+                            type="button"
+                            disabled={exportSessaoIdLoading === s.id || exportExcelLoading}
+                            onClick={() => void exportContagemDiariaSessaoExcel(s)}
+                          >
+                            {exportSessaoIdLoading === s.id ? 'Exportando…' : 'Exportar Excel'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+          )
+        ) : null}
+
         {!exportOnly && conferenteFiltroHistorico ? (
           <div
             style={{
