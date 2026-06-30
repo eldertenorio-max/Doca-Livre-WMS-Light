@@ -3518,26 +3518,22 @@
 
   .inv-cap__form-line--primary {
     display: grid;
-    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1.05fr) minmax(0, 3.1fr);
+    grid-template-columns:
+      minmax(0, 1.6fr)
+      minmax(44px, 0.5fr)
+      minmax(44px, 0.55fr)
+      minmax(44px, 0.55fr)
+      minmax(40px, 0.45fr)
+      minmax(0, 1.75fr)
+      minmax(0, 2fr);
     gap: 6px;
     align-items: start;
   }
 
-  .captura--contagem .inv-cap__form-line--primary {
-    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1.05fr) minmax(0, 3.1fr);
-  }
-
-  .captura--contagem .inv-cap__form-line--primary .inv-cap__cell--busca {
-    grid-column: 2 / -1;
-  }
-
-  .inv-cap__form-line--primary .inv-cap__cell--produto-id {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-
-  .inventario-captura--v2:not(.captura--contagem) .inv-cap__form-line--primary .inv-cap__cell--busca {
-    grid-column: 2 / -1;
+  .inv-cap__form-line--primary .inv-cap__cell--endereco,
+  .inv-cap__form-line--primary .inv-cap__endereco-row,
+  .inv-cap__form-line--primary .inv-cap__endereco-grid {
+    display: contents;
   }
 
   .inv-cap__form-line--primary .inv-cap__cell.inventario-captura__field {
@@ -3546,9 +3542,10 @@
     min-width: 0;
   }
 
-  .inv-cap__form-line--primary .inv-cap__cell--endereco,
-  .inv-cap__form-line--primary .inv-cap__endereco-row {
-    width: 100%;
+  .inv-cap__form-line--primary .inv-cap__endereco-codigo-field,
+  .inv-cap__form-line--primary .inv-cap__endereco-item,
+  .inv-cap__form-line--primary .inv-cap__cell--busca,
+  .inv-cap__form-line--primary .inv-cap__cell--produto-id {
     min-width: 0;
   }
 
@@ -3698,15 +3695,7 @@
   }
 
   .inv-cap__form-line--primary .inv-cap__codigo-interno {
-    position: absolute;
-    top: calc(14px + 4px + 40px + 2px);
-    left: 0;
-    right: 0;
-    margin: 0;
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: none;
   }
 
   .inv-cap__cell--produto-id .inventario-captura__produto {
