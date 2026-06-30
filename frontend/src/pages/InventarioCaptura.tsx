@@ -53,6 +53,7 @@ import {
 } from '../lib/sessaoProdutoListaContext'
 import { supabase } from '../lib/supabaseClient'
 import BarcodeCameraScanner, { IconClearField, IconScanBarcode } from '../components/barcode/BarcodeCameraScanner'
+import CapturaLinhasMobile from '../components/inventario/CapturaLinhasMobile'
 import {
   clampDataFabricacaoYmd,
   isFabricacaoAposHoje,
@@ -178,6 +179,27 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     linhasSalvas.length === 0 ? 0 : (linhasPageSafe - 1) * LINHAS_PAGE_SIZE + 1
   const linhasRangeTo =
     linhasSalvas.length === 0 ? 0 : Math.min(linhasPageSafe * LINHAS_PAGE_SIZE, linhasSalvas.length)
+
+  const linhasMobile = useMemo(
+    () =>
+      linhasPaginadas.map((linha, idx) => {
+        const metaParts: string[] = []
+        if (linha.endereco?.trim()) metaParts.push(linha.endereco.trim())
+        if (linha.lote?.trim()) metaParts.push(`Lote ${linha.lote.trim()}`)
+        if (linha.fabricacao?.trim()) metaParts.push(`Fab ${formatYmdBR(linha.fabricacao)}`)
+        if (linha.validade?.trim()) metaParts.push(`Val ${formatYmdBR(linha.validade)}`)
+        return {
+          id: linha.id,
+          numero: linhasSalvas.length - ((linhasPageSafe - 1) * LINHAS_PAGE_SIZE + idx),
+          codigo: linha.codigoInterno,
+          descricao: linha.descricao,
+          quantidade: `${linha.quantidade}${linha.unidade ? ` ${linha.unidade}` : ''}`,
+          meta: metaParts.length ? metaParts.join(' · ') : undefined,
+          editando: editandoLinhaId === linha.id,
+        }
+      }),
+    [linhasPaginadas, linhasSalvas.length, linhasPageSafe, editandoLinhaId],
+  )
 
   useEffect(() => {
     setLinhasPage((p) => Math.min(p, Math.max(1, Math.ceil(linhasSalvas.length / LINHAS_PAGE_SIZE))))
@@ -1164,7 +1186,20 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
             {linhasSalvas.length === 0 ? (
               <p className="inv-cap__linhas-empty">Nenhuma linha registrada ainda.</p>
             ) : (
-              <div className="inventario-captura__linhas-wrap">
+              <>
+              <CapturaLinhasMobile
+                linhas={linhasMobile}
+                readonly={readonly}
+                onEdit={(id) => {
+                  const linha = linhasSalvas.find((l) => l.id === id)
+                  if (linha) iniciarEdicaoLinha(linha)
+                }}
+                onDelete={(id) => {
+                  const linha = linhasSalvas.find((l) => l.id === id)
+                  if (linha) void excluirLinha(linha)
+                }}
+              />
+              <div className="inventario-captura__linhas-wrap inv-cap__linhas-desktop">
                 <table className="inventario-captura__linhas-table">
                   <thead>
                     <tr>
@@ -1229,6 +1264,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                   </tbody>
                 </table>
               </div>
+              </>
             )}
             {linhasSalvas.length > LINHAS_PAGE_SIZE ? (
               <div className="inv-cap__linhas-pagination" aria-label="Paginação das linhas salvas">
