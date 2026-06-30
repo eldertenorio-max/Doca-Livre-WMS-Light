@@ -150,16 +150,24 @@ function aplicarFiltrosCliente(rows: EstoqueLinha[], f: EstoqueConsultaFiltros):
 
 export async function fetchEstoqueConsulta(f: EstoqueConsultaFiltros): Promise<EstoqueLinha[]> {
   if (f.tipo === 'todos' || f.tipo === 'contagem_diaria') {
-    await ensureContagensDiariaSessaoSincronizadas({
-      startYmd: f.dataDe,
-      endYmd: f.dataAte,
-    })
+    try {
+      await ensureContagensDiariaSessaoSincronizadas({
+        startYmd: f.dataDe,
+        endYmd: f.dataAte,
+      })
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[estoqueConsulta] sync contagem diária', e)
+    }
   }
   if (f.tipo === 'todos' || f.tipo === 'inventario') {
-    await ensureInventariosSessaoSincronizados({
-      startYmd: f.dataDe,
-      endYmd: f.dataAte,
-    })
+    try {
+      await ensureInventariosSessaoSincronizados({
+        startYmd: f.dataDe,
+        endYmd: f.dataAte,
+      })
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[estoqueConsulta] sync inventário', e)
+    }
   }
   const merged: Record<string, unknown>[] = []
 

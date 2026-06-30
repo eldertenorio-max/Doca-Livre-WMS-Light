@@ -4,7 +4,7 @@ import {
   planilhaOrdemFromPosNivel,
 } from '../components/inventario/inventarioPlanilhaModel'
 import { parseEnderecoCodigo } from './enderecamentoStore'
-import { listConferentes, type Conferente } from './conferentesStore'
+import { listConferentes, resolveConferenteIdPorNome, type Conferente } from './conferentesStore'
 import { planilhaFkContagemColumn, TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
 import {
   insertInventarioContagensRows,
@@ -199,18 +199,8 @@ export async function enrichInventarioRowsFromSessaoCaptura<
   })
 }
 
-function resolveConferenteId(nome: string | undefined, conferentes: Conferente[]): string {
-  const alvo = String(nome ?? '').trim()
-  if (!alvo) return ''
-  const lower = alvo.toLowerCase()
-  const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === lower)
-  if (exato) return exato.id
-  const parcial = conferentes.find(
-    (c) =>
-      c.nome.trim().toLowerCase().includes(lower) ||
-      lower.includes(c.nome.trim().toLowerCase()),
-  )
-  return parcial?.id ?? ''
+function resolveConferenteId(nome: string | undefined, conferentes: Conferente[]): string | null {
+  return resolveConferenteIdPorNome(nome, conferentes)
 }
 
 function parseUpAdicional(raw: string | undefined): number | null {
@@ -416,10 +406,14 @@ export async function ensureInventariosSessaoSincronizados(opts?: {
   let sessoesSync = 0
   let linhas = 0
   for (const s of alvo) {
-    const { inserted } = await syncInventarioSessaoParaContagens(s)
-    if (inserted > 0) {
-      sessoesSync++
-      linhas += inserted
+    try {
+      const { inserted } = await syncInventarioSessaoParaContagens(s)
+      if (inserted > 0) {
+        sessoesSync++
+        linhas += inserted
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[inventarioSync]', s.id, e)
     }
   }
   return { sessoes: sessoesSync, linhas }

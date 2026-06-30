@@ -206,37 +206,40 @@ export default function PainelPage() {
 
   return (
     <div className="page-panel page-panel--wide painel-page">
-      <PagePanelHeading
-        title="Painel"
-        info={
-          <>
-            Visão consolidada de <strong>contagem diária</strong> e <strong>inventário</strong>. Use o período
-            acima e clique nos gráficos para filtrar — todos os indicadores acompanham a seleção. A lupa nos
-            cards leva ao gráfico relacionado.
-          </>
-        }
-      />
+      <div className="painel-page__header-bar">
+        <div className="painel-page__header-main">
+          <PagePanelHeading
+            className="painel-page__heading"
+            title="Painel"
+            info={
+              <>
+                Visão consolidada de <strong>contagem diária</strong> e <strong>inventário</strong>. Use o período
+                acima e clique nos gráficos para filtrar — todos os indicadores acompanham a seleção. A lupa nos
+                cards leva ao gráfico relacionado.
+              </>
+            }
+          />
 
-      <div className="painel-page__toolbar">
-        <div className="page-tabs painel-page__tabs" role="tablist" aria-label="Módulo do painel">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'contagem'}
-            className={`page-tabs__btn${tab === 'contagem' ? ' page-tabs__btn--active' : ''}`}
-            onClick={() => setTab('contagem')}
-          >
-            Contagem diária
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'inventario'}
-            className={`page-tabs__btn${tab === 'inventario' ? ' page-tabs__btn--active' : ''}`}
-            onClick={() => setTab('inventario')}
-          >
-            Inventário
-          </button>
+          <div className="page-tabs painel-page__tabs" role="tablist" aria-label="Módulo do painel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'contagem'}
+              className={`page-tabs__btn${tab === 'contagem' ? ' page-tabs__btn--active' : ''}`}
+              onClick={() => setTab('contagem')}
+            >
+              Contagem diária
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'inventario'}
+              className={`page-tabs__btn${tab === 'inventario' ? ' page-tabs__btn--active' : ''}`}
+              onClick={() => setTab('inventario')}
+            >
+              Inventário
+            </button>
+          </div>
         </div>
 
         <form
@@ -275,24 +278,12 @@ export default function PainelPage() {
             Limpar filtros
           </button>
         </div>
-      ) : (
-        <p className="painel-page__dica-filtro">
-          Clique nos gráficos para cruzar os dados. Use a lupa nos cards para ir ao gráfico relacionado.
-        </p>
-      )}
+      ) : null}
 
       {erro ? <p className="page-msg page-msg--error">{erro}</p> : null}
 
       {tab === 'contagem' ? (
         <section className="wms-dashboard" aria-busy={loading}>
-          <header className="wms-dashboard__header">
-            <h2 className="wms-dashboard__heading">Contagem diária</h2>
-            <p className="wms-dashboard__hint">
-              Período {formatYmdBr(dataDe)} a {formatYmdBr(dataAte)} · {linhasContagemFiltradas.length} linha(s)
-              {filtrosAtivos.length ? ' (filtrado)' : ''}
-            </p>
-          </header>
-
           <div className="wms-dashboard__top">
             <WmsKpiCard
               tone="teal"
@@ -399,14 +390,6 @@ export default function PainelPage() {
         </section>
       ) : (
         <section className="wms-dashboard wms-dashboard--inventario" aria-busy={loading}>
-          <header className="wms-dashboard__header">
-            <h2 className="wms-dashboard__heading">Inventário</h2>
-            <p className="wms-dashboard__hint">
-              Período {formatYmdBr(dataDe)} a {formatYmdBr(dataAte)} · {linhasInventarioFiltradas.length} linha(s)
-              {filtrosAtivos.length ? ' (filtrado)' : ''}
-            </p>
-          </header>
-
           <div className="wms-dashboard__top">
             <WmsKpiCard
               tone="yellow"

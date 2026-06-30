@@ -1643,27 +1643,38 @@ export default function RelatorioContagem({
       setExportSessoesListaCarregada(false)
     }
     try {
+      let syncAviso = ''
       if (useInventarioCols) {
-        const sync = await ensureInventariosSessaoSincronizados({
-          allTime,
-          startYmd: startDate,
-          endYmd: endDate,
-        })
-        if (sync.linhas > 0) {
-          setSuccess(
-            `${sync.linhas} linha(s) de ${sync.sessoes} inventário(s) sincronizada(s) para exportação.`,
-          )
+        try {
+          const sync = await ensureInventariosSessaoSincronizados({
+            allTime,
+            startYmd: startDate,
+            endYmd: endDate,
+          })
+          if (sync.linhas > 0) {
+            setSuccess(
+              `${sync.linhas} linha(s) de ${sync.sessoes} inventário(s) sincronizada(s) para exportação.`,
+            )
+          }
+        } catch (e: unknown) {
+          syncAviso =
+            e instanceof Error ? e.message : 'Falha ao sincronizar inventários para o banco.'
         }
       } else if (exportOnly) {
-        const sync = await ensureContagensDiariaSessaoSincronizadas({
-          allTime,
-          startYmd: startDate,
-          endYmd: endDate,
-        })
-        if (sync.linhas > 0) {
-          setSuccess(
-            `${sync.linhas} linha(s) de ${sync.sessoes} contagem(ns) diária(s) sincronizada(s) para exportação.`,
-          )
+        try {
+          const sync = await ensureContagensDiariaSessaoSincronizadas({
+            allTime,
+            startYmd: startDate,
+            endYmd: endDate,
+          })
+          if (sync.linhas > 0) {
+            setSuccess(
+              `${sync.linhas} linha(s) de ${sync.sessoes} contagem(ns) diária(s) sincronizada(s) para exportação.`,
+            )
+          }
+        } catch (e: unknown) {
+          syncAviso =
+            e instanceof Error ? e.message : 'Falha ao sincronizar contagens diárias para o banco.'
         }
       }
       if (exportOnly && useInventarioCols) {
@@ -1676,6 +1687,12 @@ export default function RelatorioContagem({
         })
         setExportInventarioSessoes(filtradas)
         setExportSessoesListaCarregada(true)
+        if (syncAviso && filtradas.length === 0) setError(syncAviso)
+        else if (syncAviso) {
+          setSuccess((prev) =>
+            prev ? `${prev} Aviso: ${syncAviso}` : `Aviso: ${syncAviso}`,
+          )
+        }
         return
       }
       if (exportOnly && !useInventarioCols) {
@@ -1688,6 +1705,12 @@ export default function RelatorioContagem({
         })
         setExportContagemDiariaSessoes(filtradas)
         setExportSessoesListaCarregada(true)
+        if (syncAviso && filtradas.length === 0) setError(syncAviso)
+        else if (syncAviso) {
+          setSuccess((prev) =>
+            prev ? `${prev} Aviso: ${syncAviso}` : `Aviso: ${syncAviso}`,
+          )
+        }
         return
       }
       const { rows: data, successMessage, origemAusenteNoResultado } = await fetchRelatorioContagemRows({

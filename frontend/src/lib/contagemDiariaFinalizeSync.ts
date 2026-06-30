@@ -1,4 +1,4 @@
-import { listConferentes, type Conferente } from './conferentesStore'
+import { conferenteIdParaBanco, listConferentes, resolveConferenteIdPorNome, type Conferente } from './conferentesStore'
 import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
 import type { ContagemDiariaLinhaCaptura } from './contagemDiariaLinhaTypes'
 import {
@@ -8,18 +8,8 @@ import {
 import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
 import { supabase } from './supabaseClient'
 
-function resolveConferenteId(nome: string | undefined, conferentes: Conferente[]): string {
-  const alvo = String(nome ?? '').trim()
-  if (!alvo) return ''
-  const lower = alvo.toLowerCase()
-  const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === lower)
-  if (exato) return exato.id
-  const parcial = conferentes.find(
-    (c) =>
-      c.nome.trim().toLowerCase().includes(lower) ||
-      lower.includes(c.nome.trim().toLowerCase()),
-  )
-  return parcial?.id ?? ''
+function resolveConferenteId(nome: string | undefined, conferentes: Conferente[]): string | null {
+  return resolveConferenteIdPorNome(nome, conferentes)
 }
 
 function parseUpAdicional(raw: string | undefined): number | null {
@@ -99,7 +89,10 @@ async function insertContagemRows(rows: Record<string, unknown>[]): Promise<numb
   const CHUNK = 250
   let inserted = 0
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK)
+    const chunk = rows.slice(i, i + CHUNK).map((r) => ({
+      ...r,
+      conferente_id: conferenteIdParaBanco(r.conferente_id as string | null | undefined),
+    }))
     let payload = chunk
     let { data, error } = await supabase.from(TABLE_CONTAGEM_DIARIA).insert(payload).select('id')
     if (error) {
@@ -169,10 +162,14 @@ export async function ensureContagensDiariaSessaoSincronizadas(opts?: {
   let sessoesSync = 0
   let linhas = 0
   for (const s of alvo) {
-    const { inserted } = await syncContagemDiariaSessaoParaContagens(s)
-    if (inserted > 0) {
-      sessoesSync++
-      linhas += inserted
+    try {
+      const { inserted } = await syncContagemDiariaSessaoParaContagens(s)
+      if (inserted > 0) {
+        sessoesSync++
+        linhas += inserted
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[contagemDiariaSync]', s.id, e)
     }
   }
   return { sessoes: sessoesSync, linhas }

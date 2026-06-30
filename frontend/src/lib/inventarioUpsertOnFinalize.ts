@@ -1,4 +1,5 @@
 import type { PlanilhaLayoutMeta } from '../components/inventario/inventarioPlanilhaModel'
+import { conferenteIdParaBanco } from './conferentesStore'
 import { TABLE_CONTAGEM_INVENTARIO } from './contagensDb'
 import { fetchContagensPaged } from './contagensSelectCompat'
 import { deleteInventarioPlanilhaLinhasForContagensIds } from './inventarioPlanilhaLinhasDelete'
@@ -167,6 +168,10 @@ export type InsertInventarioResult = {
   insertWithoutInventarioColumns: boolean
 }
 
+function sanitizeConferenteIdRow(row: Record<string, unknown>): Record<string, unknown> {
+  return { ...row, conferente_id: conferenteIdParaBanco(row.conferente_id as string | null | undefined) }
+}
+
 /** Insere linhas em `contagens_inventario` (compatível com colunas ausentes no banco). */
 export async function insertInventarioContagensRows(
   rows: Record<string, unknown>[],
@@ -177,7 +182,7 @@ export async function insertInventarioContagensRows(
   const ids: string[] = []
   for (let i = 0; i < rows.length; i += CHUNK) {
     opts?.onProgress?.(`Salvando: ${Math.min(i + CHUNK, rows.length)}/${rows.length} registros...`)
-    const chunk = rows.slice(i, i + CHUNK) as Record<string, unknown>[]
+    const chunk = rows.slice(i, i + CHUNK).map(sanitizeConferenteIdRow) as Record<string, unknown>[]
     let attemptPayload: Record<string, unknown>[] = chunk
     let { data: insertedChunk, error: insErr } = await supabase
       .from(TABLE_CONTAGEM_INVENTARIO)
