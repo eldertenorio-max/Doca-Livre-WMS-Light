@@ -2773,6 +2773,40 @@
   font-style: italic;
 }
 
+.inv-cap__linhas-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+}
+
+.inv-cap__linhas-pagination button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inv-cap__linhas-pagination button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.inv-cap__linhas-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .inv-cap__linhas-panel .inventario-captura__linhas-wrap {
   flex: 1;
   min-height: 0;
@@ -3105,17 +3139,33 @@
     border-radius: 10px;
     background: rgba(0, 0, 0, 0.18);
     border: 1px solid rgba(255, 255, 255, 0.08);
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .inv-cap__form-line--primary,
+  .inv-cap__form-line--secondary {
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .inv-cap__form-line--primary {
     display: grid;
-    grid-template-columns: minmax(200px, 1.1fr) minmax(120px, 0.75fr) minmax(280px, 2.6fr);
-    gap: 5px;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.45fr) minmax(0, 2.1fr);
+    gap: 6px;
     align-items: start;
   }
 
   .inv-cap__form-line--primary .inv-cap__cell.inventario-captura__field {
     margin: 0 !important;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .inv-cap__form-line--primary .inv-cap__cell--endereco,
+  .inv-cap__form-line--primary .inv-cap__endereco-row {
+    width: 100%;
+    min-width: 0;
   }
 
   .inv-cap__form-line--primary label,
@@ -3225,15 +3275,58 @@
   .inv-cap__form-line--secondary {
     display: grid;
     grid-template-columns:
-      minmax(72px, 0.75fr)
-      minmax(52px, 0.5fr)
-      minmax(64px, 0.6fr)
-      minmax(80px, 0.85fr)
-      minmax(120px, 1fr)
-      minmax(120px, 1fr)
-      minmax(140px, auto);
-    gap: 5px;
-    align-items: end;
+      minmax(0, 1fr)
+      minmax(0, 0.72fr)
+      minmax(0, 0.82fr)
+      minmax(0, 1fr)
+      minmax(0, 1.15fr)
+      minmax(0, 1.15fr)
+      minmax(0, 1.05fr);
+    gap: 6px;
+    align-items: start;
+  }
+
+  .inv-cap__form-line--secondary label,
+  .inv-cap__field-label-placeholder {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    min-height: 14px;
+    line-height: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .inv-cap__field-label-placeholder {
+    visibility: hidden;
+  }
+
+  .inv-cap__form-line--secondary .inventario-captura__field input,
+  .inv-cap__form-line--secondary .inventario-captura__field textarea {
+    height: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .inv-cap__form-line--secondary .inventario-captura__input-row {
+    align-items: stretch;
+    min-height: 40px;
+  }
+
+  .inv-cap__form-line--secondary .inventario-captura__action-btn {
+    min-height: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .inv-cap__form-line--secondary .inv-cap__cell.inventario-captura__field {
+    margin: 0 !important;
+    min-width: 0;
   }
 
   .inv-cap__grid {
@@ -3243,22 +3336,39 @@
   .inv-cap__cell--save {
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
-    align-self: stretch;
+    justify-content: flex-start;
+    min-width: 0;
   }
 
   .inv-cap__save-bar {
     margin: 0;
     padding: 0;
-    height: 100%;
-    justify-content: flex-end;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .inv-cap__save-bar .inventario-captura__save--desktop {
     width: 100%;
     min-width: 0;
+    height: 40px;
     min-height: 40px;
+    max-height: 40px;
     margin: 0;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    border-radius: 4px;
+  }
+
+  .inv-cap__form-line--secondary .inv-cap__cancel-edit {
+    width: 100%;
+    min-height: 32px;
+    margin: 0;
+    font-size: 12px;
   }
 
   .inv-cap__field + .inv-cap__field {
@@ -3296,17 +3406,15 @@
   }
 
   .inv-cap__save-bar {
-    flex-direction: row;
-    justify-content: flex-end;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
   }
 
   .inv-cap__cancel-edit {
-    width: auto;
+    width: 100%;
     margin-bottom: 0;
-    margin-right: auto;
+    margin-right: 0;
   }
 
   .inv-cap__save-bar .inventario-captura__footer-mobile {

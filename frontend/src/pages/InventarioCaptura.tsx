@@ -67,6 +67,7 @@ type Props = {
 }
 
 const SUGESTOES_MAX = 15
+const LINHAS_PAGE_SIZE = 15
 
 function formatDateBR(d: Date) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
@@ -136,6 +137,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [sugestaoIdx, setSugestaoIdx] = useState(0)
   const [presencaRows, setPresencaRows] = useState<InventarioCapturaPresencaRow[]>([])
   const [editandoLinhaId, setEditandoLinhaId] = useState<string | null>(null)
+  const [linhasPage, setLinhasPage] = useState(1)
   const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
   const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
 
@@ -163,6 +165,23 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     () => [...(sessao?.linhas ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [sessao?.linhas],
   )
+
+  const totalLinhasPages = Math.max(1, Math.ceil(linhasSalvas.length / LINHAS_PAGE_SIZE))
+  const linhasPageSafe = Math.min(linhasPage, totalLinhasPages)
+
+  const linhasPaginadas = useMemo(() => {
+    const start = (linhasPageSafe - 1) * LINHAS_PAGE_SIZE
+    return linhasSalvas.slice(start, start + LINHAS_PAGE_SIZE)
+  }, [linhasSalvas, linhasPageSafe])
+
+  const linhasRangeFrom =
+    linhasSalvas.length === 0 ? 0 : (linhasPageSafe - 1) * LINHAS_PAGE_SIZE + 1
+  const linhasRangeTo =
+    linhasSalvas.length === 0 ? 0 : Math.min(linhasPageSafe * LINHAS_PAGE_SIZE, linhasSalvas.length)
+
+  useEffect(() => {
+    setLinhasPage((p) => Math.min(p, Math.max(1, Math.ceil(linhasSalvas.length / LINHAS_PAGE_SIZE))))
+  }, [linhasSalvas.length])
 
   const posicoesInventario = useMemo(() => {
     const list = sessao?.posicoesCodigos ?? []
@@ -640,6 +659,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
           : `Linha salva (${atualizado?.linhas.length ?? 0} no total)`,
       )
       setErr('')
+      setLinhasPage(1)
       limparFormulario()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Erro ao salvar linha.')
@@ -1097,6 +1117,9 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                 </section>
 
                 <div className="inv-cap__save-bar inv-cap__cell inv-cap__cell--save">
+              <span className="inv-cap__field-label-placeholder" aria-hidden="true">
+                Salvar
+              </span>
               {editandoLinhaId ? (
                 <button type="button" className="inv-cap__cancel-edit page-btn-ghost" onClick={limparFormulario}>
                   Cancelar edição
@@ -1161,12 +1184,12 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                     </tr>
                   </thead>
                   <tbody>
-                    {linhasSalvas.map((linha, idx) => (
+                    {linhasPaginadas.map((linha, idx) => (
                       <tr
                         key={linha.id}
                         className={editandoLinhaId === linha.id ? 'inv-cap__linha--editando' : undefined}
                       >
-                        <td>{linhasSalvas.length - idx}</td>
+                        <td>{linhasSalvas.length - ((linhasPageSafe - 1) * LINHAS_PAGE_SIZE + idx)}</td>
                         <td>{formatDataLinha(linha.createdAt)}</td>
                         <td>{formatHora(linha.createdAt)}</td>
                         <td>{linhaCamaraLabel(linha)}</td>
@@ -1206,6 +1229,28 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
                 </table>
               </div>
             )}
+            {linhasSalvas.length > LINHAS_PAGE_SIZE ? (
+              <div className="inv-cap__linhas-pagination" aria-label="Paginação das linhas salvas">
+                <button
+                  type="button"
+                  disabled={linhasPageSafe <= 1}
+                  onClick={() => setLinhasPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </button>
+                <span>
+                  {linhasRangeFrom}–{linhasRangeTo} de {linhasSalvas.length} · Página {linhasPageSafe} de{' '}
+                  {totalLinhasPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={linhasPageSafe >= totalLinhasPages}
+                  onClick={() => setLinhasPage((p) => Math.min(totalLinhasPages, p + 1))}
+                >
+                  Próxima
+                </button>
+              </div>
+            ) : null}
           </aside>
         </div>
       </div>
