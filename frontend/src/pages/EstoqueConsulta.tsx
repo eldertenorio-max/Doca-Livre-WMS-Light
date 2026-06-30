@@ -228,7 +228,7 @@ export default function EstoqueConsulta() {
             ))}
           </select>
         </label>
-        <div className="page-form-grid__actions page-form-grid__actions--wrap">
+        <div className="page-form-grid__actions page-form-grid__actions--wrap page-form-grid__full">
           <button type="button" disabled={loading} onClick={aplicarFiltrosServidor}>
             {loading ? 'Carregando…' : 'Carregar'}
           </button>
