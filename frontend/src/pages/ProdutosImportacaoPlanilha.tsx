@@ -87,6 +87,10 @@ async function gravarListaImportada(nome: string, linhas: LinhaImport[]) {
   return createProdutoLista(nomeTrim, produtos)
 }
 
+function nomeListaFromArquivo(fileName: string): string {
+  return fileName.replace(/\.(xlsx|xls|csv)$/i, '').trim()
+}
+
 function baixarModeloImportacao() {
   const exemplo = [
     {
@@ -113,16 +117,29 @@ function baixarModeloImportacao() {
 
 export default function ProdutosImportacaoPlanilha() {
   const inputRef = useRef<HTMLInputElement>(null)
+  const feedbackRef = useRef<HTMLPreElement>(null)
   const [nomeLista, setNomeLista] = useState('')
   const [linhas, setLinhas] = useState<LinhaImport[]>([])
   const [arquivo, setArquivo] = useState('')
   const [importando, setImportando] = useState(false)
   const [log, setLog] = useState<string[]>([])
+  const [erro, setErro] = useState('')
   const [atualizarExistentes, setAtualizarExistentes] = useState(true)
+
+  function mostrarFeedback(msgs: string[]) {
+    setLog(msgs)
+    requestAnimationFrame(() => {
+      feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }
 
   function handleFile(file: File) {
     setLog([])
+    setErro('')
     setArquivo(file.name)
+    if (!nomeLista.trim()) {
+      setNomeLista(nomeListaFromArquivo(file.name))
+    }
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
@@ -132,10 +149,11 @@ export default function ProdutosImportacaoPlanilha() {
         const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
         const parsed = parseSheet(json)
         setLinhas(parsed)
-        setLog([`Arquivo lido: ${parsed.length} linha(s) válida(s).`])
+        mostrarFeedback([`Arquivo lido: ${parsed.length} linha(s) válida(s).`])
       } catch (e: unknown) {
         setLinhas([])
-        setLog([`Erro ao ler planilha: ${formatUnknownError(e)}`])
+        setErro('')
+        mostrarFeedback([`Erro ao ler planilha: ${formatUnknownError(e)}`])
       }
     }
     reader.readAsArrayBuffer(file)
@@ -186,14 +204,18 @@ export default function ProdutosImportacaoPlanilha() {
   }
 
   async function handleImportar() {
-    if (!linhas.length) return
+    setErro('')
+    if (!linhas.length) {
+      setErro('Selecione um arquivo Excel com pelo menos uma linha válida.')
+      return
+    }
     const nome = nomeLista.trim()
     if (!nome) {
-      setLog(['Informe o nome da lista antes de importar.'])
+      setErro('Informe o nome da lista antes de importar.')
       return
     }
     if (!produtoListasHabilitado()) {
-      setLog(['Supabase não configurado — não é possível gravar a lista de produtos.'])
+      setErro('Supabase não configurado — não é possível gravar a lista de produtos.')
       return
     }
 
@@ -228,9 +250,12 @@ export default function ProdutosImportacaoPlanilha() {
     }
 
     msgs.unshift(`Concluído — ${ok} gravado(s) em Todos os Produtos, ${skip} ignorado(s), ${err} erro(s).`)
-    setLog(msgs)
+    setErro('')
+    mostrarFeedback(msgs)
     setImportando(false)
   }
+
+  const podeImportar = linhas.length > 0 && !importando
 
   return (
     <div className="page-panel">
@@ -247,11 +272,20 @@ export default function ProdutosImportacaoPlanilha() {
           Nome da lista *
           <input
             value={nomeLista}
-            onChange={(e) => setNomeLista(e.target.value)}
+            onChange={(e) => {
+              setNomeLista(e.target.value)
+              if (erro) setErro('')
+            }}
             placeholder="Ex.: CD Ultrapao guarulhos — importação jun/2026"
             required
+            aria-invalid={linhas.length > 0 && !nomeLista.trim()}
           />
         </label>
+        {linhas.length > 0 && !nomeLista.trim() ? (
+          <p className="page-form-hint page-form-hint--err page-form-grid__full">
+            Informe o nome da lista para concluir a importação.
+          </p>
+        ) : null}
         <label className="page-form-grid__full">
           Arquivo Excel
           <input
@@ -275,7 +309,7 @@ export default function ProdutosImportacaoPlanilha() {
         <div className="page-form-grid__actions page-form-grid__actions--wrap">
           <button
             type="button"
-            disabled={!nomeLista.trim() || !linhas.length || importando}
+            disabled={!podeImportar}
             onClick={() => void handleImportar()}
           >
             {importando ? 'Importando…' : `Importar ${linhas.length} linha(s)`}
@@ -285,6 +319,8 @@ export default function ProdutosImportacaoPlanilha() {
           </button>
         </div>
       </div>
+
+      {erro ? <div className="page-form-alert page-form-alert--err">{erro}</div> : null}
 
       {arquivo ? (
         <p style={{ marginTop: 12, fontSize: 14, color: 'var(--muted, #94a3b8)' }}>
@@ -322,14 +358,8 @@ export default function ProdutosImportacaoPlanilha() {
 
       {log.length > 0 ? (
         <pre
-          style={{
-            marginTop: 16,
-            padding: 12,
-            borderRadius: 8,
-            background: 'var(--chart-card-bg, rgba(0,0,0,.2))',
-            fontSize: 13,
-            whiteSpace: 'pre-wrap',
-          }}
+          ref={feedbackRef}
+          className="page-form-log"
         >
           {log.join('\n')}
         </pre>
