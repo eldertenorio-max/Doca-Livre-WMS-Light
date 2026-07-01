@@ -184,7 +184,9 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
     try {
       const r = await prefetchContagemOfflineCatalog()
       setCatalogoOffline(offlineCatalogStats())
-      setPrefetchMsg(`${r.produtos} produto(s) e ${r.conferentes} conferente(s) prontos para uso offline.`)
+      setPrefetchMsg(
+        `${r.produtos} produto(s), ${r.conferentes} conferente(s), ${r.listasEndereco} lista(s) de endereço e ${r.listasProduto} lista(s) de produto prontos para uso offline.`,
+      )
     } catch (e: unknown) {
       alert(formatUnknownError(e) || 'Erro ao preparar modo offline.')
     } finally {
@@ -397,6 +399,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
         </span>
         <span className="inv-gerenciar-offline-meta">
           Catálogo offline: {catalogoOffline.produtos} produto(s)
+          {catalogoOffline.listasEndereco > 0 ? ` · ${catalogoOffline.listasEndereco} lista(s) de endereço` : ''}
           {pendingSync > 0 ? ` · ${pendingSync} contagem(ns) aguardando envio` : ''}
         </span>
         <button

@@ -7,6 +7,15 @@ import {
   inventarioSyncHabilitado,
   upsertInventarioSessaoSupabase,
 } from './inventarioSessaoSupabase'
+import { isAppOnline } from './appConnectivity'
+import {
+  cacheInventario,
+  cacheInventarioList,
+  readCachedInventario,
+  readCachedInventarioList,
+  removeCachedInventario,
+} from './inventarioLocalCache'
+import { enqueuePendingInventarioSync } from './inventarioOfflineSync'
 
 export type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
@@ -126,6 +135,40 @@ function wrapDbError(e: unknown, fallback: string): Error {
   return e instanceof Error ? e : new Error(fallback)
 }
 
+function preferLocalOnly(): boolean {
+  return !isAppOnline()
+}
+
+function persistInventarioLocal(row: InventarioSessao): void {
+  cacheInventario(row)
+  const list = readLegacyLocal()
+  const idx = list.findIndex((l) => l.id === row.id)
+  if (idx >= 0) list[idx] = row
+  else list.push(row)
+  writeLegacyLocal(list)
+}
+
+async function persistInventario(row: InventarioSessao): Promise<void> {
+  const next = withUpdatedAt(row)
+  cacheInventario(next)
+
+  if (preferLocalOnly()) {
+    persistInventarioLocal(next)
+    return
+  }
+
+  if (!(await usarSupabaseSessoes())) {
+    persistInventarioLocal(next)
+    return
+  }
+
+  try {
+    await upsertInventarioSessaoSupabase(next)
+  } catch {
+    persistInventarioLocal(next)
+  }
+}
+
 function withUpdatedAt(sessao: InventarioSessao): InventarioSessao {
   return { ...sessao, updatedAt: new Date().toISOString() }
 }
@@ -158,13 +201,25 @@ export function mensagemTituloInventarioEmUso(titulo: string, existente?: Invent
 
 export async function listInventarios(): Promise<InventarioSessao[]> {
   requireSupabase()
+
+  if (preferLocalOnly()) {
+    const cached = readCachedInventarioList()
+    if (cached.length) return sortInventarios(cached)
+    return sortInventarios(readLegacyLocal())
+  }
+
   if (!(await usarSupabaseSessoes())) {
     return sortInventarios(readLegacyLocal())
   }
   try {
     await ensureLegacyInventariosMigrated()
-    return await fetchInventarioSessoesSupabase()
+    const list = await fetchInventarioSessoesSupabase()
+    const sorted = sortInventarios(list)
+    cacheInventarioList(sorted)
+    return sorted
   } catch (e) {
+    const cached = readCachedInventarioList()
+    if (cached.length) return sortInventarios(cached)
     const legacy = readLegacyLocal()
     if (legacy.length) {
       return sortInventarios(legacy)
@@ -175,15 +230,26 @@ export async function listInventarios(): Promise<InventarioSessao[]> {
 
 export async function getInventario(id: string): Promise<InventarioSessao | null> {
   requireSupabase()
+
+  if (preferLocalOnly()) {
+    return readCachedInventario(id) ?? readLegacyLocal().find((l) => l.id === id) ?? null
+  }
+
   if (!(await usarSupabaseSessoes())) {
     return readLegacyLocal().find((l) => l.id === id) ?? null
   }
   try {
     await ensureLegacyInventariosMigrated()
-    return await fetchInventarioSessaoByIdSupabase(id)
+    const s = await fetchInventarioSessaoByIdSupabase(id)
+    if (s) {
+      cacheInventario(s)
+      return s
+    }
+    const cached = readCachedInventario(id)
+    return cached ?? null
   } catch (e) {
-    const local = readLegacyLocal().find((l) => l.id === id)
-    if (local) return local
+    const cached = readCachedInventario(id) ?? readLegacyLocal().find((l) => l.id === id)
+    if (cached) return cached
     throw wrapDbError(e, 'Erro ao carregar inventário.')
   }
 }
@@ -195,10 +261,11 @@ export async function criarInventario(opts?: {
   posicoesCodigos?: string[]
 }): Promise<InventarioSessao | null> {
   requireSupabase()
-  const lista = await listInventarios()
-  const numero = (await usarSupabaseSessoes())
-    ? await fetchProximoNumeroInventarioSupabase()
-    : proximoNumeroLocal()
+  const lista = preferLocalOnly() ? readCachedInventarioList() : await listInventarios()
+  const numero =
+    preferLocalOnly() || !(await usarSupabaseSessoes())
+      ? proximoNumeroLocal()
+      : await fetchProximoNumeroInventarioSupabase()
   const tituloFinal = opts?.titulo?.trim() || `Inventário (Validade) #${numero}`
   if (inventarioAbertoComMesmoTitulo(lista, tituloFinal)) return null
 
@@ -219,27 +286,25 @@ export async function criarInventario(opts?: {
     updatedAt: now,
   }
   if (await usarSupabaseSessoes()) {
-    await upsertInventarioSessaoSupabase(row)
+    if (!preferLocalOnly()) {
+      try {
+        await upsertInventarioSessaoSupabase(row)
+      } catch {
+        persistInventarioLocal(row)
+      }
+    } else {
+      persistInventarioLocal(row)
+    }
   } else {
-    const local = readLegacyLocal()
-    local.push(row)
-    writeLegacyLocal(local)
+    persistInventarioLocal(row)
   }
+  cacheInventario(row)
   return row
 }
 
 export async function saveInventario(sessao: InventarioSessao): Promise<void> {
   requireSupabase()
-  const row = withUpdatedAt(sessao)
-  if (await usarSupabaseSessoes()) {
-    await upsertInventarioSessaoSupabase(row)
-    return
-  }
-  const list = readLegacyLocal()
-  const idx = list.findIndex((l) => l.id === row.id)
-  if (idx >= 0) list[idx] = row
-  else list.push(row)
-  writeLegacyLocal(list)
+  await persistInventario(sessao)
 }
 
 export async function addLinhaInventario(
@@ -296,12 +361,18 @@ export async function fecharInventario(id: string): Promise<void> {
   sessao.status = 'fechado'
   sessao.dataFim = new Date().toISOString()
   await saveInventario(sessao)
-  if (sessao.linhas.length > 0) {
-    try {
-      await syncInventarioSessaoParaContagens(sessao, { force: true })
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn('[fecharInventario] sync contagens_inventario', e)
-    }
+  if (sessao.linhas.length === 0) return
+
+  if (preferLocalOnly()) {
+    enqueuePendingInventarioSync(id)
+    return
+  }
+
+  try {
+    await syncInventarioSessaoParaContagens(sessao, { force: true })
+  } catch (e) {
+    enqueuePendingInventarioSync(id)
+    if (import.meta.env.DEV) console.warn('[fecharInventario] sync contagens_inventario', e)
   }
 }
 
@@ -321,10 +392,17 @@ export async function deleteInventario(id: string): Promise<boolean> {
   const sessao = await getInventario(id)
   if (!sessao) return false
   if (await usarSupabaseSessoes()) {
-    await deleteInventarioSessaoSupabase(id)
+    if (!preferLocalOnly()) {
+      try {
+        await deleteInventarioSessaoSupabase(id)
+      } catch {
+        /* mantém remoção local */
+      }
+    }
   } else {
     writeLegacyLocal(readLegacyLocal().filter((l) => l.id !== id))
   }
+  removeCachedInventario(id)
   return true
 }
 

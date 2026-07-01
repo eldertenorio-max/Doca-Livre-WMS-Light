@@ -1,7 +1,10 @@
 import { listConferentes } from './conferentesStore'
+import { listEnderecoListas } from './enderecamentoListaSupabase'
+import { listInventarios } from './inventarioSessaoStore'
 import {
   loadProductOptionsCache,
   saveConferentesCache,
+  saveEnderecoListCache,
   saveProductListCache,
   saveProductOptionsCache,
   type CachedProductOption,
@@ -13,9 +16,11 @@ import { supabase } from './supabaseClient'
 export type PrefetchOfflineCatalogResult = {
   produtos: number
   conferentes: number
+  listasEndereco: number
+  listasProduto: number
 }
 
-/** Baixa produtos e conferentes para uso offline (câmara fria sem internet). */
+/** Baixa produtos, conferentes e listas para uso offline (câmara fria sem internet). */
 export async function prefetchContagemOfflineCatalog(): Promise<PrefetchOfflineCatalogResult> {
   const { data, error } = await supabase.from(TABELA_PRODUTOS).select('*').limit(15000)
   if (error) throw error
@@ -44,9 +49,42 @@ export async function prefetchContagemOfflineCatalog(): Promise<PrefetchOfflineC
   const conferentes = await listConferentes()
   if (conferentes.length) saveConferentesCache(conferentes)
 
+  let listasEndereco = 0
+  try {
+    const enderecos = await listEnderecoListas()
+    for (const lista of enderecos) {
+      saveEnderecoListCache({
+        id: lista.id,
+        nome: lista.nome,
+        enderecos: lista.enderecos,
+      })
+      listasEndereco++
+    }
+  } catch {
+    /* listas de endereço opcionais */
+  }
+
+  let listasProduto = 0
+  const listaIds = new Set<string>()
+  try {
+    const inventarios = await listInventarios()
+    for (const inv of inventarios) {
+      if (inv.listaProdutosId) listaIds.add(inv.listaProdutosId)
+    }
+  } catch {
+    /* ignore */
+  }
+
+  for (const listaId of listaIds) {
+    const n = await prefetchProdutoListaOffline(listaId)
+    if (n > 0) listasProduto++
+  }
+
   return {
     produtos: produtos.length || loadProductOptionsCache().length,
     conferentes: conferentes.length,
+    listasEndereco,
+    listasProduto,
   }
 }
 

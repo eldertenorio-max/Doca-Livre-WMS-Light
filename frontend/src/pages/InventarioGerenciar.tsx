@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { isAppOnline, subscribeAppConnectivity } from '../lib/appConnectivity'
 import InventarioPosicoesModal from '../components/inventario/InventarioPosicoesModal'
 import InventarioIniciarModal from '../components/inventario/InventarioIniciarModal'
 import { usernameFromSession } from '../lib/authUser'
@@ -21,6 +22,12 @@ import {
 import { formatUnknownError } from '../lib/supabaseError'
 import CadastroConferenteModal from '../components/conferente/CadastroConferenteModal'
 import { PagePanelHeading } from '../components/ui/PagePanelHeading'
+import {
+  countPendingInventarioSync,
+  flushPendingInventarioSync,
+} from '../lib/inventarioOfflineSync'
+import { offlineCatalogStats } from '../lib/offlineCatalogCache'
+import { prefetchContagemOfflineCatalog } from '../lib/prefetchContagemOfflineCatalog'
 
 type Props = {
   onAbrirCaptura: (inventarioId: string) => void
@@ -87,6 +94,11 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
   const [filtroDataAte, setFiltroDataAte] = useState('')
   const [modoLocal, setModoLocal] = useState(false)
   const [cadastroConferenteOpen, setCadastroConferenteOpen] = useState(false)
+  const [online, setOnline] = useState(() => isAppOnline())
+  const [catalogoOffline, setCatalogoOffline] = useState(() => offlineCatalogStats())
+  const [pendingSync, setPendingSync] = useState(() => countPendingInventarioSync())
+  const [prefetching, setPrefetching] = useState(false)
+  const [prefetchMsg, setPrefetchMsg] = useState('')
 
   const inventarioPosicoes = useMemo(
     () => (posicoesInvId ? rows.find((r) => r.id === posicoesInvId) : undefined),
@@ -144,6 +156,38 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
   useEffect(() => {
     void refresh()
   }, [])
+
+  useEffect(() => {
+    return subscribeAppConnectivity((next) => {
+      setOnline(next)
+      if (next) {
+        void flushPendingInventarioSync().then(() => {
+          setPendingSync(countPendingInventarioSync())
+          void refresh()
+        })
+      }
+    })
+  }, [])
+
+  async function prepararModoOffline() {
+    if (!isAppOnline()) {
+      alert('Conecte-se à internet para baixar o catálogo antes de entrar na câmara fria.')
+      return
+    }
+    setPrefetching(true)
+    setPrefetchMsg('')
+    try {
+      const r = await prefetchContagemOfflineCatalog()
+      setCatalogoOffline(offlineCatalogStats())
+      setPrefetchMsg(
+        `${r.produtos} produto(s), ${r.conferentes} conferente(s), ${r.listasEndereco} lista(s) de endereço e ${r.listasProduto} lista(s) de produto prontos para uso offline.`,
+      )
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao preparar modo offline.')
+    } finally {
+      setPrefetching(false)
+    }
+  }
 
   function abrirModalCriar() {
     setCriarTitulo('')
@@ -292,7 +336,15 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
             className={ghostClass}
             onClick={() => {
               if (confirm('Finalizar este inventário?')) {
-                void fecharInventario(r.id).then(() => refresh())
+                void fecharInventario(r.id).then(() => {
+                  if (!isAppOnline()) {
+                    setPendingSync(countPendingInventarioSync())
+                    alert(
+                      'Inventário finalizado no aparelho. Ao voltar a ter internet, os dados serão enviados ao banco automaticamente.',
+                    )
+                  }
+                  void refresh()
+                })
               }
             }}
           >
@@ -335,13 +387,33 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
         title="Inventários"
         info={
           <>
-            Crie um inventário com nome — configure as <strong>posições</strong> (endereços) e use a lista de produtos{' '}
-            <strong>Ultrapao</strong> (aba Produtos → Todos os Produtos). Depois clique em{' '}
-            <strong>Começar inventário</strong> para coletar. Os dados ficam salvos no <strong>Supabase</strong> e
-            aparecem em qualquer dispositivo.
+            Crie um inventário com nome — configure as <strong>posições</strong> (endereços) e use a lista de produtos.
+            Depois clique em <strong>Começar inventário</strong> para coletar. Na <strong>câmara fria sem internet</strong>,
+            use <strong>Preparar modo offline</strong> antes de entrar; as linhas ficam salvas no aparelho e sincronizam ao
+            voltar a ter rede.
           </>
         }
       />
+
+      <div className="inv-gerenciar-offline-bar">
+        <span className={`inv-cap__badge ${online ? 'inv-cap__badge--online' : 'inv-cap__badge--offline'}`}>
+          {online ? 'Online' : 'Offline'}
+        </span>
+        <span className="inv-gerenciar-offline-meta">
+          Catálogo offline: {catalogoOffline.produtos} produto(s)
+          {catalogoOffline.listasEndereco > 0 ? ` · ${catalogoOffline.listasEndereco} lista(s) de endereço` : ''}
+          {pendingSync > 0 ? ` · ${pendingSync} inventário(s) aguardando envio` : ''}
+        </span>
+        <button
+          type="button"
+          className="page-btn-ghost"
+          disabled={prefetching || !online}
+          onClick={() => void prepararModoOffline()}
+        >
+          {prefetching ? 'Baixando…' : 'Preparar modo offline'}
+        </button>
+      </div>
+      {prefetchMsg ? <p className="page-msg page-msg--ok">{prefetchMsg}</p> : null}
 
       {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
       {modoLocal ? (

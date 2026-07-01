@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { isAppOnline } from '../lib/appConnectivity'
+import { isAppOnline, subscribeAppConnectivity } from '../lib/appConnectivity'
 import { usernameFromSession } from '../lib/authUser'
 import {
   buildProductLookupMaps,
@@ -47,6 +47,18 @@ import {
   produtoListaParaProductOptions,
 } from '../lib/produtoListaSupabase'
 import { mapRowToProductOption, TABELA_PRODUTOS, type ProductOption } from '../lib/productOptionMapper'
+import {
+  loadEnderecoListCache,
+  loadProductListCache,
+  loadProductOptionsCache,
+  saveEnderecoListCache,
+  saveProductListCache,
+  saveProductOptionsCache,
+} from '../lib/offlineCatalogCache'
+import {
+  countPendingInventarioSync,
+  flushPendingInventarioSync,
+} from '../lib/inventarioOfflineSync'
 import {
   PRODUTO_LISTA_ATUALIZADA_EVENT,
   setSessaoProdutoListaContext,
@@ -152,6 +164,8 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const [linhasPage, setLinhasPage] = useState(1)
   const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
   const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
+  const [online, setOnline] = useState(() => isAppOnline())
+  const [pendingSync, setPendingSync] = useState(() => countPendingInventarioSync())
 
   const camaraRef = useRef<HTMLSelectElement>(null)
   const enderecoCodigoRef = useRef<HTMLInputElement>(null)
@@ -159,7 +173,6 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const comboRef = useRef<HTMLDivElement>(null)
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const online = isAppOnline()
   const usuarioLogado = usernameFromSession(session)
 
   const contadoresOnline = useMemo(
@@ -260,10 +273,40 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
   const loadProdutos = useCallback(async (listaProdutosId?: string | null) => {
     setProdutosCarregando(true)
     try {
+      if (!isAppOnline()) {
+        if (listaProdutosId) {
+          const cachedList = loadProductListCache(listaProdutosId)
+          if (cachedList.length) {
+            setProdutos(cachedList as ProductOption[])
+            return
+          }
+        }
+        const cached = loadProductOptionsCache()
+        if (cached.length) {
+          setProdutos(cached as ProductOption[])
+          return
+        }
+        setErr('Sem internet e catálogo offline vazio. Conecte-se antes de entrar na câmara fria e abra o inventário novamente.')
+        return
+      }
       if (listaProdutosId) {
         const lista = await getProdutoLista(listaProdutosId)
         if (lista) {
-          setProdutos(produtoListaParaProductOptions(lista))
+          const list = produtoListaParaProductOptions(lista)
+          setProdutos(list)
+          saveProductListCache(
+            listaProdutosId,
+            list.map((p) => ({
+              id: p.id,
+              codigo: p.codigo,
+              descricao: p.descricao,
+              unidade_medida: p.unidade_medida,
+              data_fabricacao: p.data_fabricacao,
+              data_validade: p.data_validade,
+              ean: p.ean,
+              dun: p.dun,
+            })),
+          )
           return
         }
       }
@@ -272,9 +315,33 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
         .map((r) => mapRowToProductOption(r as Record<string, unknown>))
         .filter(Boolean) as ProductOption[]
       setProdutos(list)
+      if (list.length) {
+        saveProductOptionsCache(
+          list.map((p) => ({
+            id: p.id,
+            codigo: p.codigo,
+            descricao: p.descricao,
+            unidade_medida: p.unidade_medida,
+            data_fabricacao: p.data_fabricacao,
+            data_validade: p.data_validade,
+            ean: p.ean,
+            dun: p.dun,
+          })),
+        )
+      }
     } finally {
       setProdutosCarregando(false)
     }
+  }, [])
+
+  useEffect(() => {
+    return subscribeAppConnectivity((next) => {
+      setOnline(next)
+      setPendingSync(countPendingInventarioSync())
+      if (next) {
+        void flushPendingInventarioSync().then(() => setPendingSync(countPendingInventarioSync()))
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -349,10 +416,47 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     }
     void (async () => {
       try {
+        if (!isAppOnline()) {
+          const cached = loadEnderecoListCache(listaId)
+          if (alive) {
+            setListaEndereco(
+              cached
+                ? {
+                    id: cached.id,
+                    nome: cached.nome,
+                    enderecos: cached.enderecos,
+                    createdAt: '',
+                    updatedAt: '',
+                  }
+                : null,
+            )
+          }
+          return
+        }
         const lista = await getEnderecoLista(listaId)
+        if (lista) {
+          saveEnderecoListCache({
+            id: lista.id,
+            nome: lista.nome,
+            enderecos: lista.enderecos,
+          })
+        }
         if (alive) setListaEndereco(lista)
       } catch {
-        if (alive) setListaEndereco(null)
+        const cached = loadEnderecoListCache(listaId)
+        if (alive) {
+          setListaEndereco(
+            cached
+              ? {
+                  id: cached.id,
+                  nome: cached.nome,
+                  enderecos: cached.enderecos,
+                  createdAt: '',
+                  updatedAt: '',
+                }
+              : null,
+          )
+        }
       }
     })()
     return () => {
@@ -413,10 +517,10 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     }
 
     let hit = buscarProdutoUnicoLocal(q, produtos, productMaps)
-    if (!hit) {
+    if (!hit && isAppOnline()) {
       hit = await fetchProductOptionByCodigoFromDb(q)
     }
-    if (!hit && q.length >= 2) {
+    if (!hit && isAppOnline() && q.length >= 2) {
       hit = await fetchProductOptionByDescricaoFromDb(q)
     }
 
@@ -787,8 +891,13 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
             <h1 className="inv-cap__title">{sessao.titulo}</h1>
             <div className="inv-cap__badges">
               <span className={`inv-cap__badge ${online ? 'inv-cap__badge--online' : 'inv-cap__badge--offline'}`}>
-                {online ? 'Online' : 'Offline'}
+                {online ? 'Online' : 'Offline — salvando no aparelho'}
               </span>
+              {pendingSync > 0 ? (
+                <span className="inv-cap__badge inv-cap__badge--readonly" title="Inventários finalizados offline aguardando envio">
+                  {pendingSync} p/ sincronizar
+                </span>
+              ) : null}
               {readonly ? <span className="inv-cap__badge inv-cap__badge--readonly">Finalizado</span> : null}
               <span className="inv-cap__badge">{sessao.linhas.length} linha(s)</span>
             </div>

@@ -9,9 +9,12 @@ export type CachedProductOption = {
   dun?: string | null
 }
 
+import type { EnderecoCadastro } from './enderecamentoStore'
+
 const PRODUCTS_CACHE_KEY = 'contagem-offline-products-cache-v1'
 const CONFERENTES_CACHE_KEY = 'contagem-offline-conferentes-cache-v1'
 const PRODUCT_LIST_CACHE_PREFIX = 'contagem-offline-product-list-v1:'
+const ENDERECO_LIST_CACHE_PREFIX = 'offline-endereco-list-v1:'
 
 export type CachedConferente = { id: string; nome: string }
 
@@ -76,9 +79,46 @@ export function loadProductListCache(listaId: string): CachedProductOption[] {
   }
 }
 
-export function offlineCatalogStats(): { produtos: number; conferentes: number } {
+export function offlineCatalogStats(): { produtos: number; conferentes: number; listasEndereco: number } {
+  let listasEndereco = 0
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k?.startsWith(ENDERECO_LIST_CACHE_PREFIX)) listasEndereco++
+    }
+  } catch {
+    /* ignore */
+  }
   return {
     produtos: loadProductOptionsCache().length,
     conferentes: loadConferentesCache().length,
+    listasEndereco,
+  }
+}
+
+export type CachedEnderecoLista = {
+  id: string
+  nome: string
+  enderecos: EnderecoCadastro[]
+}
+
+export function saveEnderecoListCache(lista: CachedEnderecoLista): void {
+  try {
+    if (!lista.id) return
+    localStorage.setItem(`${ENDERECO_LIST_CACHE_PREFIX}${lista.id}`, JSON.stringify(lista))
+  } catch {
+    /* quota */
+  }
+}
+
+export function loadEnderecoListCache(listaId: string): CachedEnderecoLista | null {
+  try {
+    if (!listaId) return null
+    const raw = localStorage.getItem(`${ENDERECO_LIST_CACHE_PREFIX}${listaId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as CachedEnderecoLista
+    return parsed?.id ? parsed : null
+  } catch {
+    return null
   }
 }
