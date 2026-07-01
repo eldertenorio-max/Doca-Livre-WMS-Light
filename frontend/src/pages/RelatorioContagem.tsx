@@ -30,15 +30,19 @@ import { planilhaFkContagemColumn, tableContagens } from '../lib/contagensDb'
 import {
   ensureInventariosSessaoSincronizados,
   enrichInventarioRowsFromSessaoCaptura,
+  fetchInventarioDbRowsParaSessaoExport,
   inventarioCapturaLinhasToRelatorioRows,
   syncInventarioSessaoParaContagens,
   ymdSpFromIso,
 } from '../lib/inventarioSessaoFinalizeSync'
 import { getInventario } from '../lib/inventarioSessaoStore'
 import {
+  contagemDiariaCapturaLinhasToRelatorioRows,
   ensureContagensDiariaSessaoSincronizadas,
+  fetchContagemDbRowsParaSessaoExport,
   syncContagemDiariaSessaoParaContagens,
 } from '../lib/contagemDiariaFinalizeSync'
+import { getContagemDiaria } from '../lib/contagemDiariaSessaoStore'
 import type { ContagemDiariaSessao } from '../lib/contagemDiariaSessaoTypes'
 import type { InventarioSessao } from '../lib/inventarioSessaoTypes'
 import {
@@ -2091,30 +2095,38 @@ export default function RelatorioContagem({
     setExportSessaoIdLoading(sessao.id)
     setError('')
     try {
+      const fresh = await getInventario(sessao.id)
+      const source = fresh ?? sessao
+
       try {
-        await syncInventarioSessaoParaContagens(sessao, { force: true })
+        if (source.linhas.length > 0) {
+          await syncInventarioSessaoParaContagens(source, { force: true })
+        }
       } catch (syncErr: unknown) {
         if (import.meta.env.DEV) console.warn('[exportInventario] sync', syncErr)
       }
 
-      const fresh = await getInventario(sessao.id)
-      const source = fresh ?? sessao
       let exportRows: ContagemRow[]
       if (source.linhas.length > 0) {
         const fromCaptura = inventarioCapturaLinhasToRelatorioRows(source) as ContagemRow[]
         exportRows = await enrichPlanilhaEConferente(fromCaptura)
       } else {
-        const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
-          finalizacaoSessaoId: sessao.id,
-        })
-        let rowsDb = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
-        if (contagensHasFinalizacaoSessaoIdRef.current) {
-          rowsDb = rowsDb.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+        const dbRows = (await fetchInventarioDbRowsParaSessaoExport(source)) as ContagemRow[]
+        if (dbRows.length > 0) {
+          exportRows = await enrichPlanilhaEConferente(dbRows)
         } else {
-          const marcador = `Inventário #${sessao.numero}`
-          rowsDb = rowsDb.filter((r) => String(r.observacao ?? '').includes(marcador))
+          const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
+            finalizacaoSessaoId: sessao.id,
+          })
+          let rowsDb = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
+          if (contagensHasFinalizacaoSessaoIdRef.current) {
+            rowsDb = rowsDb.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+          } else {
+            const marcador = `Inventário #${sessao.numero}`
+            rowsDb = rowsDb.filter((r) => String(r.observacao ?? '').includes(marcador))
+          }
+          exportRows = rowsDb
         }
-        exportRows = rowsDb
       }
       if (!exportRows.length) {
         setError('Nenhuma linha para exportar neste inventário.')
@@ -2137,16 +2149,39 @@ export default function RelatorioContagem({
     setExportSessaoIdLoading(sessao.id)
     setError('')
     try {
-      await syncContagemDiariaSessaoParaContagens(sessao, { force: false })
-      const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
-        finalizacaoSessaoId: sessao.id,
-      })
-      let exportRows = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
-      if (contagensHasFinalizacaoSessaoIdRef.current) {
-        exportRows = exportRows.filter((r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id)
+      const fresh = await getContagemDiaria(sessao.id)
+      const source = fresh ?? sessao
+
+      try {
+        if (source.linhas.length > 0) {
+          await syncContagemDiariaSessaoParaContagens(source, { force: true })
+        }
+      } catch (syncErr: unknown) {
+        if (import.meta.env.DEV) console.warn('[exportContagemDiaria] sync', syncErr)
+      }
+
+      let exportRows: ContagemRow[]
+      if (source.linhas.length > 0) {
+        const fromCaptura = contagemDiariaCapturaLinhasToRelatorioRows(source) as ContagemRow[]
+        exportRows = await enrichPlanilhaEConferente(fromCaptura)
       } else {
-        const marcador = `Contagem #${sessao.numero}`
-        exportRows = exportRows.filter((r) => String(r.observacao ?? '').includes(marcador))
+        const dbRows = (await fetchContagemDbRowsParaSessaoExport(source)) as ContagemRow[]
+        if (dbRows.length > 0) {
+          exportRows = await enrichPlanilhaEConferente(dbRows)
+        } else {
+          const { rows: data, origemAusenteNoResultado } = await fetchRelatorioContagemRows({
+            finalizacaoSessaoId: sessao.id,
+          })
+          exportRows = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
+          if (contagensHasFinalizacaoSessaoIdRef.current) {
+            exportRows = exportRows.filter(
+              (r) => String(r.finalizacao_sessao_id ?? '').trim() === sessao.id,
+            )
+          } else {
+            const marcador = `Contagem #${sessao.numero}`
+            exportRows = exportRows.filter((r) => String(r.observacao ?? '').includes(marcador))
+          }
+        }
       }
       if (!exportRows.length) {
         setError('Nenhuma linha para exportar nesta contagem diária.')

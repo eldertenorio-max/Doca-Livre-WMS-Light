@@ -1,4 +1,4 @@
-import { conferenteIdParaBanco, ensureConferenteIdParaGravacao, listConferentes } from './conferentesStore'
+import { conferenteIdParaBanco, ensureConferenteIdParaGravacao, listConferentes, resolveConferenteIdPorNome, type Conferente } from './conferentesStore'
 import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
 import type { ContagemDiariaLinhaCaptura } from './contagemDiariaLinhaTypes'
 import {
@@ -135,6 +135,85 @@ async function insertContagemRows(rows: Record<string, unknown>[]): Promise<numb
     inserted += data?.length ?? 0
   }
   return inserted
+}
+
+/** Linhas da captura de contagem diária no formato usado pelo relatório / Excel. */
+export function contagemDiariaCapturaLinhasToRelatorioRows(
+  sessao: ContagemDiariaSessao,
+  conferentes?: Conferente[],
+): Array<Record<string, unknown>> {
+  const conf = conferentes ?? []
+  return sessao.linhas.map((ln) => {
+    const end = String(ln.endereco ?? '').trim()
+    const df = String(ln.fabricacao ?? '').trim()
+    const dv = String(ln.validade ?? '').trim()
+    const obsBase = `Contagem #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}${end ? ` · ${end}` : ''}`
+    return {
+      id: ln.id,
+      data_contagem: sessao.dataContagem,
+      data_hora_contagem: ln.createdAt || sessao.dataFim || new Date().toISOString(),
+      conferente_id: resolveConferenteIdPorNome(ln.conferenteNome ?? sessao.conferenteNome, conf),
+      codigo_interno: String(ln.codigoInterno ?? '').trim(),
+      descricao: String(ln.descricao ?? '').trim(),
+      unidade_medida: String(ln.unidade ?? '').trim() || null,
+      quantidade_up: ln.quantidade,
+      up_adicional: parseUpAdicional(ln.up),
+      lote: String(ln.lote ?? '').trim() || null,
+      observacao: obsBase,
+      data_fabricacao: df || null,
+      data_validade: dv || null,
+      ean: String(ln.codigoBarras ?? '').trim() || null,
+      dun: null,
+      finalizacao_sessao_id: sessao.id,
+      origem: 'contagem_diaria',
+      contagem_rascunho: false,
+    }
+  })
+}
+
+const SELECT_CONTAGEM_EXPORT =
+  'id,data_contagem,data_hora_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,finalizacao_sessao_id,origem,contagem_rascunho'
+
+function filtraLinhasContagemDbPorSessao(
+  rows: Record<string, unknown>[],
+  sessao: ContagemDiariaSessao,
+): Record<string, unknown>[] {
+  const marcador = `Contagem #${sessao.numero}`
+  const titulo = String(sessao.titulo ?? '').trim()
+  return rows.filter((r) => {
+    if (r.contagem_rascunho === true) return false
+    const sid = String(r.finalizacao_sessao_id ?? '').trim()
+    if (sid && sid === sessao.id) return true
+    const obs = String(r.observacao ?? '')
+    if (!obs.includes(marcador)) return false
+    if (titulo && !obs.includes(titulo)) return false
+    return true
+  })
+}
+
+/** Busca linhas de contagem diária no banco para exportar uma sessão fechada. */
+export async function fetchContagemDbRowsParaSessaoExport(
+  sessao: ContagemDiariaSessao,
+): Promise<Record<string, unknown>[]> {
+  if (!contagemDiariaSyncHabilitado()) return []
+
+  const porSessaoId = await supabase
+    .from(TABLE_CONTAGEM_DIARIA)
+    .select(SELECT_CONTAGEM_EXPORT)
+    .eq('finalizacao_sessao_id', sessao.id)
+  if (!porSessaoId.error && (porSessaoId.data?.length ?? 0) > 0) {
+    return filtraLinhasContagemDbPorSessao(porSessaoId.data as Record<string, unknown>[], sessao)
+  }
+
+  const ymd = String(sessao.dataContagem ?? '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return []
+
+  const porData = await supabase
+    .from(TABLE_CONTAGEM_DIARIA)
+    .select(SELECT_CONTAGEM_EXPORT)
+    .eq('data_contagem', ymd)
+  if (porData.error) return []
+  return filtraLinhasContagemDbPorSessao(porData.data as Record<string, unknown>[], sessao)
 }
 
 export async function syncContagemDiariaSessaoParaContagens(

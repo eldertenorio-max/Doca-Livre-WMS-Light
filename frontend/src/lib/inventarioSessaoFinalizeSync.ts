@@ -134,6 +134,51 @@ export function inventarioCapturaLinhasToRelatorioRows(
   })
 }
 
+const SELECT_INVENTARIO_EXPORT =
+  'id,data_contagem,data_hora_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,finalizacao_sessao_id,origem,inventario_repeticao,inventario_numero_contagem,planilha_grupo_armazem,planilha_ordem_na_aba,planilha_rua,planilha_posicao,planilha_nivel,contagem_rascunho'
+
+function filtraLinhasInventarioDbPorSessao(
+  rows: Record<string, unknown>[],
+  sessao: InventarioSessao,
+): Record<string, unknown>[] {
+  const marcador = `Inventário #${sessao.numero}`
+  const titulo = String(sessao.titulo ?? '').trim()
+  return rows.filter((r) => {
+    if (r.contagem_rascunho === true) return false
+    const sid = String(r.finalizacao_sessao_id ?? '').trim()
+    if (sid && sid === sessao.id) return true
+    const obs = String(r.observacao ?? '')
+    if (!obs.includes(marcador)) return false
+    if (titulo && !obs.includes(titulo)) return false
+    return true
+  })
+}
+
+/** Busca linhas de inventário no banco para exportar uma sessão fechada. */
+export async function fetchInventarioDbRowsParaSessaoExport(
+  sessao: InventarioSessao,
+): Promise<Record<string, unknown>[]> {
+  if (!inventarioSyncHabilitado()) return []
+
+  const porSessaoId = await supabase
+    .from(TABLE_CONTAGEM_INVENTARIO)
+    .select(SELECT_INVENTARIO_EXPORT)
+    .eq('finalizacao_sessao_id', sessao.id)
+  if (!porSessaoId.error && (porSessaoId.data?.length ?? 0) > 0) {
+    return filtraLinhasInventarioDbPorSessao(porSessaoId.data as Record<string, unknown>[], sessao)
+  }
+
+  const ymd = ymdSpFromIso(sessao.dataFim ?? sessao.dataInicio)
+  if (!ymd) return []
+
+  const porData = await supabase
+    .from(TABLE_CONTAGEM_INVENTARIO)
+    .select(SELECT_INVENTARIO_EXPORT)
+    .eq('data_contagem', ymd)
+  if (porData.error) return []
+  return filtraLinhasInventarioDbPorSessao(porData.data as Record<string, unknown>[], sessao)
+}
+
 function inventarioCapturaMatchKey(
   sessaoId: string,
   codigo: string,

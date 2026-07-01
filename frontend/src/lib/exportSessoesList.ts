@@ -6,9 +6,9 @@ import {
   inventarioSessaoFinalizado,
   sessaoDatasNoPeriodo,
 } from './capturaSessaoExportUtils'
-import { listContagensDiarias, resetContagemDiariaSupabaseProbe } from './contagemDiariaSessaoStore'
+import { listContagensDiarias, resetContagemDiariaSupabaseProbe, getContagemDiaria } from './contagemDiariaSessaoStore'
 import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
-import { listInventarios, resetInventarioSupabaseProbe } from './inventarioSessaoStore'
+import { listInventarios, resetInventarioSupabaseProbe, getInventario } from './inventarioSessaoStore'
 import type { InventarioSessao } from './inventarioSessaoTypes'
 import { supabase } from './supabaseClient'
 
@@ -63,6 +63,30 @@ function sortInventariosExport(a: InventarioSessao, b: InventarioSessao): number
   return (b.dataFim ?? b.dataInicio ?? '').localeCompare(a.dataFim ?? a.dataInicio ?? '')
 }
 
+async function enriquecerContagensComCache(sessoes: ContagemDiariaSessaoExport[]): Promise<ContagemDiariaSessaoExport[]> {
+  return Promise.all(
+    sessoes.map(async (s) => {
+      if (s.linhasExportCount > 0 && s.linhas.length > 0) return s
+      const fresh = await getContagemDiaria(s.id)
+      if (!fresh) return s
+      const linhasExportCount = Math.max(s.linhasExportCount, fresh.linhas.length)
+      return { ...fresh, linhasExportCount }
+    }),
+  )
+}
+
+async function enriquecerInventariosComCache(sessoes: InventarioSessaoExport[]): Promise<InventarioSessaoExport[]> {
+  return Promise.all(
+    sessoes.map(async (s) => {
+      if (s.linhasExportCount > 0 && s.linhas.length > 0) return s
+      const fresh = await getInventario(s.id)
+      if (!fresh) return s
+      const linhasExportCount = Math.max(s.linhasExportCount, fresh.linhas.length)
+      return { ...fresh, linhasExportCount }
+    }),
+  )
+}
+
 /** Lista contagens diárias finalizadas para exportação (mesma fonte do Gerenciar + contagem no banco). */
 export async function listContagensDiariasParaExport(
   opts: ExportSessoesPeriodoOpts,
@@ -82,10 +106,11 @@ export async function listContagensDiariasParaExport(
     filtradas.map((s) => s.id),
   )
 
-  return filtradas.map((s) => ({
+  const base = filtradas.map((s) => ({
     ...s,
     linhasExportCount: Math.max(s.linhas.length, counts.get(s.id) ?? 0),
   }))
+  return enriquecerContagensComCache(base)
 }
 
 /** Lista inventários finalizados para exportação. */
@@ -107,8 +132,9 @@ export async function listInventariosParaExport(
     filtradas.map((s) => s.id),
   )
 
-  return filtradas.map((s) => ({
+  const base = filtradas.map((s) => ({
     ...s,
     linhasExportCount: Math.max(s.linhas.length, counts.get(s.id) ?? 0),
   }))
+  return enriquecerInventariosComCache(base)
 }
