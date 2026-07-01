@@ -66,6 +66,13 @@ import BarcodeCameraScanner, { IconClearField, IconScanBarcode, IconCalendar } f
 import CapturaLinhasMobile from '../components/inventario/CapturaLinhasMobile'
 import { linhaCapturaParaMobile } from '../lib/capturaLinhaMobile'
 import {
+  chaveEnderecoCaptura,
+  classeLinhaCapturaEndereco,
+  confirmarSalvarEnderecoRepetido,
+  enderecosDuplicadosNasLinhas,
+  linhasComMesmoEndereco,
+} from '../lib/capturaEnderecoDuplicado'
+import {
   fetchContagemDiariaCapturaPresenca,
   nomesContadoresAtivosContagemDiaria,
   PRESENCA_PING_INTERVAL_MS,
@@ -207,6 +214,8 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     [sessao?.linhas],
   )
 
+  const enderecosRepetidos = useMemo(() => enderecosDuplicadosNasLinhas(linhasSalvas), [linhasSalvas])
+
   const totalLinhasPages = Math.max(1, Math.ceil(linhasSalvas.length / LINHAS_PAGE_SIZE))
   const linhasPageSafe = Math.min(linhasPage, totalLinhasPages)
   const linhasPaginadas = useMemo(() => {
@@ -224,9 +233,10 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
           linha,
           linhasSalvas.length - ((linhasPageSafe - 1) * LINHAS_PAGE_SIZE + idx),
           editandoLinhaId === linha.id,
+          enderecosRepetidos.has(chaveEnderecoCaptura(linha.endereco)),
         ),
       ),
-    [linhasPaginadas, linhasSalvas.length, linhasPageSafe, editandoLinhaId],
+    [linhasPaginadas, linhasSalvas.length, linhasPageSafe, editandoLinhaId, enderecosRepetidos],
   )
 
   const conferenteLabel =
@@ -689,6 +699,17 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     if (fab && val && isVencimentoAntesFabricacao(fab, val)) {
       setErr('Data de validade não pode ser menor que a data de fabricação.')
       return
+    }
+    if (end) {
+      const jaNoEndereco = linhasComMesmoEndereco(sessao.linhas, end, editandoLinhaId)
+      if (jaNoEndereco.length > 0) {
+        if (!confirmarSalvarEnderecoRepetido(end, jaNoEndereco.length)) {
+          setErr('Informe outro endereço (câmara, rua, posição e nível).')
+          setMsg('')
+          enderecoCodigoRef.current?.focus()
+          return
+        }
+      }
     }
     try {
       const qtdAntes = sessao.linhas.length
@@ -1204,6 +1225,9 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
               <h2>Linhas salvas</h2>
               <span className="inv-cap__linhas-count">{linhasSalvas.length}</span>
             </div>
+            {enderecosRepetidos.size > 0 ? (
+              <p className="inv-cap__linhas-hint-duplicado">Endereços em amarelo estão repetidos nesta sessão.</p>
+            ) : null}
             {linhasSalvas.length === 0 ? (
               <p className="inv-cap__linhas-empty">Nenhuma linha registrada ainda.</p>
             ) : (
@@ -1243,7 +1267,11 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
                     {linhasPaginadas.map((linha, idx) => (
                       <tr
                         key={linha.id}
-                        className={editandoLinhaId === linha.id ? 'inv-cap__linha--editando' : undefined}
+                        className={classeLinhaCapturaEndereco({
+                          editando: editandoLinhaId === linha.id,
+                          endereco: linha.endereco,
+                          enderecosRepetidos,
+                        })}
                       >
                         <td>{linhasSalvas.length - ((linhasPageSafe - 1) * LINHAS_PAGE_SIZE + idx)}</td>
                         <td>{formatDataLinha(linha.createdAt)}</td>

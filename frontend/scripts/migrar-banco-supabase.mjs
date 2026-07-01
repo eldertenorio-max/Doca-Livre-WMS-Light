@@ -81,6 +81,11 @@ async function createTableLikeOld(oldC, newC, table) {
   if (!cols.length) return
   const body = cols.map(colSql).join(',\n  ')
   const sql = `CREATE TABLE IF NOT EXISTS ${qIdent(table)} (\n  ${body}\n)`
+  if (process.env.ALLOW_DESTRUCTIVE_MIGRATION !== '1') {
+    throw new Error(
+      `DROP TABLE bloqueado em "${table}". Defina ALLOW_DESTRUCTIVE_MIGRATION=1 apenas se souber que vai recriar a tabela.`,
+    )
+  }
   await newC.query(`DROP TABLE IF EXISTS ${qIdent(table)} CASCADE`)
   await newC.query(sql)
   console.log('  schema:', table)

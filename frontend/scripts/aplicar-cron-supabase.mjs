@@ -1,6 +1,8 @@
 /**
- * Aplica no Supabase novo os SQLs de auto-limpeza (pg_cron) do repositório.
+ * Aplica proteção de dados no Supabase (desativa purge automático).
  * Uso: SUPABASE_DB_PASSWORD='...' node scripts/aplicar-cron-supabase.mjs
+ *
+ * Não reinstala jobs de purge — os dados operacionais são mantidos indefinidamente.
  */
 import pg from 'pg'
 import fs from 'fs'
@@ -15,11 +17,7 @@ if (!pwd) {
   process.exit(1)
 }
 
-const SQL_FILES = [
-  'cron_purge_contagens_estoque_retencao_2d.sql',
-  'cron_purge_contagem_diaria_painel_retencao_2d.sql',
-  'cron_purge_contagem_temperatura_ocupacao_mensal.sql',
-]
+const SQL_FILES = ['setup_protecao_dados_supabase.sql']
 
 async function main() {
   const client = new Client({

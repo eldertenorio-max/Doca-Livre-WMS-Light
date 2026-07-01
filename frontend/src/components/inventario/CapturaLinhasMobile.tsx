@@ -14,6 +14,7 @@ export type CapturaLinhaMobileItem = {
   fabricacao?: string
   validade?: string
   editando?: boolean
+  enderecoRepetido?: boolean
 }
 
 type Props = {
@@ -40,7 +41,7 @@ export default function CapturaLinhasMobile({ linhas, readonly, onEdit, onDelete
       {linhas.map((linha) => (
         <li
           key={linha.id}
-          className={`inv-cap__linha-card${linha.editando ? ' inv-cap__linha-card--editando' : ''}`}
+          className={`inv-cap__linha-card${linha.editando ? ' inv-cap__linha-card--editando' : ''}${linha.enderecoRepetido ? ' inv-cap__linha-card--endereco-repetido' : ''}`}
         >
           <div className="inv-cap__linha-card-top">
             <span className="inv-cap__linha-card-num">#{linha.numero}</span>

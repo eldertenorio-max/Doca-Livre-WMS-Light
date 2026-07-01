@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import { createPortal } from 'react-dom'
 import { resolveConferenteDoUsuarioLogado } from '../lib/authUser'
 import { supabase } from '../lib/supabaseClient'
+import { isSupabaseDataProtectionEnabled } from '../lib/supabaseDataProtection'
 import { formatUnknownError } from '../lib/supabaseError'
 import { fetchContagensPaged, readAbsentContagensColumns } from '../lib/contagensSelectCompat'
 import { toDatetimeLocalValue, toISOStringFromDatetimeLocal } from '../lib/datetime'
@@ -4360,6 +4361,10 @@ export default function ContagemEstoque({
   ])
 
   async function handlePreviewDeleteAll() {
+    if (isSupabaseDataProtectionEnabled()) {
+      setPreviewRowError('Exclusão em massa desativada: proteção de dados do Supabase está ativa.')
+      return
+    }
     const dayKey = /^\d{4}-\d{2}-\d{2}$/.test(previewConsultaDiaYmd) ? previewConsultaDiaYmd : null
     if (!dayKey) {
       setPreviewRowError('Selecione uma data válida em “Dia no banco”.')
@@ -8817,12 +8822,15 @@ export default function ContagemEstoque({
             type="button"
             onClick={() => void handlePreviewDeleteAll()}
             disabled={
+              isSupabaseDataProtectionEnabled() ||
               previewLoading ||
               previewRowActionLoading ||
               !/^\d{4}-\d{2}-\d{2}$/.test(previewConsultaDiaYmd)
             }
             title={
-              !/^\d{4}-\d{2}-\d{2}$/.test(previewConsultaDiaYmd)
+              isSupabaseDataProtectionEnabled()
+                ? 'Desativado: proteção de dados impede exclusão em massa por dia'
+                : !/^\d{4}-\d{2}-\d{2}$/.test(previewConsultaDiaYmd)
                 ? 'Selecione uma data em “Dia no banco”'
                 : 'Excluir do banco somente registros (contagens_estoque) com data_contagem igual ao dia selecionado no campo acima — não apaga outros dias.'
             }
@@ -8831,6 +8839,7 @@ export default function ContagemEstoque({
               background: '#8b1538',
               borderColor: '#6d102b',
               opacity:
+                isSupabaseDataProtectionEnabled() ||
                 previewLoading ||
                 previewRowActionLoading ||
                 !/^\d{4}-\d{2}-\d{2}$/.test(previewConsultaDiaYmd)

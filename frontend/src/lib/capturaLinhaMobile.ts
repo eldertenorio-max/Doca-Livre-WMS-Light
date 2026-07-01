@@ -46,6 +46,7 @@ export function linhaCapturaParaMobile(
   linha: LinhaCapturaBase,
   numero: number,
   editando: boolean,
+  enderecoRepetido = false,
 ): CapturaLinhaMobileItem {
   return {
     id: linha.id,
@@ -63,5 +64,6 @@ export function linhaCapturaParaMobile(
     fabricacao: formatYmdBR(linha.fabricacao ?? ''),
     validade: formatYmdBR(linha.validade ?? ''),
     editando,
+    enderecoRepetido,
   }
 }
