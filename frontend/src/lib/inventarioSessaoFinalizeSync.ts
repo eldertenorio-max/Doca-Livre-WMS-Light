@@ -11,7 +11,17 @@ import {
   replaceInventarioExistentePorEndereco,
 } from './inventarioUpsertOnFinalize'
 import { deleteInventarioPlanilhaLinhasForContagensIds } from './inventarioPlanilhaLinhasDelete'
-import { fetchInventarioSessoesSupabase, fetchInventarioSessaoByIdSupabase, inventarioSyncHabilitado } from './inventarioSessaoSupabase'
+import {
+  inventarioDatasReferenciaYmd,
+  inventarioSessaoFinalizado,
+  sessaoDatasNoPeriodo,
+} from './capturaSessaoExportUtils'
+import { mergeInventarioComFontesLocais } from './inventarioSessaoLocalMerge'
+import {
+  fetchInventarioSessaoByIdSupabase,
+  fetchInventarioSessoesSupabase,
+  inventarioSyncHabilitado,
+} from './inventarioSessaoSupabase'
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import { supabase } from './supabaseClient'
 
@@ -275,12 +285,13 @@ function sessaoNoIntervalo(
   sessao: InventarioSessao,
   opts: { allTime?: boolean; startYmd?: string; endYmd?: string },
 ): boolean {
-  if (opts.allTime) return true
-  const ymd = ymdSpFromIso(sessao.dataFim ?? sessao.dataInicio)
-  if (!ymd) return false
-  const de = opts.startYmd ?? '0000-01-01'
-  const ate = opts.endYmd ?? '9999-12-31'
-  return ymd >= de && ymd <= ate
+  return sessaoDatasNoPeriodo(inventarioDatasReferenciaYmd(sessao), {
+    allTime: Boolean(opts.allTime),
+    startDate: opts.startYmd ?? '0000-01-01',
+    endDate: opts.endYmd ?? '9999-12-31',
+    useSingleDay: false,
+    singleDay: '',
+  })
 }
 
 /** Grava linhas de um inventário fechado em `contagens_inventario`. */
@@ -289,7 +300,7 @@ export async function syncInventarioSessaoParaContagens(
   opts?: { force?: boolean },
 ): Promise<{ inserted: number }> {
   if (!inventarioSyncHabilitado()) return { inserted: 0 }
-  if (sessao.status !== 'fechado' || sessao.linhas.length === 0) return { inserted: 0 }
+  if (!inventarioSessaoFinalizado(sessao) || sessao.linhas.length === 0) return { inserted: 0 }
 
   if (!opts?.force && (await sessaoJaSincronizada(sessao.id))) {
     return { inserted: 0 }
@@ -395,9 +406,10 @@ export async function ensureInventariosSessaoSincronizados(opts?: {
 }): Promise<EnsureInventariosSyncResult> {
   if (!inventarioSyncHabilitado()) return { sessoes: 0, linhas: 0 }
 
-  const sessoes = await fetchInventarioSessoesSupabase()
+  const sessoes = (await fetchInventarioSessoesSupabase()).map((s) => mergeInventarioComFontesLocais(s))
   const alvo = sessoes.filter(
-    (s) => s.status === 'fechado' && s.linhas.length > 0 && sessaoNoIntervalo(s, opts ?? {}),
+    (s) =>
+      inventarioSessaoFinalizado(s) && s.linhas.length > 0 && sessaoNoIntervalo(s, opts ?? {}),
   )
 
   let sessoesSync = 0

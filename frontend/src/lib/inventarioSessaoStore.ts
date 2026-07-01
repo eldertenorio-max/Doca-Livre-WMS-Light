@@ -16,7 +16,7 @@ import {
   removeCachedInventario,
 } from './inventarioLocalCache'
 import { enqueuePendingInventarioSync } from './inventarioOfflineSync'
-import { mergeLinhasCapturaPorId } from './capturaSessaoLinhasMerge'
+import { mergeInventarioComFontesLocais } from './inventarioSessaoLocalMerge'
 
 export type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
@@ -76,16 +76,8 @@ function clearLinhasOverlay(sessaoId: string): void {
 }
 
 function mergeInventarioLinhas(sessao: InventarioSessao): InventarioSessao {
-  const overlay = readLinhasOverlayMap()[sessao.id]
-  const cached = readCachedInventario(sessao.id)
   const legacy = readLegacyLocal().find((l) => l.id === sessao.id)
-  const linhas = mergeLinhasCapturaPorId(
-    sessao.linhas,
-    overlay,
-    cached?.linhas,
-    legacy?.linhas,
-  )
-  return { ...sessao, linhas }
+  return mergeInventarioComFontesLocais(sessao, legacy ? [legacy] : undefined)
 }
 
 function sortInventarios(list: InventarioSessao[]): InventarioSessao[] {

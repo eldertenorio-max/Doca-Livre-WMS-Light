@@ -1,5 +1,5 @@
 import { syncInventarioSessaoParaContagens } from './inventarioSessaoFinalizeSync'
-import { getInventario } from './inventarioSessaoStore'
+import { getInventario, saveInventario } from './inventarioSessaoStore'
 
 const QUEUE_KEY = 'inventario-pending-sync-v1'
 
@@ -56,6 +56,7 @@ export async function flushPendingInventarioSync(opts?: {
         removePendingInventarioSync(id)
         continue
       }
+      await saveInventario(sessao)
       const { inserted } = await syncInventarioSessaoParaContagens(sessao, { force: true })
       if (inserted > 0 || sessao.linhas.length > 0) {
         removePendingInventarioSync(id)

@@ -2,10 +2,16 @@ import { conferenteIdParaBanco, ensureConferenteIdParaGravacao, listConferentes 
 import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
 import type { ContagemDiariaLinhaCaptura } from './contagemDiariaLinhaTypes'
 import {
+  contagemDiariaDatasReferenciaYmd,
+  contagemDiariaSessaoFinalizada,
+  sessaoDatasNoPeriodo,
+} from './capturaSessaoExportUtils'
+import { mergeContagemDiariaComFontesLocais } from './contagemDiariaSessaoLocalMerge'
+import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
+import {
   contagemDiariaSyncHabilitado,
   fetchContagemDiariaSessoesSupabase,
 } from './contagemDiariaSessaoSupabase'
-import type { ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
 import { supabase } from './supabaseClient'
 
 function parseUpAdicional(raw: string | undefined): number | null {
@@ -73,12 +79,13 @@ function sessaoNoIntervalo(
   sessao: ContagemDiariaSessao,
   opts: { allTime?: boolean; startYmd?: string; endYmd?: string },
 ): boolean {
-  if (opts.allTime) return true
-  const ymd = sessao.dataContagem
-  if (!ymd) return false
-  const de = opts.startYmd ?? '0000-01-01'
-  const ate = opts.endYmd ?? '9999-12-31'
-  return ymd >= de && ymd <= ate
+  return sessaoDatasNoPeriodo(contagemDiariaDatasReferenciaYmd(sessao), {
+    allTime: Boolean(opts.allTime),
+    startDate: opts.startYmd ?? '0000-01-01',
+    endDate: opts.endYmd ?? '9999-12-31',
+    useSingleDay: false,
+    singleDay: '',
+  })
 }
 
 async function insertContagemRows(rows: Record<string, unknown>[]): Promise<number> {
@@ -135,7 +142,7 @@ export async function syncContagemDiariaSessaoParaContagens(
   opts?: { force?: boolean },
 ): Promise<{ inserted: number }> {
   if (!contagemDiariaSyncHabilitado()) return { inserted: 0 }
-  if (sessao.status !== 'fechado' || sessao.linhas.length === 0) return { inserted: 0 }
+  if (!contagemDiariaSessaoFinalizada(sessao) || sessao.linhas.length === 0) return { inserted: 0 }
   if (!opts?.force && (await sessaoJaSincronizada(sessao.id))) return { inserted: 0 }
 
   const conferentes = await listConferentes()
@@ -155,9 +162,12 @@ export async function ensureContagensDiariaSessaoSincronizadas(opts?: {
   endYmd?: string
 }): Promise<{ sessoes: number; linhas: number }> {
   if (!contagemDiariaSyncHabilitado()) return { sessoes: 0, linhas: 0 }
-  const sessoes = await fetchContagemDiariaSessoesSupabase()
+  const sessoes = (await fetchContagemDiariaSessoesSupabase()).map((s) =>
+    mergeContagemDiariaComFontesLocais(s),
+  )
   const alvo = sessoes.filter(
-    (s) => s.status === 'fechado' && s.linhas.length > 0 && sessaoNoIntervalo(s, opts ?? {}),
+    (s) =>
+      contagemDiariaSessaoFinalizada(s) && s.linhas.length > 0 && sessaoNoIntervalo(s, opts ?? {}),
   )
   let sessoesSync = 0
   let linhas = 0

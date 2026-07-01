@@ -43,7 +43,15 @@ import { listContagensDiarias } from '../lib/contagemDiariaSessaoStore'
 import { listInventarios } from '../lib/inventarioSessaoStore'
 import type { ContagemDiariaSessao } from '../lib/contagemDiariaSessaoTypes'
 import type { InventarioSessao } from '../lib/inventarioSessaoTypes'
-import { formatUnknownError } from '../lib/supabaseError'
+import {
+  contagemDiariaDatasReferenciaYmd,
+  contagemDiariaSessaoFinalizada,
+  inventarioDatasReferenciaYmd,
+  inventarioSessaoFinalizado,
+  sessaoDatasNoPeriodo,
+} from '../lib/capturaSessaoExportUtils'
+import { flushPendingContagemDiariaSync } from '../lib/contagemDiariaOfflineSync'
+import { flushPendingInventarioSync } from '../lib/inventarioOfflineSync'
 
 type ContagemRow = {
   id: string
@@ -355,12 +363,8 @@ function filtrarInventariosFechadosPeriodo(
 ): InventarioSessao[] {
   return sessoes
     .filter((s) => {
-      if (s.status !== 'fechado' || s.linhas.length === 0) return false
-      if (opts.allTime) return true
-      const ymd = ymdSpFromIso(s.dataFim ?? s.dataInicio)
-      if (!ymd) return false
-      if (opts.useSingleDay) return ymd === opts.singleDay
-      return ymd >= opts.startDate && ymd <= opts.endDate
+      if (!inventarioSessaoFinalizado(s) || s.linhas.length === 0) return false
+      return sessaoDatasNoPeriodo(inventarioDatasReferenciaYmd(s), opts)
     })
     .sort((a, b) =>
       (b.dataFim ?? b.dataInicio ?? '').localeCompare(a.dataFim ?? a.dataInicio ?? ''),
@@ -379,12 +383,8 @@ function filtrarContagensDiariasFechadasPeriodo(
 ): ContagemDiariaSessao[] {
   return sessoes
     .filter((s) => {
-      if (s.status !== 'fechado' || s.linhas.length === 0) return false
-      const ymd = s.dataContagem
-      if (!ymd) return false
-      if (opts.allTime) return true
-      if (opts.useSingleDay) return ymd === opts.singleDay
-      return ymd >= opts.startDate && ymd <= opts.endDate
+      if (!contagemDiariaSessaoFinalizada(s) || s.linhas.length === 0) return false
+      return sessaoDatasNoPeriodo(contagemDiariaDatasReferenciaYmd(s), opts)
     })
     .sort((a, b) =>
       (b.dataFim ?? b.dataInicio ?? b.dataContagem ?? '').localeCompare(
@@ -1645,6 +1645,17 @@ export default function RelatorioContagem({
     }
     try {
       let syncAviso = ''
+      if (exportOnly) {
+        try {
+          if (useInventarioCols) {
+            await flushPendingInventarioSync()
+          } else {
+            await flushPendingContagemDiariaSync()
+          }
+        } catch (e: unknown) {
+          if (import.meta.env.DEV) console.warn('[export] flush pending', e)
+        }
+      }
       if (useInventarioCols) {
         try {
           const sync = await ensureInventariosSessaoSincronizados({

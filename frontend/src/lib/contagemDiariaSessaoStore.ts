@@ -17,7 +17,7 @@ import {
   removeCachedSessao,
 } from './contagemDiariaLocalCache'
 import { enqueuePendingContagemDiariaSync } from './contagemDiariaOfflineSync'
-import { mergeLinhasCapturaPorId } from './capturaSessaoLinhasMerge'
+import { mergeContagemDiariaComFontesLocais } from './contagemDiariaSessaoLocalMerge'
 
 export type { ContagemDiariaSessao, ContagemDiariaLinhaCaptura } from './contagemDiariaSessaoTypes'
 import type { ContagemDiariaLinhaCaptura, ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
@@ -77,16 +77,8 @@ function clearLinhasOverlay(sessaoId: string): void {
 }
 
 function mergeLinhasOverlay(sessao: ContagemDiariaSessao): ContagemDiariaSessao {
-  const overlay = readLinhasOverlayMap()[sessao.id]
-  const cached = readCachedSessao(sessao.id)
   const legacy = readLegacyLocal().find((l) => l.id === sessao.id)
-  const linhas = mergeLinhasCapturaPorId(
-    sessao.linhas,
-    overlay,
-    cached?.linhas,
-    legacy?.linhas,
-  )
-  return { ...sessao, linhas }
+  return mergeContagemDiariaComFontesLocais(sessao, legacy ? [legacy] : undefined)
 }
 
 function sortContagens(list: ContagemDiariaSessao[]): ContagemDiariaSessao[] {

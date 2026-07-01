@@ -1,5 +1,5 @@
 import { syncContagemDiariaSessaoParaContagens } from './contagemDiariaFinalizeSync'
-import { getContagemDiaria } from './contagemDiariaSessaoStore'
+import { getContagemDiaria, saveContagemDiaria } from './contagemDiariaSessaoStore'
 
 const QUEUE_KEY = 'contagem-diaria-pending-sync-v1'
 
@@ -56,6 +56,7 @@ export async function flushPendingContagemDiariaSync(opts?: {
         removePendingContagemDiariaSync(id)
         continue
       }
+      await saveContagemDiaria(sessao)
       const { inserted } = await syncContagemDiariaSessaoParaContagens(sessao, { force: true })
       if (inserted > 0 || sessao.linhas.length > 0) {
         removePendingContagemDiariaSync(id)
