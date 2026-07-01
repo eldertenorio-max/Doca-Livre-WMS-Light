@@ -66,6 +66,7 @@ import {
 import { supabase } from '../lib/supabaseClient'
 import BarcodeCameraScanner, { IconClearField, IconScanBarcode, IconCalendar } from '../components/barcode/BarcodeCameraScanner'
 import CapturaLinhasMobile from '../components/inventario/CapturaLinhasMobile'
+import { linhaCapturaParaMobile } from '../lib/capturaLinhaMobile'
 import {
   clampDataFabricacaoYmd,
   isFabricacaoAposHoje,
@@ -207,22 +208,13 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
 
   const linhasMobile = useMemo(
     () =>
-      linhasPaginadas.map((linha, idx) => {
-        const metaParts: string[] = []
-        if (linha.endereco?.trim()) metaParts.push(linha.endereco.trim())
-        if (linha.lote?.trim()) metaParts.push(`Lote ${linha.lote.trim()}`)
-        if (linha.fabricacao?.trim()) metaParts.push(`Fab ${formatYmdBR(linha.fabricacao)}`)
-        if (linha.validade?.trim()) metaParts.push(`Val ${formatYmdBR(linha.validade)}`)
-        return {
-          id: linha.id,
-          numero: linhasSalvas.length - ((linhasPageSafe - 1) * LINHAS_PAGE_SIZE + idx),
-          codigo: linha.codigoInterno,
-          descricao: linha.descricao,
-          quantidade: `${linha.quantidade}${linha.unidade ? ` ${linha.unidade}` : ''}`,
-          meta: metaParts.length ? metaParts.join(' · ') : undefined,
-          editando: editandoLinhaId === linha.id,
-        }
-      }),
+      linhasPaginadas.map((linha, idx) =>
+        linhaCapturaParaMobile(
+          linha,
+          linhasSalvas.length - ((linhasPageSafe - 1) * LINHAS_PAGE_SIZE + idx),
+          editandoLinhaId === linha.id,
+        ),
+      ),
     [linhasPaginadas, linhasSalvas.length, linhasPageSafe, editandoLinhaId],
   )
 

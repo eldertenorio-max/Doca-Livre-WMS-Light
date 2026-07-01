@@ -3407,6 +3407,40 @@
   white-space: nowrap;
 }
 
+.inv-cap__linha-card-detalhes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+
+.inv-cap__linha-detalhe {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inv-cap__linha-detalhe--wide {
+  flex: 1 1 100%;
+}
+
+.inv-cap__linha-detalhe-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.inv-cap__linha-detalhe-val {
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.88);
+  word-break: break-word;
+}
+
 .inv-cap__linha-card-acoes {
   display: flex;
   gap: 6px;

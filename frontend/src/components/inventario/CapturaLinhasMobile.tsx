@@ -4,7 +4,15 @@ export type CapturaLinhaMobileItem = {
   codigo: string
   descricao: string
   quantidade: string
-  meta?: string
+  data?: string
+  hora?: string
+  camara?: string
+  conferente?: string
+  endereco?: string
+  up?: string
+  lote?: string
+  fabricacao?: string
+  validade?: string
   editando?: boolean
 }
 
@@ -13,6 +21,17 @@ type Props = {
   readonly?: boolean
   onEdit?: (id: string) => void
   onDelete?: (id: string) => void
+}
+
+function Detalhe({ label, value }: { label: string; value?: string }) {
+  const v = value?.trim()
+  if (!v || v === '—') return null
+  return (
+    <span className="inv-cap__linha-detalhe">
+      <span className="inv-cap__linha-detalhe-label">{label}</span>
+      <span className="inv-cap__linha-detalhe-val">{v}</span>
+    </span>
+  )
 }
 
 export default function CapturaLinhasMobile({ linhas, readonly, onEdit, onDelete }: Props) {
@@ -29,7 +48,23 @@ export default function CapturaLinhasMobile({ linhas, readonly, onEdit, onDelete
             <span className="inv-cap__linha-card-qtd">{linha.quantidade}</span>
           </div>
           <p className="inv-cap__linha-card-desc">{linha.descricao || '—'}</p>
-          {linha.meta ? <p className="inv-cap__linha-card-meta">{linha.meta}</p> : null}
+          <div className="inv-cap__linha-card-detalhes">
+            {linha.data || linha.hora ? (
+              <span className="inv-cap__linha-detalhe inv-cap__linha-detalhe--wide">
+                <span className="inv-cap__linha-detalhe-label">Registro</span>
+                <span className="inv-cap__linha-detalhe-val">
+                  {[linha.data, linha.hora].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+            ) : null}
+            <Detalhe label="Câm." value={linha.camara} />
+            <Detalhe label="Conf." value={linha.conferente} />
+            <Detalhe label="End." value={linha.endereco} />
+            <Detalhe label="UP" value={linha.up} />
+            <Detalhe label="Lote" value={linha.lote} />
+            <Detalhe label="Fab." value={linha.fabricacao} />
+            <Detalhe label="Val." value={linha.validade} />
+          </div>
           {!readonly ? (
             <div className="inv-cap__linha-card-acoes">
               <button type="button" className="inv-cap__linha-btn" onClick={() => onEdit?.(linha.id)}>
