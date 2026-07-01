@@ -106,11 +106,14 @@ export function inventarioCapturaLinhasToRelatorioRows(
     const nivel = meta.nivel ?? parsed.nivel ?? 1
     const df = String(ln.fabricacao ?? '').trim()
     const dv = String(ln.validade ?? '').trim()
+    const nomeConferente = String(ln.conferenteNome ?? '').trim()
+    const conferenteId = resolveConferenteId(ln.conferenteNome, conf)
     return {
       id: ln.id,
       data_contagem: dataContagemYmd,
       data_hora_contagem: ln.createdAt || sessao.dataFim || new Date().toISOString(),
-      conferente_id: resolveConferenteId(ln.conferenteNome, conf),
+      conferente_id: conferenteId,
+      ...(nomeConferente ? { conferentes: { nome: nomeConferente } } : {}),
       codigo_interno: String(ln.codigoInterno ?? '').trim(),
       descricao: String(ln.descricao ?? '').trim(),
       unidade_medida: String(ln.unidade ?? '').trim() || null,
@@ -137,6 +140,20 @@ export function inventarioCapturaLinhasToRelatorioRows(
 const SELECT_INVENTARIO_EXPORT =
   'id,data_contagem,data_hora_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,finalizacao_sessao_id,origem,inventario_repeticao,inventario_numero_contagem,planilha_grupo_armazem,planilha_ordem_na_aba,planilha_rua,planilha_posicao,planilha_nivel,contagem_rascunho'
 
+const SELECT_INVENTARIO_EXPORT_COM_CONFERENTE = `${SELECT_INVENTARIO_EXPORT},conferentes(nome)`
+
+async function buscarLinhasInventarioExport(
+  build: (select: string) => ReturnType<typeof supabase.from>,
+): Promise<Record<string, unknown>[]> {
+  const comNome = await build(SELECT_INVENTARIO_EXPORT_COM_CONFERENTE)
+  if (!comNome.error && comNome.data?.length) {
+    return comNome.data as Record<string, unknown>[]
+  }
+  const basico = await build(SELECT_INVENTARIO_EXPORT)
+  if (basico.error) return []
+  return (basico.data ?? []) as Record<string, unknown>[]
+}
+
 function filtraLinhasInventarioDbPorSessao(
   rows: Record<string, unknown>[],
   sessao: InventarioSessao,
@@ -160,23 +177,20 @@ export async function fetchInventarioDbRowsParaSessaoExport(
 ): Promise<Record<string, unknown>[]> {
   if (!inventarioSyncHabilitado()) return []
 
-  const porSessaoId = await supabase
-    .from(TABLE_CONTAGEM_INVENTARIO)
-    .select(SELECT_INVENTARIO_EXPORT)
-    .eq('finalizacao_sessao_id', sessao.id)
-  if (!porSessaoId.error && (porSessaoId.data?.length ?? 0) > 0) {
-    return filtraLinhasInventarioDbPorSessao(porSessaoId.data as Record<string, unknown>[], sessao)
+  const porSessaoId = await buscarLinhasInventarioExport((select) =>
+    supabase.from(TABLE_CONTAGEM_INVENTARIO).select(select).eq('finalizacao_sessao_id', sessao.id),
+  )
+  if (porSessaoId.length > 0) {
+    return filtraLinhasInventarioDbPorSessao(porSessaoId, sessao)
   }
 
   const ymd = ymdSpFromIso(sessao.dataFim ?? sessao.dataInicio)
   if (!ymd) return []
 
-  const porData = await supabase
-    .from(TABLE_CONTAGEM_INVENTARIO)
-    .select(SELECT_INVENTARIO_EXPORT)
-    .eq('data_contagem', ymd)
-  if (porData.error) return []
-  return filtraLinhasInventarioDbPorSessao(porData.data as Record<string, unknown>[], sessao)
+  const porData = await buscarLinhasInventarioExport((select) =>
+    supabase.from(TABLE_CONTAGEM_INVENTARIO).select(select).eq('data_contagem', ymd),
+  )
+  return filtraLinhasInventarioDbPorSessao(porData, sessao)
 }
 
 function inventarioCapturaMatchKey(

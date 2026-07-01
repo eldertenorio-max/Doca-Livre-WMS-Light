@@ -148,11 +148,14 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
     const df = String(ln.fabricacao ?? '').trim()
     const dv = String(ln.validade ?? '').trim()
     const obsBase = `Contagem #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}${end ? ` · ${end}` : ''}`
+    const nomeConferente = String(ln.conferenteNome ?? sessao.conferenteNome ?? '').trim()
+    const conferenteId = resolveConferenteIdPorNome(ln.conferenteNome ?? sessao.conferenteNome, conf)
     return {
       id: ln.id,
       data_contagem: sessao.dataContagem,
       data_hora_contagem: ln.createdAt || sessao.dataFim || new Date().toISOString(),
-      conferente_id: resolveConferenteIdPorNome(ln.conferenteNome ?? sessao.conferenteNome, conf),
+      conferente_id: conferenteId,
+      ...(nomeConferente ? { conferentes: { nome: nomeConferente } } : {}),
       codigo_interno: String(ln.codigoInterno ?? '').trim(),
       descricao: String(ln.descricao ?? '').trim(),
       unidade_medida: String(ln.unidade ?? '').trim() || null,

@@ -6,6 +6,7 @@ import { loadChecklistVisibleColsFromStorage } from '../lib/checklistVisibleCols
 import { enrichContagemRowsWithPlanilhaLinhas, enrichPlanilhaFieldsFromGrupoOrdem } from '../lib/enrichContagemRowsWithPlanilhaLinhas'
 import { enrichContagemRowsEanDunFromTodosOsProdutos } from '../lib/enrichContagemRowsEanDunFromTodosOsProdutos'
 import { fetchConferentesNomesPorIds } from '../lib/conferentesNomesBatch'
+import { listConferentes } from '../lib/conferentesStore'
 import {
   diaCivilYmdContagemRow,
   fetchPlanilhaContagemIdsParaIntervalo,
@@ -2107,8 +2108,9 @@ export default function RelatorioContagem({
       }
 
       let exportRows: ContagemRow[]
+      const conferentes = await listConferentes()
       if (source.linhas.length > 0) {
-        const fromCaptura = inventarioCapturaLinhasToRelatorioRows(source) as ContagemRow[]
+        const fromCaptura = inventarioCapturaLinhasToRelatorioRows(source, conferentes) as ContagemRow[]
         exportRows = await enrichPlanilhaEConferente(fromCaptura)
       } else {
         const dbRows = (await fetchInventarioDbRowsParaSessaoExport(source)) as ContagemRow[]
@@ -2161,8 +2163,9 @@ export default function RelatorioContagem({
       }
 
       let exportRows: ContagemRow[]
+      const conferentes = await listConferentes()
       if (source.linhas.length > 0) {
-        const fromCaptura = contagemDiariaCapturaLinhasToRelatorioRows(source) as ContagemRow[]
+        const fromCaptura = contagemDiariaCapturaLinhasToRelatorioRows(source, conferentes) as ContagemRow[]
         exportRows = await enrichPlanilhaEConferente(fromCaptura)
       } else {
         const dbRows = (await fetchContagemDbRowsParaSessaoExport(source)) as ContagemRow[]
