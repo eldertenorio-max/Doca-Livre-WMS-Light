@@ -2875,8 +2875,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 4px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -2884,14 +2884,14 @@
   display: inline-flex;
   flex-direction: row;
   align-items: baseline;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.08);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.2;
   color: #e8f4f4;
   max-width: 100%;
   overflow: hidden;
@@ -2901,7 +2901,7 @@
 
 .inv-cap__chip--wide {
   flex: 0 1 auto;
-  max-width: min(200px, 26vw);
+  max-width: min(180px, 24vw);
 }
 
 .inv-cap__chip--action {
@@ -2909,7 +2909,17 @@
   border: 1px solid rgba(250, 204, 21, 0.35);
   background: rgba(250, 204, 21, 0.1);
   font: inherit;
+  font-size: 9px;
+  padding: 2px 5px;
   text-align: left;
+}
+
+.inv-cap__chip--produtos {
+  max-width: min(200px, 28vw);
+}
+
+.inv-cap__chip--produtos .inv-cap__chip-refresh {
+  font-size: 9px;
 }
 
 .inv-cap__chip--action:hover:not(:disabled) {
@@ -2927,7 +2937,7 @@
 }
 
 .inv-cap__chip-label {
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;

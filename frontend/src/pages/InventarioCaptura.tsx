@@ -965,7 +965,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
           ) : null}
           <button
             type="button"
-            className="inv-cap__chip inv-cap__chip--action"
+            className="inv-cap__chip inv-cap__chip--action inv-cap__chip--produtos"
             title="Atualizar lista de produtos"
             disabled={produtosCarregando}
             onClick={() => void loadProdutos(sessao.listaProdutosId ?? null)}
