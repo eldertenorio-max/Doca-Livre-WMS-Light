@@ -16,6 +16,7 @@ import {
   removeCachedInventario,
 } from './inventarioLocalCache'
 import { enqueuePendingInventarioSync } from './inventarioOfflineSync'
+import { mergeLinhasCapturaPorId } from './capturaSessaoLinhasMerge'
 import { mergeInventarioComFontesLocais } from './inventarioSessaoLocalMerge'
 
 export type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'

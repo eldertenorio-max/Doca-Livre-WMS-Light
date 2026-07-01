@@ -535,6 +535,10 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
               </p>
               <dl className="inv-card__stats">
                 <div>
+                  <dt>Linhas</dt>
+                  <dd>{c.linhas.length}</dd>
+                </div>
+                <div>
                   <dt>Início</dt>
                   <dd>{formatData(c.dataInicio)}</dd>
                 </div>
@@ -560,6 +564,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
               <th>Local</th>
               <th>Dia</th>
               <th>Status</th>
+              <th>Linhas</th>
               <th>Início</th>
               <th>Fim</th>
               <th />
@@ -568,7 +573,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
           <tbody>
             {listaFiltrada.length === 0 ? (
               <tr>
-                <td colSpan={8}>
+                <td colSpan={9}>
                   {filtrosAtivos ? 'Nenhuma contagem encontrada com estes filtros.' : 'Nenhuma contagem nesta lista.'}
                 </td>
               </tr>
@@ -584,6 +589,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
                       {c.status === 'aberto' ? 'Aberto' : 'Finalizado'}
                     </span>
                   </td>
+                  <td>{c.linhas.length}</td>
                   <td>{formatData(c.dataInicio)}</td>
                   <td>{formatData(c.dataFim)}</td>
                   <td className="inv-actions-cell">{renderAcoes(c, 'table')}</td>
