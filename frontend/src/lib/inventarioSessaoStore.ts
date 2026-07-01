@@ -16,6 +16,7 @@ import {
   removeCachedInventario,
 } from './inventarioLocalCache'
 import { enqueuePendingInventarioSync } from './inventarioOfflineSync'
+import { mergeLinhasCapturaPorId } from './capturaSessaoLinhasMerge'
 
 export type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
 import type { InventarioLinhaCaptura, InventarioSessao } from './inventarioSessaoTypes'
@@ -23,6 +24,7 @@ import { isTableMissingError } from './supabaseError'
 import { isSupabaseTableAvailable, resetSupabaseTableProbe } from './supabaseTableProbe'
 
 const LEGACY_STORAGE_KEY = 'inventario-sessoes-v2'
+const LINHAS_OVERLAY_KEY = 'inventario-linhas-overlay-v1'
 const TABELA_INV = 'inventario_sessoes'
 
 let legacyMigrationPromise: Promise<void> | null = null
@@ -45,6 +47,45 @@ function writeLegacyLocal(list: InventarioSessao[]): void {
   } catch {
     /* ignore */
   }
+}
+
+function readLinhasOverlayMap(): Record<string, InventarioLinhaCaptura[]> {
+  try {
+    const raw = localStorage.getItem(LINHAS_OVERLAY_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, InventarioLinhaCaptura[]>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeLinhasOverlay(sessaoId: string, linhas: InventarioLinhaCaptura[]): void {
+  try {
+    const map = readLinhasOverlayMap()
+    if (linhas.length === 0) delete map[sessaoId]
+    else map[sessaoId] = linhas
+    localStorage.setItem(LINHAS_OVERLAY_KEY, JSON.stringify(map))
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearLinhasOverlay(sessaoId: string): void {
+  writeLinhasOverlay(sessaoId, [])
+}
+
+function mergeInventarioLinhas(sessao: InventarioSessao): InventarioSessao {
+  const overlay = readLinhasOverlayMap()[sessao.id]
+  const cached = readCachedInventario(sessao.id)
+  const legacy = readLegacyLocal().find((l) => l.id === sessao.id)
+  const linhas = mergeLinhasCapturaPorId(
+    sessao.linhas,
+    overlay,
+    cached?.linhas,
+    legacy?.linhas,
+  )
+  return { ...sessao, linhas }
 }
 
 function sortInventarios(list: InventarioSessao[]): InventarioSessao[] {
@@ -146,6 +187,7 @@ function persistInventarioLocal(row: InventarioSessao): void {
   if (idx >= 0) list[idx] = row
   else list.push(row)
   writeLegacyLocal(list)
+  if (row.linhas.length > 0) writeLinhasOverlay(row.id, row.linhas)
 }
 
 async function persistInventario(row: InventarioSessao): Promise<void> {
@@ -163,7 +205,12 @@ async function persistInventario(row: InventarioSessao): Promise<void> {
   }
 
   try {
-    await upsertInventarioSessaoSupabase(next)
+    const { linhasNoBanco } = await upsertInventarioSessaoSupabase(next)
+    if (linhasNoBanco) {
+      clearLinhasOverlay(next.id)
+    } else if (next.linhas.length > 0) {
+      writeLinhasOverlay(next.id, next.linhas)
+    }
   } catch {
     persistInventarioLocal(next)
   }
@@ -204,8 +251,8 @@ export async function listInventarios(): Promise<InventarioSessao[]> {
 
   if (preferLocalOnly()) {
     const cached = readCachedInventarioList()
-    if (cached.length) return sortInventarios(cached)
-    return sortInventarios(readLegacyLocal())
+    if (cached.length) return sortInventarios(cached.map(mergeInventarioLinhas))
+    return sortInventarios(readLegacyLocal().map(mergeInventarioLinhas))
   }
 
   if (!(await usarSupabaseSessoes())) {
@@ -214,12 +261,12 @@ export async function listInventarios(): Promise<InventarioSessao[]> {
   try {
     await ensureLegacyInventariosMigrated()
     const list = await fetchInventarioSessoesSupabase()
-    const sorted = sortInventarios(list)
+    const sorted = sortInventarios(list.map(mergeInventarioLinhas))
     cacheInventarioList(sorted)
     return sorted
   } catch (e) {
     const cached = readCachedInventarioList()
-    if (cached.length) return sortInventarios(cached)
+    if (cached.length) return sortInventarios(cached.map(mergeInventarioLinhas))
     const legacy = readLegacyLocal()
     if (legacy.length) {
       return sortInventarios(legacy)
@@ -232,7 +279,8 @@ export async function getInventario(id: string): Promise<InventarioSessao | null
   requireSupabase()
 
   if (preferLocalOnly()) {
-    return readCachedInventario(id) ?? readLegacyLocal().find((l) => l.id === id) ?? null
+    const cached = readCachedInventario(id) ?? readLegacyLocal().find((l) => l.id === id)
+    return cached ? mergeInventarioLinhas(cached) : null
   }
 
   if (!(await usarSupabaseSessoes())) {
@@ -242,14 +290,15 @@ export async function getInventario(id: string): Promise<InventarioSessao | null
     await ensureLegacyInventariosMigrated()
     const s = await fetchInventarioSessaoByIdSupabase(id)
     if (s) {
-      cacheInventario(s)
-      return s
+      const merged = mergeInventarioLinhas(s)
+      cacheInventario(merged)
+      return merged
     }
     const cached = readCachedInventario(id)
-    return cached ?? null
+    return cached ? mergeInventarioLinhas(cached) : null
   } catch (e) {
     const cached = readCachedInventario(id) ?? readLegacyLocal().find((l) => l.id === id)
-    if (cached) return cached
+    if (cached) return mergeInventarioLinhas(cached)
     throw wrapDbError(e, 'Erro ao carregar inventário.')
   }
 }
@@ -403,6 +452,7 @@ export async function deleteInventario(id: string): Promise<boolean> {
     writeLegacyLocal(readLegacyLocal().filter((l) => l.id !== id))
   }
   removeCachedInventario(id)
+  clearLinhasOverlay(id)
   return true
 }
 
@@ -479,6 +529,62 @@ export function enderecoPermitidoNaSessao(sessao: InventarioSessao, codigo: stri
   const permitidos = posicoesPermitidas(sessao)
   if (!permitidos) return true
   return permitidos.has(codigo.trim().toUpperCase())
+}
+
+export type InventarioLinhasRecuperacaoResultado = {
+  antes: number
+  depois: number
+  recuperadas: number
+  fontes: {
+    banco: number
+    cache: number
+    legacy: number
+    overlay: number
+  }
+}
+
+/** Busca linhas salvas neste aparelho (cache/overlay) e une com o banco. */
+export async function recuperarLinhasInventarioDoAparelho(
+  inventarioId: string,
+): Promise<InventarioLinhasRecuperacaoResultado | null> {
+  const sessao = await getInventario(inventarioId)
+  if (!sessao) return null
+
+  let fromDb: InventarioLinhaCaptura[] = []
+  if (!preferLocalOnly() && (await usarSupabaseSessoes())) {
+    try {
+      const s = await fetchInventarioSessaoByIdSupabase(inventarioId)
+      fromDb = s?.linhas ?? []
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const overlay = readLinhasOverlayMap()[inventarioId] ?? []
+  const cached = readCachedInventario(inventarioId)?.linhas ?? []
+  const legacy = readLegacyLocal().find((l) => l.id === inventarioId)?.linhas ?? []
+
+  const fontes = {
+    banco: fromDb.length,
+    cache: cached.length,
+    legacy: legacy.length,
+    overlay: overlay.length,
+  }
+
+  const antes = sessao.linhas.length
+  const linhas = mergeLinhasCapturaPorId(sessao.linhas, fromDb, overlay, cached, legacy)
+  const depois = linhas.length
+
+  if (depois > antes) {
+    await saveInventario({ ...sessao, linhas })
+  }
+
+  return {
+    antes,
+    depois,
+    recuperadas: Math.max(0, depois - antes),
+    fontes,
+  }
 }
 
 export { inventarioSyncHabilitado } from './inventarioSessaoSupabase'

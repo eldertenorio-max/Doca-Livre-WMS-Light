@@ -16,6 +16,7 @@ import {
   mensagemTituloInventarioEmUso,
   reabrirInventario,
   resetInventarioSupabaseProbe,
+  recuperarLinhasInventarioDoAparelho,
   inventarioUsaArmazenamentoLocal,
   type InventarioSessao,
 } from '../lib/inventarioSessaoStore'
@@ -142,7 +143,12 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
     setLoadError('')
     resetInventarioSupabaseProbe()
     try {
-      setRows(await listInventarios())
+      let list = await listInventarios()
+      for (const inv of list.filter((r) => r.status === 'aberto')) {
+        await recuperarLinhasInventarioDoAparelho(inv.id)
+      }
+      list = await listInventarios()
+      setRows(list)
       setModoLocal(await inventarioUsaArmazenamentoLocal())
     } catch (e: unknown) {
       setLoadError(formatUnknownError(e) || 'Erro ao carregar inventários.')
@@ -311,6 +317,28 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
     }
   }
 
+  async function handleRecuperarLinhas(inv: InventarioSessao) {
+    try {
+      const r = await recuperarLinhasInventarioDoAparelho(inv.id)
+      if (!r) {
+        alert('Inventário não encontrado.')
+        return
+      }
+      await refresh()
+      if (r.recuperadas > 0) {
+        alert(
+          `Recuperadas ${r.recuperadas} linha(s).\n\nAntes: ${r.antes} → Agora: ${r.depois}\n\nFontes neste aparelho: banco ${r.fontes.banco}, cache ${r.fontes.cache}, legado ${r.fontes.legacy}, overlay ${r.fontes.overlay}.\n\nSe ainda faltar linha, abra o app no celular onde contou e clique em Recuperar linhas lá também.`,
+        )
+      } else {
+        alert(
+          `Nenhuma linha extra encontrada neste aparelho (total: ${r.depois}).\n\nFontes: banco ${r.fontes.banco}, cache ${r.fontes.cache}, legado ${r.fontes.legacy}, overlay ${r.fontes.overlay}.\n\nTente no celular/tablet onde foram lançadas as contagens que sumiram.`,
+        )
+      }
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao recuperar linhas.')
+    }
+  }
+
   function renderAcoes(r: InventarioSessao, layout: 'table' | 'card') {
     const btnClass = layout === 'card' ? 'inv-card__btn' : undefined
     const ghostClass = layout === 'card' ? 'inv-card__btn inv-card__btn--ghost' : 'page-btn-ghost'
@@ -330,6 +358,14 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
           </button>
           <button type="button" className={ghostClass} onClick={() => setPosicoesInvId(r.id)}>
             Posições
+          </button>
+          <button
+            type="button"
+            className={ghostClass}
+            title="Une linhas salvas neste aparelho com o banco"
+            onClick={() => void handleRecuperarLinhas(r)}
+          >
+            Recuperar linhas
           </button>
           <button
             type="button"

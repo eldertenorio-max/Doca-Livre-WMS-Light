@@ -108,10 +108,16 @@ export async function fetchInventarioSessaoByIdSupabase(id: string): Promise<Inv
   return data && !Array.isArray(data) ? rowToSessao(data as DbRow) : null
 }
 
-export async function upsertInventarioSessaoSupabase(sessao: InventarioSessao): Promise<void> {
-  if (!inventarioSyncHabilitado()) return
+export async function upsertInventarioSessaoSupabase(
+  sessao: InventarioSessao,
+): Promise<{ linhasNoBanco: boolean }> {
+  if (!inventarioSyncHabilitado()) return { linhasNoBanco: true }
   const row = sessaoToRow(sessao)
-  let { error } = await supabase.from(TABELA).upsert(row, { onConflict: 'id' })
+  const temLinhas = (sessao.linhas?.length ?? 0) > 0
+
+  let payload: Record<string, unknown> = { ...row }
+  let { error } = await supabase.from(TABELA).upsert(payload, { onConflict: 'id' })
+
   if (error && isColumnMissingError(error)) {
     const {
       lista_enderecamento_id: _a,
@@ -120,10 +126,20 @@ export async function upsertInventarioSessaoSupabase(sessao: InventarioSessao): 
       lista_produtos_nome: _d,
       ...legacyRow
     } = row
-    const res = await supabase.from(TABELA).upsert(legacyRow, { onConflict: 'id' })
+    payload = { ...legacyRow }
+    const res = await supabase.from(TABELA).upsert(payload, { onConflict: 'id' })
     error = res.error
   }
+
+  if (error && isColumnMissingError(error) && 'linhas' in payload) {
+    const { linhas: _l, ...semLinhas } = payload
+    const res = await supabase.from(TABELA).upsert(semLinhas, { onConflict: 'id' })
+    error = res.error
+    if (!error) return { linhasNoBanco: temLinhas ? false : true }
+  }
+
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao salvar inventário no banco.')
+  return { linhasNoBanco: true }
 }
 
 export async function deleteInventarioSessaoSupabase(id: string): Promise<void> {

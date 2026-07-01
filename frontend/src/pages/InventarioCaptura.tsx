@@ -399,6 +399,18 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
     }
   }, [inventarioId])
 
+  /** Atualiza linhas de outros dispositivos sem apagar as locais. */
+  useEffect(() => {
+    if (!online || !inventarioId || sessao?.status !== 'aberto') return
+    const reload = () => {
+      void getInventario(inventarioId).then((inv) => {
+        if (inv) setSessao(inv)
+      })
+    }
+    const id = window.setInterval(reload, 12_000)
+    return () => window.clearInterval(id)
+  }, [online, inventarioId, sessao?.status])
+
   useEffect(() => {
     let alive = true
     const listaId = sessao?.listaEnderecamentoId
@@ -803,6 +815,7 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
       return
     }
     try {
+      const qtdAntes = sessao.linhas.length
       const payload = {
         endereco: end,
         codigoBarras: bar,
@@ -823,11 +836,23 @@ export default function InventarioCaptura({ inventarioId, onVoltar, session }: P
         await addLinhaInventario(sessao.id, payload)
       }
       const atualizado = await getInventario(inventarioId)
+      if (!atualizado) {
+        setErr('Inventário não encontrado após salvar.')
+        return
+      }
+      if (!editandoLinhaId && atualizado.linhas.length <= qtdAntes) {
+        setErr(
+          'A linha não foi gravada corretamente. Verifique a conexão ou recarregue a página — as linhas anteriores foram preservadas no aparelho.',
+        )
+        setMsg('')
+        setSessao(atualizado)
+        return
+      }
       setSessao(atualizado)
       setMsg(
         editandoLinhaId
           ? 'Linha atualizada.'
-          : `Linha salva (${atualizado?.linhas.length ?? 0} no total)`,
+          : `Linha salva (${atualizado.linhas.length} no total)`,
       )
       setErr('')
       setLinhasPage(1)

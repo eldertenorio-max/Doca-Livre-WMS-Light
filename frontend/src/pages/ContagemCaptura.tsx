@@ -351,6 +351,18 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     }
   }, [contagemId])
 
+  /** Atualiza linhas de outros dispositivos sem apagar as locais. */
+  useEffect(() => {
+    if (!online || !contagemId || sessao?.status !== 'aberto') return
+    const reload = () => {
+      void getContagemDiaria(contagemId).then((c) => {
+        if (c) setSessao(c)
+      })
+    }
+    const id = window.setInterval(reload, 12_000)
+    return () => window.clearInterval(id)
+  }, [online, contagemId, sessao?.status])
+
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (!comboRef.current?.contains(e.target as Node)) setSugestoesOpen(false)
