@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import './App.css'
 import AppHeader from './components/layout/AppHeader'
@@ -22,6 +22,7 @@ import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
 import PainelPage from './pages/PainelPage'
 import PermissoesAcessoPage from './pages/PermissoesAcessoPage'
+import AcessoPendenteScreen from './pages/AcessoPendenteScreen'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 import { clearSessaoProdutoListaContext } from './lib/sessaoProdutoListaContext'
 import type { AppView } from './lib/appViews'
@@ -32,7 +33,7 @@ import {
   permissoesViewsToSet,
 } from './lib/appPermissions'
 import { isAppAdmin } from './lib/authUser'
-import { fetchMinhasPermissoes } from './lib/usuarioPermissoesStore'
+import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 
 export type { AppView } from './lib/appViews'
 
@@ -81,22 +82,39 @@ export default function App() {
     return saved === 'light' || saved === 'dark' ? saved : 'dark'
   })
   const [permissoesViews, setPermissoesViews] = useState<string[] | null>(null)
+  const [acessoAutorizado, setAcessoAutorizado] = useState(true)
   const [permissoesCarregadas, setPermissoesCarregadas] = useState(() => !isSupabaseConfigured())
+  const [recarregandoAcesso, setRecarregandoAcesso] = useState(false)
 
   const adminUser = isAppAdmin(session)
   const allowedViews = useMemo(() => permissoesViewsToSet(permissoesViews), [permissoesViews])
 
+  const carregarMeuAcesso = useCallback(async (userId: string) => {
+    setPermissoesCarregadas(false)
+    const acesso = await fetchMeuAcesso(userId)
+    setPermissoesViews(acesso.permissoesViews)
+    setAcessoAutorizado(acesso.acessoAutorizado)
+    setPermissoesCarregadas(true)
+  }, [])
+
   useEffect(() => {
     if (!authEnabled || !session) {
       setPermissoesViews(null)
+      setAcessoAutorizado(true)
+      setPermissoesCarregadas(true)
+      return
+    }
+    if (isAppAdmin(session)) {
+      setPermissoesViews(null)
+      setAcessoAutorizado(true)
       setPermissoesCarregadas(true)
       return
     }
     let alive = true
-    setPermissoesCarregadas(false)
-    void fetchMinhasPermissoes(session.user.id).then((views) => {
+    void fetchMeuAcesso(session.user.id).then((acesso) => {
       if (!alive) return
-      setPermissoesViews(views)
+      setPermissoesViews(acesso.permissoesViews)
+      setAcessoAutorizado(acesso.acessoAutorizado)
       setPermissoesCarregadas(true)
     })
     return () => {
@@ -211,6 +229,21 @@ export default function App() {
 
   if (authEnabled && !session) {
     return <LoginScreen />
+  }
+
+  if (authEnabled && session && permissoesCarregadas && !adminUser && !acessoAutorizado) {
+    return (
+      <AcessoPendenteScreen
+        session={session}
+        recarregando={recarregandoAcesso}
+        onSignOut={() => void supabase.auth.signOut()}
+        onRecarregar={() => {
+          if (!session.user?.id) return
+          setRecarregandoAcesso(true)
+          void carregarMeuAcesso(session.user.id).finally(() => setRecarregandoAcesso(false))
+        }}
+      />
+    )
   }
 
   const sidebarFooter = (

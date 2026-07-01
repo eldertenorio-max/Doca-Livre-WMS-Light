@@ -655,6 +655,7 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
         open={cadastroConferenteOpen}
         onClose={() => setCadastroConferenteOpen(false)}
         onSaved={() => void recarregarConferentes()}
+        loginEsperado={conferenteLogado}
       />
     </div>
   )

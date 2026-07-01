@@ -3,6 +3,33 @@ import { formatUnknownError } from './supabaseError'
 
 export type Conferente = { id: string; nome: string }
 
+const SEM_CONFERENTE_LABEL = 'Sem conferente'
+
+export function conferenteNomeDeUsuario(username: string): string {
+  return String(username ?? '').trim().toLowerCase()
+}
+
+export function conferenteCombinaUsuario(conferenteNome: string, username: string): boolean {
+  const a = conferenteNomeDeUsuario(conferenteNome)
+  const b = conferenteNomeDeUsuario(username)
+  if (!a || !b) return false
+  return a === b
+}
+
+/** Conferente sem usuário com o mesmo login (nome deve ser igual ao username). */
+export function conferenteEhOrfao(
+  conferente: Conferente,
+  usuarios: Array<{ username: string; nome?: string }>,
+): boolean {
+  const key = conferenteNomeDeUsuario(conferente.nome)
+  if (!key || key === conferenteNomeDeUsuario(SEM_CONFERENTE_LABEL)) return true
+  return !usuarios.some(
+    (u) =>
+      conferenteCombinaUsuario(conferente.nome, u.username) ||
+      conferenteCombinaUsuario(conferente.nome, u.nome ?? ''),
+  )
+}
+
 /** Evita erro PostgreSQL 22P02 ao gravar string vazia em coluna uuid. */
 export function conferenteIdParaBanco(id: string | null | undefined): string | null {
   const s = String(id ?? '').trim()
@@ -13,24 +40,24 @@ export function resolveConferenteIdPorNome(
   nome: string | undefined,
   conferentes: Conferente[],
 ): string | null {
-  const alvo = String(nome ?? '').trim()
+  const alvo = conferenteNomeDeUsuario(nome)
   if (!alvo) return null
-  const lower = alvo.toLowerCase()
-  const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === lower)
-  if (exato) return exato.id
-  const parcial = conferentes.find(
-    (c) =>
-      c.nome.trim().toLowerCase().includes(lower) ||
-      lower.includes(c.nome.trim().toLowerCase()),
-  )
-  return parcial?.id ?? null
+  const exato = conferentes.find((c) => conferenteNomeDeUsuario(c.nome) === alvo)
+  return exato?.id ?? null
 }
 
-const SEM_CONFERENTE_LABEL = 'Sem conferente'
+export async function ensureConferenteParaUsuario(username: string): Promise<Conferente> {
+  const nome = conferenteNomeDeUsuario(username)
+  if (!nome) throw new Error('Usuário sem login válido para vincular conferente.')
+  const conferentes = await listConferentes()
+  const exato = conferentes.find((c) => conferenteNomeDeUsuario(c.nome) === nome)
+  if (exato) return exato
+  return cadastrarConferente(nome)
+}
 
 /**
  * Garante UUID válido para colunas NOT NULL (`contagens_inventario`, etc.).
- * Cria conferente no banco quando o nome da captura não está cadastrado.
+ * O nome do conferente deve ser igual ao login do usuário.
  */
 export async function ensureConferenteIdParaGravacao(
   nome: string | undefined,
@@ -39,21 +66,30 @@ export async function ensureConferenteIdParaGravacao(
   const resolved = resolveConferenteIdPorNome(nome, conferentes)
   if (resolved) return resolved
 
-  const label = String(nome ?? '').trim() || SEM_CONFERENTE_LABEL
-  const exatoLabel = conferentes.find((c) => c.nome.trim().toLowerCase() === label.toLowerCase())
-  if (exatoLabel) return exatoLabel.id
+  const label = conferenteNomeDeUsuario(nome) || SEM_CONFERENTE_LABEL
+  if (label !== SEM_CONFERENTE_LABEL) {
+    try {
+      const novo = await cadastrarConferente(label)
+      conferentes.push(novo)
+      return novo.id
+    } catch {
+      /* tenta fallback abaixo */
+    }
+  }
 
-  const sem = conferentes.find((c) => c.nome.trim().toLowerCase() === SEM_CONFERENTE_LABEL.toLowerCase())
+  const sem = conferentes.find(
+    (c) => conferenteNomeDeUsuario(c.nome) === conferenteNomeDeUsuario(SEM_CONFERENTE_LABEL),
+  )
   if (sem) return sem.id
 
   try {
-    const novo = await cadastrarConferente(label)
+    const novo = await cadastrarConferente(SEM_CONFERENTE_LABEL)
     conferentes.push(novo)
     return novo.id
   } catch {
     if (conferentes[0]?.id) return conferentes[0].id
     throw new Error(
-      `Conferente "${label}" não encontrado e não foi possível cadastrar. Cadastre em Conferentes antes de exportar.`,
+      `Conferente "${label}" não encontrado. O nome deve ser igual ao login do usuário.`,
     )
   }
 }
@@ -65,8 +101,8 @@ export async function listConferentes(): Promise<Conferente[]> {
 }
 
 export async function cadastrarConferente(nome: string): Promise<Conferente> {
-  const trimmed = nome.trim()
-  if (!trimmed) throw new Error('Informe o nome do conferente.')
+  const trimmed = conferenteNomeDeUsuario(nome)
+  if (!trimmed) throw new Error('Informe o nome do conferente (igual ao login do usuário).')
 
   const { data, error } = await supabase
     .from('conferentes')
@@ -84,4 +120,19 @@ export async function cadastrarConferente(nome: string): Promise<Conferente> {
   }
   if (!data?.id) throw new Error('Conferente não foi criado.')
   return data
+}
+
+export async function excluirConferente(conferenteId: string): Promise<void> {
+  const id = String(conferenteId ?? '').trim()
+  if (!id) return
+  const { error } = await supabase.from('conferentes').delete().eq('id', id)
+  if (error) {
+    const msg = formatUnknownError(error)
+    if (msg.toLowerCase().includes('foreign key') || msg.includes('23503')) {
+      throw new Error(
+        'Não foi possível excluir: este conferente já possui contagens ou inventários vinculados.',
+      )
+    }
+    throw new Error(msg || 'Erro ao excluir conferente.')
+  }
 }

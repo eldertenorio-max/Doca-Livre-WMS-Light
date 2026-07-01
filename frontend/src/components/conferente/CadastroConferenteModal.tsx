@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { cadastrarConferente, listConferentes, type Conferente } from '../../lib/conferentesStore'
+import { cadastrarConferente, conferenteNomeDeUsuario, listConferentes, type Conferente } from '../../lib/conferentesStore'
 import { formatUnknownError } from '../../lib/supabaseError'
 
 type Props = {
   open: boolean
   onClose: () => void
   onSaved?: (conferente: Conferente) => void
+  /** Login do usuário logado — o nome do conferente deve ser igual. */
+  loginEsperado?: string
 }
 
-export default function CadastroConferenteModal({ open, onClose, onSaved }: Props) {
+export default function CadastroConferenteModal({ open, onClose, onSaved, loginEsperado }: Props) {
   const [lista, setLista] = useState<Conferente[]>([])
   const [loadingLista, setLoadingLista] = useState(false)
   const [nome, setNome] = useState('')
@@ -29,15 +31,19 @@ export default function CadastroConferenteModal({ open, onClose, onSaved }: Prop
 
   useEffect(() => {
     if (!open) return
-    setNome('')
+    setNome(loginEsperado ? conferenteNomeDeUsuario(loginEsperado) : '')
     setErro('')
     void carregar()
-  }, [open])
+  }, [open, loginEsperado])
 
   async function salvar() {
-    const trimmed = nome.trim()
+    const trimmed = conferenteNomeDeUsuario(nome)
     if (!trimmed) {
       setErro('Informe o nome do conferente.')
+      return
+    }
+    if (loginEsperado && trimmed !== conferenteNomeDeUsuario(loginEsperado)) {
+      setErro(`O nome do conferente deve ser igual ao seu login (${conferenteNomeDeUsuario(loginEsperado)}).`)
       return
     }
     setSaving(true)
@@ -75,15 +81,17 @@ export default function CadastroConferenteModal({ open, onClose, onSaved }: Prop
         </div>
         <div className="page-modal__body page-form-grid">
           <p className="conferente-modal__intro page-form-grid__full">
-            Cadastre o nome do conferente no banco. Na contagem e no inventário, cada pessoa continua contando apenas
-            com o próprio login — o cadastro serve para vincular o usuário ao nome correto.
+            O nome do conferente deve ser <strong>igual ao seu login</strong>
+            {loginEsperado ? ` (${conferenteNomeDeUsuario(loginEsperado)})` : ''}. Assim as contagens ficam
+            vinculadas ao usuário correto.
           </p>
           <label className="page-form-grid__full">
             Nome do conferente *
             <input
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex.: João Silva"
+              placeholder={loginEsperado ? conferenteNomeDeUsuario(loginEsperado) : 'ex.: alex'}
+              readOnly={Boolean(loginEsperado)}
               autoFocus
               disabled={saving}
               onKeyDown={(e) => {

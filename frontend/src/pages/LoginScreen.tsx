@@ -507,7 +507,9 @@ export default function LoginScreen() {
       setPassword('')
       setPasswordConfirm('')
       setError(null)
-      setSuccess('Conta criada com sucesso. Agora faça login com o mesmo usuário e senha.')
+      setSuccess(
+        'Conta criada. Aguarde o administrador autorizar seu acesso; depois faça login com o mesmo usuário e senha.',
+      )
     } catch {
       setError('Erro ao cadastrar. Tente novamente.')
     } finally {

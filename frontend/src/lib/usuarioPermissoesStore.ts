@@ -7,7 +7,14 @@ export type UsuarioComPermissoes = {
   nome: string
   username: string
   ativo: boolean
+  acessoAutorizado: boolean
   permissoesViews: string[] | null
+  createdAt: string
+}
+
+export type MeuAcesso = {
+  permissoesViews: string[] | null
+  acessoAutorizado: boolean
 }
 
 function mapUsuarioRow(row: Record<string, unknown>): UsuarioComPermissoes {
@@ -16,28 +23,40 @@ function mapUsuarioRow(row: Record<string, unknown>): UsuarioComPermissoes {
     nome: String(row.nome ?? '').trim(),
     username: String(row.username ?? '').trim(),
     ativo: row.ativo !== false,
+    acessoAutorizado: row.acesso_autorizado === true,
     permissoesViews: parsePermissoesViewsFromDb(row.permissoes_views),
+    createdAt: String(row.created_at ?? ''),
   }
 }
 
-export async function fetchMinhasPermissoes(userId: string): Promise<string[] | null> {
+export async function fetchMeuAcesso(userId: string): Promise<MeuAcesso> {
   const { data, error } = await supabase
     .from('usuarios')
-    .select('permissoes_views')
+    .select('permissoes_views,acesso_autorizado')
     .eq('id', userId)
     .maybeSingle()
   if (error) {
-    if (import.meta.env.DEV) console.warn('[permissoes] fetchMinhasPermissoes', error)
-    return null
+    if (import.meta.env.DEV) console.warn('[permissoes] fetchMeuAcesso', error)
+    return { permissoesViews: null, acessoAutorizado: true }
   }
-  return parsePermissoesViewsFromDb(data?.permissoes_views)
+  if (!data) return { permissoesViews: [], acessoAutorizado: false }
+  return {
+    permissoesViews: parsePermissoesViewsFromDb(data.permissoes_views),
+    acessoAutorizado: data.acesso_autorizado === true,
+  }
+}
+
+/** @deprecated use fetchMeuAcesso */
+export async function fetchMinhasPermissoes(userId: string): Promise<string[] | null> {
+  const acesso = await fetchMeuAcesso(userId)
+  return acesso.permissoesViews
 }
 
 export async function fetchUsuariosComPermissoes(): Promise<UsuarioComPermissoes[]> {
   const { data, error } = await supabase
     .from('usuarios')
-    .select('id,nome,username,ativo,permissoes_views')
-    .order('nome', { ascending: true })
+    .select('id,nome,username,ativo,permissoes_views,acesso_autorizado,created_at')
+    .order('created_at', { ascending: false })
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao listar usuários.')
   return (data ?? []).map((r) => mapUsuarioRow(r as Record<string, unknown>))
 }
@@ -52,4 +71,38 @@ export async function salvarPermissoesUsuario(
       : { permissoes_views: [...new Set(views.map((v) => v.trim()).filter(Boolean))] }
   const { error } = await supabase.from('usuarios').update(payload).eq('id', usuarioId)
   if (error) throw new Error(formatUnknownError(error) || 'Erro ao salvar permissões.')
+}
+
+export async function autorizarAcessoUsuario(
+  usuarioId: string,
+  views: string[] | null,
+): Promise<void> {
+  const permissoes =
+    views == null ? null : [...new Set(views.map((v) => v.trim()).filter(Boolean))]
+  const { error } = await supabase
+    .from('usuarios')
+    .update({
+      acesso_autorizado: true,
+      permissoes_views: permissoes,
+    })
+    .eq('id', usuarioId)
+  if (error) throw new Error(formatUnknownError(error) || 'Erro ao autorizar acesso.')
+}
+
+export async function revogarAcessoUsuario(usuarioId: string): Promise<void> {
+  const { error } = await supabase
+    .from('usuarios')
+    .update({
+      acesso_autorizado: false,
+      permissoes_views: [],
+    })
+    .eq('id', usuarioId)
+  if (error) throw new Error(formatUnknownError(error) || 'Erro ao revogar acesso.')
+}
+
+export async function excluirUsuario(usuarioId: string): Promise<void> {
+  const id = String(usuarioId ?? '').trim()
+  if (!id) return
+  const { error } = await supabase.from('usuarios').delete().eq('id', id)
+  if (error) throw new Error(formatUnknownError(error) || 'Erro ao excluir usuário.')
 }

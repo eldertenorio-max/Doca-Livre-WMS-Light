@@ -85,32 +85,49 @@ Deno.serve(async (req) => {
   }
 
   const userId = created.user?.id
+  const isAdmin = usernameRaw === 'diego' || usernameRaw === 'diego.isidoro'
   if (userId) {
     const { data: existing } = await admin.from('usuarios').select('id').eq('id', userId).maybeSingle()
+    const perfil = {
+      username: usernameRaw,
+      nome: usernameRaw,
+      acesso_autorizado: isAdmin,
+      permissoes_views: isAdmin ? null : [],
+    }
     if (!existing) {
       await admin.from('usuarios').insert({
         id: userId,
-        nome: usernameRaw,
-        username: usernameRaw,
+        ...perfil,
       })
     } else {
-      await admin.from('usuarios').update({ username: usernameRaw, nome: usernameRaw }).eq('id', userId)
+      await admin.from('usuarios').update(perfil).eq('id', userId)
+    }
+
+    const { data: confExistente } = await admin
+      .from('conferentes')
+      .select('id')
+      .ilike('nome', usernameRaw)
+      .maybeSingle()
+    if (!confExistente) {
+      await admin.from('conferentes').insert({ nome: usernameRaw })
     }
   }
 
-  const signed = await anon.auth.signInWithPassword({ email, password })
-  if (!signed.error && signed.data.session) {
-    return jsonResponse({
-      ok: true,
-      access_token: signed.data.session.access_token,
-      refresh_token: signed.data.session.refresh_token,
-    })
+  if (isAdmin) {
+    const signed = await anon.auth.signInWithPassword({ email, password })
+    if (!signed.error && signed.data.session) {
+      return jsonResponse({
+        ok: true,
+        access_token: signed.data.session.access_token,
+        refresh_token: signed.data.session.refresh_token,
+      })
+    }
   }
 
-  // Conta já foi criada; login automático falhou (ex.: latência). Front deve voltar à tela de login.
   return jsonResponse({
     ok: true,
     login_pending: true,
-    note: signed.error?.message ?? null,
+    pending_approval: !isAdmin,
+    note: isAdmin ? null : 'Aguardando autorização do administrador.',
   })
 })

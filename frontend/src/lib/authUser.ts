@@ -27,14 +27,7 @@ export function resolveConferenteDoUsuarioLogado(
 ): ConferenteRef | null {
   const logado = usernameFromSession(session).trim()
   if (!logado || logado === 'usuário') return null
-  const alvo = logado.toLowerCase()
-  const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === alvo)
+  const exato = conferentes.find((c) => c.nome.trim().toLowerCase() === logado.toLowerCase())
   if (exato) return exato
-  const parcial = conferentes.find(
-    (c) =>
-      c.nome.trim().toLowerCase().includes(alvo) ||
-      alvo.includes(c.nome.trim().toLowerCase()),
-  )
-  if (parcial) return parcial
-  return { id: '', nome: logado }
+  return { id: '', nome: logado.toLowerCase() }
 }

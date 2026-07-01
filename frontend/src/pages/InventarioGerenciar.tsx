@@ -660,6 +660,7 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
       <CadastroConferenteModal
         open={cadastroConferenteOpen}
         onClose={() => setCadastroConferenteOpen(false)}
+        loginEsperado={conferenteLogado}
       />
     </div>
   )
