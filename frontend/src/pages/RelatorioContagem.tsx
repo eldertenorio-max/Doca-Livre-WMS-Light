@@ -39,19 +39,17 @@ import {
   ensureContagensDiariaSessaoSincronizadas,
   syncContagemDiariaSessaoParaContagens,
 } from '../lib/contagemDiariaFinalizeSync'
-import { listContagensDiarias } from '../lib/contagemDiariaSessaoStore'
-import { listInventarios } from '../lib/inventarioSessaoStore'
 import type { ContagemDiariaSessao } from '../lib/contagemDiariaSessaoTypes'
 import type { InventarioSessao } from '../lib/inventarioSessaoTypes'
 import {
-  contagemDiariaDatasReferenciaYmd,
-  contagemDiariaSessaoFinalizada,
-  inventarioDatasReferenciaYmd,
-  inventarioSessaoFinalizado,
-  sessaoDatasNoPeriodo,
-} from '../lib/capturaSessaoExportUtils'
+  listContagensDiariasParaExport,
+  listInventariosParaExport,
+  type ContagemDiariaSessaoExport,
+  type InventarioSessaoExport,
+} from '../lib/exportSessoesList'
 import { flushPendingContagemDiariaSync } from '../lib/contagemDiariaOfflineSync'
 import { flushPendingInventarioSync } from '../lib/inventarioOfflineSync'
+import { formatUnknownError } from '../lib/supabaseError'
 
 type ContagemRow = {
   id: string
@@ -351,48 +349,6 @@ type AvaliacaoUmDiaContagem =
   | { kind: 'pendente'; aviso: AvisoCargaPendente }
   | { kind: 'ok' }
 
-function filtrarInventariosFechadosPeriodo(
-  sessoes: InventarioSessao[],
-  opts: {
-    allTime: boolean
-    startDate: string
-    endDate: string
-    useSingleDay: boolean
-    singleDay: string
-  },
-): InventarioSessao[] {
-  return sessoes
-    .filter((s) => {
-      if (!inventarioSessaoFinalizado(s) || s.linhas.length === 0) return false
-      return sessaoDatasNoPeriodo(inventarioDatasReferenciaYmd(s), opts)
-    })
-    .sort((a, b) =>
-      (b.dataFim ?? b.dataInicio ?? '').localeCompare(a.dataFim ?? a.dataInicio ?? ''),
-    )
-}
-
-function filtrarContagensDiariasFechadasPeriodo(
-  sessoes: ContagemDiariaSessao[],
-  opts: {
-    allTime: boolean
-    startDate: string
-    endDate: string
-    useSingleDay: boolean
-    singleDay: string
-  },
-): ContagemDiariaSessao[] {
-  return sessoes
-    .filter((s) => {
-      if (!contagemDiariaSessaoFinalizada(s) || s.linhas.length === 0) return false
-      return sessaoDatasNoPeriodo(contagemDiariaDatasReferenciaYmd(s), opts)
-    })
-    .sort((a, b) =>
-      (b.dataFim ?? b.dataInicio ?? b.dataContagem ?? '').localeCompare(
-        a.dataFim ?? a.dataInicio ?? a.dataContagem ?? '',
-      ),
-    )
-}
-
 function computeMinMaxYmdDataContagemOnly(rows: ContagemRow[]): { minY: string; maxY: string } {
   let minY = '9999-12-31'
   let maxY = '1970-01-01'
@@ -573,8 +529,8 @@ export default function RelatorioContagem({
   const prevLoadingRef = useRef(false)
   const [baseExportLoading, setBaseExportLoading] = useState(false)
   const [exportExcelLoading, setExportExcelLoading] = useState(false)
-  const [exportInventarioSessoes, setExportInventarioSessoes] = useState<InventarioSessao[]>([])
-  const [exportContagemDiariaSessoes, setExportContagemDiariaSessoes] = useState<ContagemDiariaSessao[]>([])
+  const [exportInventarioSessoes, setExportInventarioSessoes] = useState<InventarioSessaoExport[]>([])
+  const [exportContagemDiariaSessoes, setExportContagemDiariaSessoes] = useState<ContagemDiariaSessaoExport[]>([])
   const [exportSessoesListaCarregada, setExportSessoesListaCarregada] = useState(false)
   const [exportSessaoIdLoading, setExportSessaoIdLoading] = useState<string | null>(null)
   const [avisoCargaPendente, setAvisoCargaPendente] = useState<AvisoCargaPendente | null>(null)
@@ -1690,7 +1646,7 @@ export default function RelatorioContagem({
         }
       }
       if (exportOnly && useInventarioCols) {
-        const filtradas = filtrarInventariosFechadosPeriodo(await listInventarios(), {
+        const filtradas = await listInventariosParaExport({
           allTime,
           startDate,
           endDate,
@@ -1708,7 +1664,7 @@ export default function RelatorioContagem({
         return
       }
       if (exportOnly && !useInventarioCols) {
-        const filtradas = filtrarContagensDiariasFechadasPeriodo(await listContagensDiarias(), {
+        const filtradas = await listContagensDiariasParaExport({
           allTime,
           startDate,
           endDate,
@@ -2995,7 +2951,7 @@ export default function RelatorioContagem({
                         <td>{s.titulo || '—'}</td>
                         <td>{s.local || '—'}</td>
                         <td>{formatDateBRFromYmd(ymdSpFromIso(s.dataFim ?? s.dataInicio))}</td>
-                        <td>{s.linhas.length}</td>
+                        <td>{s.linhasExportCount}</td>
                         <td>
                           <button
                             type="button"
@@ -3048,7 +3004,7 @@ export default function RelatorioContagem({
                         <td>{s.local || '—'}</td>
                         <td>{formatDateBRFromYmd(s.dataContagem)}</td>
                         <td>{s.conferenteNome || '—'}</td>
-                        <td>{s.linhas.length}</td>
+                        <td>{s.linhasExportCount}</td>
                         <td>
                           <button
                             type="button"
