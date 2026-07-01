@@ -1784,6 +1784,33 @@
   color: #cbd5e1;
 }
 
+.inv-contando {
+  display: inline-block;
+  max-width: 160px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.inv-contando--na {
+  color: #94a3b8;
+}
+
+.inv-contando--livre {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+}
+
+.inv-contando--ativo {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fcd34d;
+}
+
 .inv-actions-cell {
   white-space: nowrap;
 }

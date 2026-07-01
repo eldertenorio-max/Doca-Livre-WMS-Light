@@ -29,6 +29,9 @@ import {
 } from '../lib/inventarioOfflineSync'
 import { offlineCatalogStats } from '../lib/offlineCatalogCache'
 import { prefetchContagemOfflineCatalog } from '../lib/prefetchContagemOfflineCatalog'
+import { fetchInventarioCapturaPresencaBatch } from '../lib/inventarioCapturaPresenca'
+import { useGerenciarCapturaPresenca } from '../lib/useGerenciarCapturaPresenca'
+import GerenciarColunaContando from '../components/gerenciar/GerenciarColunaContando'
 
 type Props = {
   onAbrirCaptura: (inventarioId: string) => void
@@ -108,6 +111,8 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
 
   const abertos = useMemo(() => rows.filter((r) => r.status === 'aberto'), [rows])
   const finalizados = useMemo(() => rows.filter((r) => r.status === 'fechado'), [rows])
+  const abertosIds = useMemo(() => abertos.map((r) => r.id), [abertos])
+  const presencaMap = useGerenciarCapturaPresenca(abertosIds, fetchInventarioCapturaPresencaBatch, online)
 
   const locaisDisponiveis = useMemo(() => {
     const set = new Set(rows.map((r) => r.local.trim()).filter(Boolean))
@@ -572,6 +577,12 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
               <p className="inv-card__meta inv-card__meta--pos">{labelPosicoes(r)}</p>
               <dl className="inv-card__stats">
                 <div>
+                  <dt>Contando</dt>
+                  <dd>
+                    <GerenciarColunaContando aberto={r.status === 'aberto'} nomes={presencaMap.get(r.id)} />
+                  </dd>
+                </div>
+                <div>
                   <dt>Linhas</dt>
                   <dd>{r.linhas.length}</dd>
                 </div>
@@ -601,6 +612,7 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
               <th>Local</th>
               <th>Posições</th>
               <th>Status</th>
+              <th>Contando</th>
               <th>Linhas</th>
               <th>Início</th>
               <th>Fim</th>
@@ -610,7 +622,7 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
           <tbody>
             {listaFiltrada.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   {filtrosAtivos ? 'Nenhum inventário encontrado com estes filtros.' : 'Nenhum inventário nesta lista.'}
                 </td>
               </tr>
@@ -625,6 +637,9 @@ export default function InventarioGerenciar({ onAbrirCaptura, session }: Props) 
                     <span className={r.status === 'aberto' ? 'inv-status inv-status--open' : 'inv-status inv-status--closed'}>
                       {r.status === 'aberto' ? 'Aberto' : 'Finalizado'}
                     </span>
+                  </td>
+                  <td>
+                    <GerenciarColunaContando aberto={r.status === 'aberto'} nomes={presencaMap.get(r.id)} />
                   </td>
                   <td>{r.linhas.length}</td>
                   <td>{formatData(r.dataInicio)}</td>

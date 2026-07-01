@@ -1816,6 +1816,11 @@ export default function RelatorioContagem({
     return formatContagemLabel(Number(n))
   }
 
+  function linhaTemDadosPlanilhaRelatorio(r: ContagemRow): boolean {
+    if (r.planilha_grupo_armazem != null && Number.isFinite(Number(r.planilha_grupo_armazem))) return true
+    return r.planilha_rua != null && String(r.planilha_rua).trim() !== ''
+  }
+
   function buildRelatorioExcelAoa(
     rowsToExport: ContagemRow[],
     excelOpts?: { layoutInventario?: boolean },
@@ -1848,15 +1853,23 @@ export default function RelatorioContagem({
     const buildRow = (r: ContagemRow): (string | number)[] => {
       const row: (string | number)[] = []
       if (layoutInventario) {
-        const cam = inventarioCamaraLabelFromGrupo(r.planilha_grupo_armazem)
-        row.push(cam === '—' ? '' : cam)
-        row.push(r.planilha_rua != null && String(r.planilha_rua).trim() !== '' ? String(r.planilha_rua) : '')
-        row.push(
-          r.planilha_posicao != null && Number.isFinite(Number(r.planilha_posicao)) ? Number(r.planilha_posicao) : '',
-        )
-        row.push(r.planilha_nivel != null && Number.isFinite(Number(r.planilha_nivel)) ? Number(r.planilha_nivel) : '')
-        row.push(formatPlanilhaLinhaRelatorio(inventarioPlanilhaRepeticaoFromItem(r)))
-        row.push(formatRodadaRelatorioCell(r.inventario_numero_contagem))
+        if (linhaTemDadosPlanilhaRelatorio(r)) {
+          const cam = inventarioCamaraLabelFromGrupo(r.planilha_grupo_armazem)
+          row.push(cam === '—' ? '' : cam)
+          row.push(r.planilha_rua != null && String(r.planilha_rua).trim() !== '' ? String(r.planilha_rua) : '')
+          row.push(
+            r.planilha_posicao != null && Number.isFinite(Number(r.planilha_posicao))
+              ? Number(r.planilha_posicao)
+              : '',
+          )
+          row.push(
+            r.planilha_nivel != null && Number.isFinite(Number(r.planilha_nivel)) ? Number(r.planilha_nivel) : '',
+          )
+          row.push(formatPlanilhaLinhaRelatorio(inventarioPlanilhaRepeticaoFromItem(r)))
+          row.push(formatRodadaRelatorioCell(r.inventario_numero_contagem))
+        } else {
+          row.push('', '', '', '', '', '')
+        }
       }
       {
         const nome = conferenteNomeRelatorio(r)

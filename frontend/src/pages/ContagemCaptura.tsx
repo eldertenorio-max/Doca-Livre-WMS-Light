@@ -65,6 +65,14 @@ import { supabase } from '../lib/supabaseClient'
 import BarcodeCameraScanner, { IconClearField, IconScanBarcode, IconCalendar } from '../components/barcode/BarcodeCameraScanner'
 import CapturaLinhasMobile from '../components/inventario/CapturaLinhasMobile'
 import { linhaCapturaParaMobile } from '../lib/capturaLinhaMobile'
+import {
+  fetchContagemDiariaCapturaPresenca,
+  nomesContadoresAtivosContagemDiaria,
+  PRESENCA_PING_INTERVAL_MS,
+  PRESENCA_POLL_INTERVAL_MS,
+  upsertContagemDiariaCapturaPresenca,
+  type ContagemDiariaCapturaPresencaRow,
+} from '../lib/contagemDiariaCapturaPresenca'
 
 type Props = {
   contagemId: string
@@ -141,6 +149,7 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
   const [online, setOnline] = useState(() => isAppOnline())
   const [pendingSync, setPendingSync] = useState(() => countPendingContagemDiariaSync())
+  const [presencaRows, setPresencaRows] = useState<ContagemDiariaCapturaPresencaRow[]>([])
 
   const camaraRef = useRef<HTMLSelectElement>(null)
   const enderecoCodigoRef = useRef<HTMLInputElement>(null)
@@ -149,6 +158,11 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const usuarioLogado = usernameFromSession(session)
+
+  const contadoresOnline = useMemo(
+    () => nomesContadoresAtivosContagemDiaria(presencaRows, usuarioLogado),
+    [presencaRows, usuarioLogado],
+  )
 
   const productMaps = useMemo(() => buildProductLookupMaps(produtos), [produtos])
   const sugestoes = useMemo(
@@ -362,6 +376,32 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
     const id = window.setInterval(reload, 12_000)
     return () => window.clearInterval(id)
   }, [online, contagemId, sessao?.status])
+
+  useEffect(() => {
+    if (!contagemId || sessao?.status === 'fechado' || !online) return
+    const nome = usuarioLogado.trim()
+    if (!nome || nome === 'usuário') return
+
+    const ping = () => void upsertContagemDiariaCapturaPresenca(contagemId, nome)
+    void ping()
+    const id = window.setInterval(ping, PRESENCA_PING_INTERVAL_MS)
+    return () => window.clearInterval(id)
+  }, [contagemId, sessao?.status, online, usuarioLogado])
+
+  useEffect(() => {
+    if (!contagemId || !online) return
+    let cancelled = false
+    const load = async () => {
+      const rows = await fetchContagemDiariaCapturaPresenca(contagemId)
+      if (!cancelled) setPresencaRows(rows)
+    }
+    void load()
+    const id = window.setInterval(() => void load(), PRESENCA_POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [contagemId, online])
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -754,6 +794,10 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
           <span className="inv-cap__chip" title="Data da contagem">
             <span className="inv-cap__chip-label">Data</span>
             {formatDataContagemBR(sessao.dataContagem)}
+          </span>
+          <span className="inv-cap__chip inv-cap__chip--wide" title={contadoresOnline}>
+            <span className="inv-cap__chip-label">Contando</span>
+            {contadoresOnline}
           </span>
           <span className="inv-cap__chip inv-cap__chip--wide" title="Conferente">
             <span className="inv-cap__chip-label">Conferente</span>

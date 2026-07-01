@@ -165,22 +165,32 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
     const nomeConferente = String(ln.conferenteNome ?? sessao.conferenteNome ?? '').trim()
     const conferenteId = resolveConferenteIdPorNome(ln.conferenteNome ?? sessao.conferenteNome, conf)
     const parsed = parseEnderecoCodigo(ln.endereco)
-    const meta = metaMap.get(ln.id) ?? {
-      grupo: null,
-      ordem: null,
-      repeticao: 1,
-      rua: parsed.rua || null,
-      posicao: parsed.posicao ?? 1,
-      nivel: parsed.nivel ?? 1,
+    const temEndereco = Boolean(end)
+
+    let grupo: number | null = null
+    let rua: string | null = null
+    let pos: number | null = null
+    let nivel: number | null = null
+    let repeticao: number | null = null
+    let ordem: number | null = null
+    let numeroContagem: number | null = null
+
+    if (temEndereco) {
+      const meta = metaMap.get(ln.id)
+      const camara = ln.camara ?? parsed.camara
+      grupo =
+        meta?.grupo ??
+        (camara != null && parsed.rua ? getGrupoArmazemFromCamaraRua(camara, parsed.rua) : null)
+      rua =
+        meta?.rua ??
+        (parsed.rua || (grupo != null ? getInventarioRuaArmazem(grupo) : null))
+      pos = meta?.posicao ?? parsed.posicao ?? null
+      nivel = meta?.nivel ?? parsed.nivel ?? null
+      repeticao = meta?.repeticao ?? null
+      ordem = meta?.ordem ?? null
+      numeroContagem = 1
     }
-    const camara = ln.camara ?? parsed.camara
-    const grupo =
-      meta.grupo ??
-      (camara != null && parsed.rua ? getGrupoArmazemFromCamaraRua(camara, parsed.rua) : null)
-    const rua =
-      meta.rua ?? (parsed.rua || (grupo != null ? getInventarioRuaArmazem(grupo) : null))
-    const pos = meta.posicao ?? parsed.posicao ?? 1
-    const nivel = meta.nivel ?? parsed.nivel ?? 1
+
     return {
       id: ln.id,
       data_contagem: sessao.dataContagem,
@@ -198,11 +208,11 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
       data_validade: dv || null,
       ean: String(ln.codigoBarras ?? '').trim() || null,
       dun: null,
-      inventario_repeticao: meta.repeticao,
-      inventario_numero_contagem: 1,
+      inventario_repeticao: repeticao,
+      inventario_numero_contagem: numeroContagem,
       finalizacao_sessao_id: sessao.id,
       planilha_grupo_armazem: grupo,
-      planilha_ordem_na_aba: meta.ordem,
+      planilha_ordem_na_aba: ordem,
       planilha_rua: rua && rua !== '—' ? rua : null,
       planilha_posicao: pos,
       planilha_nivel: nivel,
