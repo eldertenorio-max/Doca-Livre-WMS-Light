@@ -1816,29 +1816,38 @@ export default function RelatorioContagem({
     return formatContagemLabel(Number(n))
   }
 
-  function buildRelatorioExcelAoa(rowsToExport: ContagemRow[]): (string | number)[][] {
+  function buildRelatorioExcelAoa(
+    rowsToExport: ContagemRow[],
+    excelOpts?: { layoutInventario?: boolean },
+  ): (string | number)[][] {
+    const layoutInventario = Boolean(excelOpts?.layoutInventario || useInventarioCols)
+    const prevColExcel = (id: string) => {
+      if (layoutInventario && id !== 'acoes') return true
+      return listColPrefs[id] !== false
+    }
+
     const header: (string | number)[] = []
-    if (useInventarioCols) {
+    if (layoutInventario) {
       header.push('Câmara', 'Rua', 'POS', 'Nível', 'Linha', 'Rodada')
     }
     header.push('Conferente')
-    if (!useInventarioCols) header.push('Data da contagem')
-    if (prevCol('codigo')) header.push('Código do produto')
-    if (prevCol('descricao')) header.push('Descrição')
-    if (prevCol('unidade')) header.push('Unidade de medida')
-    if (prevCol('quantidade')) header.push('Quantidade contada')
-    if (prevCol('data_fabricacao')) header.push('Data de fabricação')
-    if (prevCol('data_validade')) header.push('Data de vencimento')
-    if (prevCol('lote')) header.push('Lote')
-    if (prevCol('up')) header.push('UP')
-    if (prevCol('observacao')) header.push('Observação')
-    if (prevCol('ean')) header.push('EAN')
-    if (prevCol('dun')) header.push('DUN')
-    if (prevCol('foto')) header.push('Foto')
+    if (!layoutInventario) header.push('Data da contagem')
+    if (prevColExcel('codigo')) header.push('Código do produto')
+    if (prevColExcel('descricao')) header.push('Descrição')
+    if (prevColExcel('unidade')) header.push('Unidade de medida')
+    if (prevColExcel('quantidade')) header.push('Quantidade contada')
+    if (prevColExcel('data_fabricacao')) header.push('Data de fabricação')
+    if (prevColExcel('data_validade')) header.push('Data de vencimento')
+    if (prevColExcel('lote')) header.push('Lote')
+    if (prevColExcel('up')) header.push('UP')
+    if (prevColExcel('observacao')) header.push('Observação')
+    if (prevColExcel('ean')) header.push('EAN')
+    if (prevColExcel('dun')) header.push('DUN')
+    if (prevColExcel('foto')) header.push('Foto')
 
     const buildRow = (r: ContagemRow): (string | number)[] => {
       const row: (string | number)[] = []
-      if (useInventarioCols) {
+      if (layoutInventario) {
         const cam = inventarioCamaraLabelFromGrupo(r.planilha_grupo_armazem)
         row.push(cam === '—' ? '' : cam)
         row.push(r.planilha_rua != null && String(r.planilha_rua).trim() !== '' ? String(r.planilha_rua) : '')
@@ -1853,28 +1862,28 @@ export default function RelatorioContagem({
         const nome = conferenteNomeRelatorio(r)
         row.push(nome === '—' ? '' : nome)
       }
-      if (!useInventarioCols) {
+      if (!layoutInventario) {
         const y = diaCivilYmdContagemRow(r)
         row.push(y ? formatDateBRFromYmd(y) : '')
       }
-      if (prevCol('codigo')) row.push(r.codigo_interno)
-      if (prevCol('descricao')) row.push(r.descricao)
-      if (prevCol('unidade')) row.push(r.unidade_medida ?? '')
-      if (prevCol('quantidade')) row.push(r.quantidade_up)
-      if (prevCol('data_fabricacao'))
+      if (prevColExcel('codigo')) row.push(r.codigo_interno)
+      if (prevColExcel('descricao')) row.push(r.descricao)
+      if (prevColExcel('unidade')) row.push(r.unidade_medida ?? '')
+      if (prevColExcel('quantidade')) row.push(r.quantidade_up)
+      if (prevColExcel('data_fabricacao'))
         row.push(r.data_fabricacao ? formatDateBR(String(r.data_fabricacao).slice(0, 10)) : '')
-      if (prevCol('data_validade'))
+      if (prevColExcel('data_validade'))
         row.push(r.data_validade ? formatDateBR(String(r.data_validade).slice(0, 10)) : '')
-      if (prevCol('lote')) row.push(r.lote ?? '')
-      if (prevCol('up')) row.push(r.up_adicional ?? '')
-      if (prevCol('observacao')) row.push(r.observacao ?? '')
-      if (prevCol('ean')) row.push(r.ean ?? '')
-      if (prevCol('dun')) row.push(r.dun ?? '')
-      if (prevCol('foto')) row.push(String(r.foto_base64 ?? '').trim() ? 'Com foto' : 'Sem foto')
+      if (prevColExcel('lote')) row.push(r.lote ?? '')
+      if (prevColExcel('up')) row.push(r.up_adicional ?? '')
+      if (prevColExcel('observacao')) row.push(r.observacao ?? '')
+      if (prevColExcel('ean')) row.push(r.ean ?? '')
+      if (prevColExcel('dun')) row.push(r.dun ?? '')
+      if (prevColExcel('foto')) row.push(String(r.foto_base64 ?? '').trim() ? 'Com foto' : 'Sem foto')
       return row
     }
 
-    if (useInventarioCols) {
+    if (layoutInventario) {
       return [header, ...rowsToExport.map(buildRow)]
     }
 
@@ -1938,7 +1947,10 @@ export default function RelatorioContagem({
     return out
   }
 
-  function workbookInventarioComAbasPorRodada(rows: ContagemRow[]) {
+  function workbookInventarioComAbasPorRodada(
+    rows: ContagemRow[],
+    excelOpts?: { layoutInventario?: boolean },
+  ) {
     const wb = XLSX.utils.book_new()
     const grupos = agruparInventarioExportPorRodada(rows)
     const used = new Set<string>()
@@ -1951,14 +1963,20 @@ export default function RelatorioContagem({
         suf++
       }
       used.add(final)
-      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(g.rows))
+      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa(g.rows, excelOpts))
       XLSX.utils.book_append_sheet(wb, ws, final)
     }
     if (grupos.length === 0) {
-      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa([]))
+      const ws = XLSX.utils.aoa_to_sheet(buildRelatorioExcelAoa([], excelOpts))
       XLSX.utils.book_append_sheet(wb, ws, 'Vazio')
     }
     return wb
+  }
+
+  const EXCEL_LAYOUT_INVENTARIO = { layoutInventario: true as const }
+
+  function workbookContagemDiariaPadrao(rows: ContagemRow[]) {
+    return workbookInventarioComAbasPorRodada(rows, EXCEL_LAYOUT_INVENTARIO)
   }
 
   /** Uma aba por dia civil (YYYY-MM-DD); sem dia válido vai para `Sem_data`. */
@@ -2053,7 +2071,7 @@ export default function RelatorioContagem({
         }
         // Usa a mesma regra da listagem (inclui alinhamento com v_contagem_diaria_itens_painel).
         const sorted = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
-        const wb = workbookContagemDiariaComAbasPorData(sorted)
+        const wb = workbookContagemDiariaPadrao(sorted)
         const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
         XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
         return
@@ -2081,7 +2099,7 @@ export default function RelatorioContagem({
         }
         return
       }
-      const wb = workbookContagemDiariaComAbasPorData(exportRows)
+      const wb = workbookContagemDiariaPadrao(exportRows)
       const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
       XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
     } catch (e: unknown) {
@@ -2190,7 +2208,7 @@ export default function RelatorioContagem({
         setError('Nenhuma linha para exportar nesta contagem diária.')
         return
       }
-      const wb = workbookContagemDiariaComAbasPorData(exportRows)
+      const wb = workbookContagemDiariaPadrao(exportRows)
       const safeFile = `${sessao.numero}-${sessao.titulo || 'contagem'}`
         .replace(/[/\\?*[\]:]/g, '-')
         .replace(/\s+/g, '_')

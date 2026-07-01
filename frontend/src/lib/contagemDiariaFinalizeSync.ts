@@ -1,4 +1,10 @@
-import { conferenteIdParaBanco, ensureConferenteIdParaGravacao, listConferentes, resolveConferenteIdPorNome, type Conferente } from './conferentesStore'
+import {
+  getGrupoArmazemFromCamaraRua,
+  getInventarioRuaArmazem,
+} from '../components/inventario/inventarioPlanilhaModel'
+import { parseEnderecoCodigo } from './enderecamentoStore'
+import { buildPlanilhaMetaPorLinhaCaptura } from './inventarioSessaoFinalizeSync'
+import type { InventarioLinhaCaptura } from './inventarioSessaoTypes'
 import { TABLE_CONTAGEM_DIARIA } from './contagensDb'
 import type { ContagemDiariaLinhaCaptura } from './contagemDiariaLinhaTypes'
 import {
@@ -13,6 +19,13 @@ import {
   fetchContagemDiariaSessoesSupabase,
 } from './contagemDiariaSessaoSupabase'
 import { supabase } from './supabaseClient'
+import {
+  conferenteIdParaBanco,
+  ensureConferenteIdParaGravacao,
+  listConferentes,
+  resolveConferenteIdPorNome,
+  type Conferente,
+} from './conferentesStore'
 
 function parseUpAdicional(raw: string | undefined): number | null {
   const s = String(raw ?? '').trim()
@@ -143,6 +156,7 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
   conferentes?: Conferente[],
 ): Array<Record<string, unknown>> {
   const conf = conferentes ?? []
+  const metaMap = buildPlanilhaMetaPorLinhaCaptura(sessao.linhas as unknown as InventarioLinhaCaptura[])
   return sessao.linhas.map((ln) => {
     const end = String(ln.endereco ?? '').trim()
     const df = String(ln.fabricacao ?? '').trim()
@@ -150,6 +164,23 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
     const obsBase = `Contagem #${sessao.numero}${sessao.titulo ? ` — ${sessao.titulo}` : ''}${end ? ` · ${end}` : ''}`
     const nomeConferente = String(ln.conferenteNome ?? sessao.conferenteNome ?? '').trim()
     const conferenteId = resolveConferenteIdPorNome(ln.conferenteNome ?? sessao.conferenteNome, conf)
+    const parsed = parseEnderecoCodigo(ln.endereco)
+    const meta = metaMap.get(ln.id) ?? {
+      grupo: null,
+      ordem: null,
+      repeticao: 1,
+      rua: parsed.rua || null,
+      posicao: parsed.posicao ?? 1,
+      nivel: parsed.nivel ?? 1,
+    }
+    const camara = ln.camara ?? parsed.camara
+    const grupo =
+      meta.grupo ??
+      (camara != null && parsed.rua ? getGrupoArmazemFromCamaraRua(camara, parsed.rua) : null)
+    const rua =
+      meta.rua ?? (parsed.rua || (grupo != null ? getInventarioRuaArmazem(grupo) : null))
+    const pos = meta.posicao ?? parsed.posicao ?? 1
+    const nivel = meta.nivel ?? parsed.nivel ?? 1
     return {
       id: ln.id,
       data_contagem: sessao.dataContagem,
@@ -167,7 +198,14 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
       data_validade: dv || null,
       ean: String(ln.codigoBarras ?? '').trim() || null,
       dun: null,
+      inventario_repeticao: meta.repeticao,
+      inventario_numero_contagem: 1,
       finalizacao_sessao_id: sessao.id,
+      planilha_grupo_armazem: grupo,
+      planilha_ordem_na_aba: meta.ordem,
+      planilha_rua: rua && rua !== '—' ? rua : null,
+      planilha_posicao: pos,
+      planilha_nivel: nivel,
       origem: 'contagem_diaria',
       contagem_rascunho: false,
     }
@@ -175,7 +213,21 @@ export function contagemDiariaCapturaLinhasToRelatorioRows(
 }
 
 const SELECT_CONTAGEM_EXPORT =
-  'id,data_contagem,data_hora_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,finalizacao_sessao_id,origem,contagem_rascunho'
+  'id,data_contagem,data_hora_contagem,conferente_id,codigo_interno,descricao,unidade_medida,quantidade_up,up_adicional,lote,observacao,data_fabricacao,data_validade,ean,dun,finalizacao_sessao_id,origem,inventario_repeticao,inventario_numero_contagem,planilha_grupo_armazem,planilha_ordem_na_aba,planilha_rua,planilha_posicao,planilha_nivel,contagem_rascunho'
+
+const SELECT_CONTAGEM_EXPORT_COM_CONFERENTE = `${SELECT_CONTAGEM_EXPORT},conferentes(nome)`
+
+async function buscarLinhasContagemExport(
+  run: (select: string) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
+): Promise<Record<string, unknown>[]> {
+  const comNome = await run(SELECT_CONTAGEM_EXPORT_COM_CONFERENTE)
+  if (!comNome.error && comNome.data?.length) {
+    return comNome.data as Record<string, unknown>[]
+  }
+  const basico = await run(SELECT_CONTAGEM_EXPORT)
+  if (basico.error) return []
+  return (basico.data ?? []) as Record<string, unknown>[]
+}
 
 function filtraLinhasContagemDbPorSessao(
   rows: Record<string, unknown>[],
@@ -200,23 +252,20 @@ export async function fetchContagemDbRowsParaSessaoExport(
 ): Promise<Record<string, unknown>[]> {
   if (!contagemDiariaSyncHabilitado()) return []
 
-  const porSessaoId = await supabase
-    .from(TABLE_CONTAGEM_DIARIA)
-    .select(SELECT_CONTAGEM_EXPORT)
-    .eq('finalizacao_sessao_id', sessao.id)
-  if (!porSessaoId.error && (porSessaoId.data?.length ?? 0) > 0) {
-    return filtraLinhasContagemDbPorSessao(porSessaoId.data as Record<string, unknown>[], sessao)
+  const porSessaoId = await buscarLinhasContagemExport((select) =>
+    supabase.from(TABLE_CONTAGEM_DIARIA).select(select).eq('finalizacao_sessao_id', sessao.id),
+  )
+  if (porSessaoId.length > 0) {
+    return filtraLinhasContagemDbPorSessao(porSessaoId, sessao)
   }
 
   const ymd = String(sessao.dataContagem ?? '').slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return []
 
-  const porData = await supabase
-    .from(TABLE_CONTAGEM_DIARIA)
-    .select(SELECT_CONTAGEM_EXPORT)
-    .eq('data_contagem', ymd)
-  if (porData.error) return []
-  return filtraLinhasContagemDbPorSessao(porData.data as Record<string, unknown>[], sessao)
+  const porData = await buscarLinhasContagemExport((select) =>
+    supabase.from(TABLE_CONTAGEM_DIARIA).select(select).eq('data_contagem', ymd),
+  )
+  return filtraLinhasContagemDbPorSessao(porData, sessao)
 }
 
 export async function syncContagemDiariaSessaoParaContagens(
