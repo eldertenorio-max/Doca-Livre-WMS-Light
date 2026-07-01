@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { isAppOnline } from '../lib/appConnectivity'
+import { isAppOnline, subscribeAppConnectivity } from '../lib/appConnectivity'
 import { usernameFromSession } from '../lib/authUser'
 import {
   buildProductLookupMaps,
@@ -47,6 +47,16 @@ import {
   produtoListaParaProductOptions,
 } from '../lib/produtoListaSupabase'
 import { mapRowToProductOption, TABELA_PRODUTOS, type ProductOption } from '../lib/productOptionMapper'
+import {
+  loadProductListCache,
+  loadProductOptionsCache,
+  saveProductListCache,
+  saveProductOptionsCache,
+} from '../lib/offlineCatalogCache'
+import {
+  countPendingContagemDiariaSync,
+  flushPendingContagemDiariaSync,
+} from '../lib/contagemDiariaOfflineSync'
 import {
   PRODUTO_LISTA_ATUALIZADA_EVENT,
   setSessaoProdutoListaContext,
@@ -128,6 +138,8 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const [linhasPage, setLinhasPage] = useState(1)
   const [barcodeCameraOpen, setBarcodeCameraOpen] = useState(false)
   const [barcodeCameraAlvo, setBarcodeCameraAlvo] = useState<'endereco' | 'produto'>('produto')
+  const [online, setOnline] = useState(() => isAppOnline())
+  const [pendingSync, setPendingSync] = useState(() => countPendingContagemDiariaSync())
 
   const camaraRef = useRef<HTMLSelectElement>(null)
   const enderecoCodigoRef = useRef<HTMLInputElement>(null)
@@ -135,7 +147,6 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const comboRef = useRef<HTMLDivElement>(null)
   const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const online = isAppOnline()
   const usuarioLogado = usernameFromSession(session)
 
   const productMaps = useMemo(() => buildProductLookupMaps(produtos), [produtos])
@@ -225,10 +236,40 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
   const loadProdutos = useCallback(async (listaProdutosId?: string | null) => {
     setProdutosCarregando(true)
     try {
+      if (!isAppOnline()) {
+        if (listaProdutosId) {
+          const cachedList = loadProductListCache(listaProdutosId)
+          if (cachedList.length) {
+            setProdutos(cachedList as ProductOption[])
+            return
+          }
+        }
+        const cached = loadProductOptionsCache()
+        if (cached.length) {
+          setProdutos(cached as ProductOption[])
+          return
+        }
+        setErr('Sem internet e catálogo offline vazio. Conecte-se antes de entrar na câmara fria e abra a contagem novamente.')
+        return
+      }
       if (listaProdutosId) {
         const lista = await getProdutoLista(listaProdutosId)
         if (lista) {
-          setProdutos(produtoListaParaProductOptions(lista))
+          const list = produtoListaParaProductOptions(lista)
+          setProdutos(list)
+          saveProductListCache(
+            listaProdutosId,
+            list.map((p) => ({
+              id: p.id,
+              codigo: p.codigo,
+              descricao: p.descricao,
+              unidade_medida: p.unidade_medida,
+              data_fabricacao: p.data_fabricacao,
+              data_validade: p.data_validade,
+              ean: p.ean,
+              dun: p.dun,
+            })),
+          )
           return
         }
       }
@@ -237,19 +278,43 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
         .map((r) => mapRowToProductOption(r as Record<string, unknown>))
         .filter(Boolean) as ProductOption[]
       setProdutos(list)
+      if (list.length) {
+        saveProductOptionsCache(
+          list.map((p) => ({
+            id: p.id,
+            codigo: p.codigo,
+            descricao: p.descricao,
+            unidade_medida: p.unidade_medida,
+            data_fabricacao: p.data_fabricacao,
+            data_validade: p.data_validade,
+            ean: p.ean,
+            dun: p.dun,
+          })),
+        )
+      }
     } finally {
       setProdutosCarregando(false)
     }
   }, [])
 
   useEffect(() => {
-    setLinhasPage((p) => Math.min(p, Math.max(1, Math.ceil(linhasSalvas.length / LINHAS_PAGE_SIZE))))
-  }, [linhasSalvas.length])
+    return subscribeAppConnectivity((next) => {
+      setOnline(next)
+      setPendingSync(countPendingContagemDiariaSync())
+      if (next) {
+        void flushPendingContagemDiariaSync().then(() => setPendingSync(countPendingContagemDiariaSync()))
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (sessao?.listaProdutosId) void loadProdutos(sessao.listaProdutosId)
     else if (!sessaoLoading) void loadProdutos(null)
   }, [sessao?.listaProdutosId, sessaoLoading, loadProdutos])
+
+  useEffect(() => {
+    setLinhasPage((p) => Math.min(p, Math.max(1, Math.ceil(linhasSalvas.length / LINHAS_PAGE_SIZE))))
+  }, [linhasSalvas.length])
 
   useEffect(() => {
     if (!sessao) return
@@ -321,8 +386,8 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
       return
     }
     let hit = buscarProdutoUnicoLocal(q, produtos, productMaps)
-    if (!hit) hit = await fetchProductOptionByCodigoFromDb(q)
-    if (!hit && q.length >= 2) hit = await fetchProductOptionByDescricaoFromDb(q)
+    if (!hit && isAppOnline()) hit = await fetchProductOptionByCodigoFromDb(q)
+    if (!hit && isAppOnline() && q.length >= 2) hit = await fetchProductOptionByDescricaoFromDb(q)
     if (hit) {
       aplicarProduto(hit, q)
       if (!produtos.some((p) => p.codigo === hit!.codigo)) {
@@ -665,8 +730,13 @@ export default function ContagemCaptura({ contagemId, onVoltar, session }: Props
             <h1 className="inv-cap__title">{sessao.titulo}</h1>
             <div className="inv-cap__badges">
               <span className={`inv-cap__badge ${online ? 'inv-cap__badge--online' : 'inv-cap__badge--offline'}`}>
-                {online ? 'Online' : 'Offline'}
+                {online ? 'Online' : 'Offline — salvando no aparelho'}
               </span>
+              {pendingSync > 0 ? (
+                <span className="inv-cap__badge inv-cap__badge--readonly" title="Contagens finalizadas offline aguardando envio">
+                  {pendingSync} p/ sincronizar
+                </span>
+              ) : null}
               {readonly ? <span className="inv-cap__badge inv-cap__badge--readonly">Finalizado</span> : null}
               <span className="inv-cap__badge">{sessao.linhas.length} linha(s)</span>
             </div>

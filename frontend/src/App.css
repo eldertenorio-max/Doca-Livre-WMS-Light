@@ -1817,6 +1817,28 @@
   color: #86efac;
 }
 
+.inv-gerenciar-offline-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 12px 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.inv-gerenciar-offline-meta {
+  flex: 1 1 180px;
+  font-size: 13px;
+  color: var(--dis-text-muted, #a3a3a3);
+}
+
+.page-msg--ok {
+  color: #86efac;
+}
+
 .gerenciar-toolbar {
   display: flex;
   flex-direction: row;

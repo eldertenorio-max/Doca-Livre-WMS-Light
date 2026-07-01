@@ -1561,6 +1561,15 @@ export default function ContagemEstoque({
     let lastLoadError: string | null = null
     let rawRowCount = 0
 
+    if (!isAppOnline()) {
+      const cached = loadProductOptionsCache()
+      if (cached.length) {
+        setProductOptions(cached as ProductOption[])
+        setProductOptionsLoading(false)
+        return cached as ProductOption[]
+      }
+    }
+
     try {
       try {
         const { data, error } = await supabase.from(TABELA_PRODUTOS).select('*').limit(15000)

@@ -8,6 +8,15 @@ import {
   upsertContagemDiariaSessaoSupabase,
 } from './contagemDiariaSessaoSupabase'
 import { syncContagemDiariaSessaoParaContagens } from './contagemDiariaFinalizeSync'
+import { isAppOnline } from './appConnectivity'
+import {
+  cacheSessao,
+  cacheSessaoList,
+  readCachedSessao,
+  readCachedSessaoList,
+  removeCachedSessao,
+} from './contagemDiariaLocalCache'
+import { enqueuePendingContagemDiariaSync } from './contagemDiariaOfflineSync'
 
 export type { ContagemDiariaSessao, ContagemDiariaLinhaCaptura } from './contagemDiariaSessaoTypes'
 import type { ContagemDiariaLinhaCaptura, ContagemDiariaSessao } from './contagemDiariaSessaoTypes'
@@ -170,20 +179,71 @@ function wrapDbError(e: unknown, fallback: string): Error {
   return e instanceof Error ? e : new Error(fallback)
 }
 
+function preferLocalOnly(): boolean {
+  return !isAppOnline()
+}
+
+function persistSessaoLocal(row: ContagemDiariaSessao): void {
+  cacheSessao(row)
+  const list = readLegacyLocal()
+  const idx = list.findIndex((l) => l.id === row.id)
+  if (idx >= 0) list[idx] = row
+  else list.push(row)
+  writeLegacyLocal(list)
+  if (row.linhas.length > 0) writeLinhasOverlay(row.id, row.linhas)
+}
+
+async function persistSessao(row: ContagemDiariaSessao): Promise<void> {
+  const next = withUpdatedAt(row)
+  cacheSessao(next)
+
+  if (preferLocalOnly()) {
+    persistSessaoLocal(next)
+    return
+  }
+
+  if (!(await usarSupabaseSessoes())) {
+    persistSessaoLocal(next)
+    return
+  }
+
+  try {
+    const { linhasNoBanco } = await upsertContagemDiariaSessaoSupabase(next)
+    if (linhasNoBanco) {
+      clearLinhasOverlay(next.id)
+    } else if (next.linhas.length > 0) {
+      writeLinhasOverlay(next.id, next.linhas)
+    }
+  } catch {
+    persistSessaoLocal(next)
+  }
+}
+
 function withUpdatedAt(sessao: ContagemDiariaSessao): ContagemDiariaSessao {
   return { ...sessao, updatedAt: new Date().toISOString() }
 }
 
 export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
   requireSupabase()
+
+  if (preferLocalOnly()) {
+    const cached = readCachedSessaoList()
+    if (cached.length) return sortContagens(cached.map(mergeLinhasOverlay))
+    return sortContagens(readLegacyLocal())
+  }
+
   if (!(await usarSupabaseSessoes())) {
     return sortContagens(readLegacyLocal())
   }
   try {
     await ensureLegacyContagensMigrated()
     const list = await fetchContagemDiariaSessoesSupabase()
-    return sortContagens(list.map(mergeLinhasOverlay))
+    const merged = sortContagens(list.map(mergeLinhasOverlay))
+    cacheSessaoList(merged)
+    return merged
   } catch (e) {
+    const cached = readCachedSessaoList()
+    if (cached.length) return sortContagens(cached.map(mergeLinhasOverlay))
     const legacy = readLegacyLocal()
     if (legacy.length) {
       return sortContagens(legacy)
@@ -194,16 +254,27 @@ export async function listContagensDiarias(): Promise<ContagemDiariaSessao[]> {
 
 export async function getContagemDiaria(id: string): Promise<ContagemDiariaSessao | null> {
   requireSupabase()
+
+  if (preferLocalOnly()) {
+    const cached = readCachedSessao(id) ?? readLegacyLocal().find((l) => l.id === id)
+    return cached ? mergeLinhasOverlay(cached) : null
+  }
+
   if (!(await usarSupabaseSessoes())) {
     return readLegacyLocal().find((l) => l.id === id) ?? null
   }
   try {
     await ensureLegacyContagensMigrated()
     const s = await fetchContagemDiariaSessaoByIdSupabase(id)
-    return s ? mergeLinhasOverlay(s) : null
+    if (s) {
+      const merged = mergeLinhasOverlay(s)
+      cacheSessao(merged)
+      return merged
+    }
+    return readCachedSessao(id) ? mergeLinhasOverlay(readCachedSessao(id)!) : null
   } catch (e) {
-    const local = readLegacyLocal().find((l) => l.id === id)
-    if (local) return local
+    const cached = readCachedSessao(id) ?? readLegacyLocal().find((l) => l.id === id)
+    if (cached) return mergeLinhasOverlay(cached)
     throw wrapDbError(e, 'Erro ao carregar contagem.')
   }
 }
@@ -215,9 +286,10 @@ export async function criarContagemDiaria(opts?: {
   conferenteNome?: string
 }): Promise<ContagemDiariaSessao> {
   requireSupabase()
-  const numero = (await usarSupabaseSessoes())
-    ? await fetchProximoNumeroContagemDiariaSupabase()
-    : proximoNumeroLocal()
+  const numero =
+    preferLocalOnly() || !(await usarSupabaseSessoes())
+      ? proximoNumeroLocal()
+      : await fetchProximoNumeroContagemDiariaSupabase()
   const now = new Date().toISOString()
   const dataContagem = opts?.dataContagem?.trim() || todayYmdLocal()
   const row: ContagemDiariaSessao = {
@@ -236,32 +308,25 @@ export async function criarContagemDiaria(opts?: {
     updatedAt: now,
   }
   if (await usarSupabaseSessoes()) {
-    await upsertContagemDiariaSessaoSupabase(row)
+    if (!preferLocalOnly()) {
+      try {
+        await upsertContagemDiariaSessaoSupabase(row)
+      } catch {
+        persistSessaoLocal(row)
+      }
+    } else {
+      persistSessaoLocal(row)
+    }
   } else {
-    const list = readLegacyLocal()
-    list.push(row)
-    writeLegacyLocal(list)
+    persistSessaoLocal(row)
   }
+  cacheSessao(row)
   return row
 }
 
 export async function saveContagemDiaria(sessao: ContagemDiariaSessao): Promise<void> {
   requireSupabase()
-  const row = withUpdatedAt(sessao)
-  if (await usarSupabaseSessoes()) {
-    const { linhasNoBanco } = await upsertContagemDiariaSessaoSupabase(row)
-    if (linhasNoBanco) {
-      clearLinhasOverlay(row.id)
-    } else if (row.linhas.length > 0) {
-      writeLinhasOverlay(row.id, row.linhas)
-    }
-    return
-  }
-  const list = readLegacyLocal()
-  const idx = list.findIndex((l) => l.id === row.id)
-  if (idx >= 0) list[idx] = row
-  else list.push(row)
-  writeLegacyLocal(list)
+  await persistSessao(sessao)
 }
 
 export async function marcarContagemIniciada(id: string): Promise<void> {
@@ -277,12 +342,18 @@ export async function fecharContagemDiaria(id: string): Promise<void> {
   sessao.status = 'fechado'
   sessao.dataFim = new Date().toISOString()
   await saveContagemDiaria(sessao)
-  if (sessao.linhas.length > 0) {
-    try {
-      await syncContagemDiariaSessaoParaContagens(sessao, { force: true })
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn('[fecharContagemDiaria] sync contagens_estoque', e)
-    }
+  if (sessao.linhas.length === 0) return
+
+  if (preferLocalOnly()) {
+    enqueuePendingContagemDiariaSync(id)
+    return
+  }
+
+  try {
+    await syncContagemDiariaSessaoParaContagens(sessao, { force: true })
+  } catch (e) {
+    enqueuePendingContagemDiariaSync(id)
+    if (import.meta.env.DEV) console.warn('[fecharContagemDiaria] sync contagens_estoque', e)
   }
 }
 
@@ -300,11 +371,18 @@ export async function deleteContagemDiaria(id: string): Promise<boolean> {
   const sessao = await getContagemDiaria(id)
   if (!sessao) return false
   if (await usarSupabaseSessoes()) {
-    await deleteContagemDiariaSessaoSupabase(id)
+    if (!preferLocalOnly()) {
+      try {
+        await deleteContagemDiariaSessaoSupabase(id)
+      } catch {
+        /* mantém cópia local removida abaixo */
+      }
+    }
     clearLinhasOverlay(id)
   } else {
     writeLegacyLocal(readLegacyLocal().filter((l) => l.id !== id))
   }
+  removeCachedSessao(id)
   return true
 }
 

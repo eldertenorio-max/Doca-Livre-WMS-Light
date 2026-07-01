@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { isAppOnline, subscribeAppConnectivity } from '../lib/appConnectivity'
 import { resolveConferenteDoUsuarioLogado, usernameFromSession } from '../lib/authUser'
 import {
   atualizarContagemDiariaMeta,
@@ -17,6 +18,12 @@ import { formatUnknownError } from '../lib/supabaseError'
 import { listConferentes } from '../lib/conferentesStore'
 import CadastroConferenteModal from '../components/conferente/CadastroConferenteModal'
 import { PagePanelHeading } from '../components/ui/PagePanelHeading'
+import {
+  countPendingContagemDiariaSync,
+  flushPendingContagemDiariaSync,
+} from '../lib/contagemDiariaOfflineSync'
+import { offlineCatalogStats } from '../lib/offlineCatalogCache'
+import { prefetchContagemOfflineCatalog } from '../lib/prefetchContagemOfflineCatalog'
 
 type Props = {
   onAbrirContagem: (contagemId: string) => void
@@ -92,6 +99,11 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   const [filtroDataAte, setFiltroDataAte] = useState('')
   const [modoLocal, setModoLocal] = useState(false)
   const [cadastroConferenteOpen, setCadastroConferenteOpen] = useState(false)
+  const [online, setOnline] = useState(() => isAppOnline())
+  const [catalogoOffline, setCatalogoOffline] = useState(() => offlineCatalogStats())
+  const [pendingSync, setPendingSync] = useState(() => countPendingContagemDiariaSync())
+  const [prefetching, setPrefetching] = useState(false)
+  const [prefetchMsg, setPrefetchMsg] = useState('')
 
   const conferenteLogadoResolvido = useMemo(
     () => resolveConferenteDoUsuarioLogado(session, conferentes),
@@ -149,6 +161,36 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
   useEffect(() => {
     void refresh()
   }, [])
+
+  useEffect(() => {
+    return subscribeAppConnectivity((next) => {
+      setOnline(next)
+      if (next) {
+        void flushPendingContagemDiariaSync().then(() => {
+          setPendingSync(countPendingContagemDiariaSync())
+          void refresh()
+        })
+      }
+    })
+  }, [])
+
+  async function prepararModoOffline() {
+    if (!isAppOnline()) {
+      alert('Conecte-se à internet para baixar o catálogo de produtos antes de entrar na câmara fria.')
+      return
+    }
+    setPrefetching(true)
+    setPrefetchMsg('')
+    try {
+      const r = await prefetchContagemOfflineCatalog()
+      setCatalogoOffline(offlineCatalogStats())
+      setPrefetchMsg(`${r.produtos} produto(s) e ${r.conferentes} conferente(s) prontos para uso offline.`)
+    } catch (e: unknown) {
+      alert(formatUnknownError(e) || 'Erro ao preparar modo offline.')
+    } finally {
+      setPrefetching(false)
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -293,7 +335,15 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
             className={ghostClass}
             onClick={() => {
               if (confirm('Finalizar esta contagem?')) {
-                void fecharContagemDiaria(c.id).then(() => refresh())
+                void fecharContagemDiaria(c.id).then(() => {
+                  if (!isAppOnline()) {
+                    setPendingSync(countPendingContagemDiariaSync())
+                    alert(
+                      'Contagem finalizada no aparelho. Ao voltar a ter internet, os dados serão enviados ao banco automaticamente.',
+                    )
+                  }
+                  void refresh()
+                })
               }
             }}
           >
@@ -334,11 +384,31 @@ export default function ContagemGerenciar({ onAbrirContagem, session }: Props) {
         info={
           <>
             Crie uma contagem com nome — ela aparecerá na lista. Depois clique em <strong>Começar contagem</strong> na
-            linha para abrir a checklist. Os dados ficam salvos no <strong>Supabase</strong> e aparecem em qualquer
-            dispositivo.
+            linha para abrir a captura. Na <strong>câmara fria sem internet</strong>, use{' '}
+            <strong>Preparar modo offline</strong> antes de entrar; as linhas ficam salvas no aparelho e sincronizam ao
+            voltar a ter rede.
           </>
         }
       />
+
+      <div className="inv-gerenciar-offline-bar">
+        <span className={`inv-cap__badge ${online ? 'inv-cap__badge--online' : 'inv-cap__badge--offline'}`}>
+          {online ? 'Online' : 'Offline'}
+        </span>
+        <span className="inv-gerenciar-offline-meta">
+          Catálogo offline: {catalogoOffline.produtos} produto(s)
+          {pendingSync > 0 ? ` · ${pendingSync} contagem(ns) aguardando envio` : ''}
+        </span>
+        <button
+          type="button"
+          className="page-btn-ghost"
+          disabled={prefetching || !online}
+          onClick={() => void prepararModoOffline()}
+        >
+          {prefetching ? 'Baixando…' : 'Preparar modo offline'}
+        </button>
+      </div>
+      {prefetchMsg ? <p className="page-msg page-msg--ok">{prefetchMsg}</p> : null}
 
       {loadError ? <p className="page-msg page-msg--error">{loadError}</p> : null}
       {modoLocal ? (
