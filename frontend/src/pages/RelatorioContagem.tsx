@@ -1950,19 +1950,9 @@ export default function RelatorioContagem({
     return { aoa, dataRowIndexes, exportedRows }
   }
 
-  async function loadRelatorioExcelStyled() {
-    return import('../lib/relatorioExcelStyledBundle')
-  }
-
-  async function styledSheetFromRows(rowsToExport: ContagemRow[], excelOpts?: { layoutInventario?: boolean }) {
-    const { relatorioExcelSheetComDestaqueEndereco } = await loadRelatorioExcelStyled()
-    const { aoa, dataRowIndexes, exportedRows } = relatorioExcelSheetFromRows(rowsToExport, excelOpts)
-    return relatorioExcelSheetComDestaqueEndereco(aoa, exportedRows, dataRowIndexes)
-  }
-
-  async function writeRelatorioExcel(wb: Parameters<typeof import('xlsx-js-style').writeFile>[0], filename: string) {
-    const { XLSX: XLS } = await loadRelatorioExcelStyled()
-    XLS.writeFile(wb, filename)
+  function plainSheetFromRows(rowsToExport: ContagemRow[], excelOpts?: { layoutInventario?: boolean }) {
+    const { aoa } = relatorioExcelSheetFromRows(rowsToExport, excelOpts)
+    return XLSX.utils.aoa_to_sheet(aoa)
   }
 
   /** Uma aba por dia civil (YYYY-MM-DD); sem dia válido vai para `Sem_data`. */
@@ -2005,12 +1995,11 @@ export default function RelatorioContagem({
     return out
   }
 
-  async function workbookInventarioComAbasPorRodada(
+  function workbookInventarioComAbasPorRodada(
     rows: ContagemRow[],
     excelOpts?: { layoutInventario?: boolean },
   ) {
-    const { XLSX: XLS } = await loadRelatorioExcelStyled()
-    const wb = XLS.utils.book_new()
+    const wb = XLSX.utils.book_new()
     const grupos = agruparInventarioExportPorRodada(rows)
     const used = new Set<string>()
     for (const g of grupos) {
@@ -2022,20 +2011,25 @@ export default function RelatorioContagem({
         suf++
       }
       used.add(final)
-      const ws = await styledSheetFromRows(g.rows, excelOpts)
-      XLS.utils.book_append_sheet(wb, ws, final)
+      const ws = plainSheetFromRows(g.rows, excelOpts)
+      XLSX.utils.book_append_sheet(wb, ws, final)
     }
     if (grupos.length === 0) {
-      const ws = await styledSheetFromRows([], excelOpts)
-      XLS.utils.book_append_sheet(wb, ws, 'Vazio')
+      const ws = plainSheetFromRows([], excelOpts)
+      XLSX.utils.book_append_sheet(wb, ws, 'Vazio')
     }
     return wb
   }
 
   const EXCEL_LAYOUT_INVENTARIO = { layoutInventario: true as const }
 
-  async function workbookContagemDiariaPadrao(rows: ContagemRow[]) {
-    return workbookInventarioComAbasPorRodada(rows, EXCEL_LAYOUT_INVENTARIO)
+  /** Contagem diária: uma única aba, sem destaque de cor (xlsx padrão). */
+  function workbookContagemDiariaPadrao(rows: ContagemRow[]) {
+    const wb = XLSX.utils.book_new()
+    const { aoa } = relatorioExcelSheetFromRows(rows, EXCEL_LAYOUT_INVENTARIO)
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    XLSX.utils.book_append_sheet(wb, ws, 'Contagem_diaria')
+    return wb
   }
 
   /** Uma aba por dia civil (YYYY-MM-DD); sem dia válido vai para `Sem_data`. */
@@ -2059,9 +2053,8 @@ export default function RelatorioContagem({
     }))
   }
 
-  async function workbookContagemDiariaComAbasPorData(rows: ContagemRow[]) {
-    const { XLSX: XLS } = await loadRelatorioExcelStyled()
-    const wb = XLS.utils.book_new()
+  function workbookContagemDiariaComAbasPorData(rows: ContagemRow[]) {
+    const wb = XLSX.utils.book_new()
     const grupos = agruparContagemDiariaExportPorData(rows)
     const used = new Set<string>()
     for (const g of grupos) {
@@ -2075,8 +2068,8 @@ export default function RelatorioContagem({
         suf++
       }
       used.add(final)
-      const ws = await styledSheetFromRows(g.rows)
-      XLS.utils.book_append_sheet(wb, ws, final)
+      const ws = plainSheetFromRows(g.rows)
+      XLSX.utils.book_append_sheet(wb, ws, final)
     }
     return wb
   }
@@ -2131,9 +2124,9 @@ export default function RelatorioContagem({
         }
         // Usa a mesma regra da listagem (inclui alinhamento com v_contagem_diaria_itens_painel).
         const sorted = await aplicarMesmaRegraDaPreviaAsync(data, origemAusenteNoResultado)
-        const wb = await workbookContagemDiariaPadrao(sorted)
+        const wb = workbookContagemDiariaPadrao(sorted)
         const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
-        await writeRelatorioExcel(wb, `relatorio-contagem_${safeFile}.xlsx`)
+        XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
         return
       }
 
@@ -2145,24 +2138,23 @@ export default function RelatorioContagem({
       if (useInventarioCols) {
         const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
         if (numeroContagemFilter === 'todas') {
-          const wb = await workbookInventarioComAbasPorRodada(exportRows)
-          await writeRelatorioExcel(wb, `relatorio-inventario_${safeFile}.xlsx`)
+          const wb = workbookInventarioComAbasPorRodada(exportRows)
+          XLSX.writeFile(wb, `relatorio-inventario_${safeFile}.xlsx`)
         } else {
-          const ws = await styledSheetFromRows(exportRows)
-          const { XLSX: XLS } = await loadRelatorioExcelStyled()
-          const wb = XLS.utils.book_new()
-          XLS.utils.book_append_sheet(
+          const ws = plainSheetFromRows(exportRows)
+          const wb = XLSX.utils.book_new()
+          XLSX.utils.book_append_sheet(
             wb,
             ws,
             excelAbaNomeRodadaInventario(Number(numeroContagemFilter)),
           )
-          await writeRelatorioExcel(wb, `relatorio-inventario_${safeFile}.xlsx`)
+          XLSX.writeFile(wb, `relatorio-inventario_${safeFile}.xlsx`)
         }
         return
       }
-      const wb = await workbookContagemDiariaPadrao(exportRows)
+      const wb = workbookContagemDiariaPadrao(exportRows)
       const safeFile = dateRangeText.replace(/[/\\?*[\]:]/g, '-').replace(/\s+/g, '_')
-      await writeRelatorioExcel(wb, `relatorio-contagem_${safeFile}.xlsx`)
+      XLSX.writeFile(wb, `relatorio-contagem_${safeFile}.xlsx`)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao exportar Excel.')
     } finally {
@@ -2213,12 +2205,12 @@ export default function RelatorioContagem({
         setError('Nenhuma linha para exportar neste inventário.')
         return
       }
-      const wb = await workbookInventarioComAbasPorRodada(exportRows)
+      const wb = workbookInventarioComAbasPorRodada(exportRows)
       const safeFile = `${sessao.numero}-${sessao.titulo || 'inventario'}`
         .replace(/[/\\?*[\]:]/g, '-')
         .replace(/\s+/g, '_')
         .slice(0, 80)
-      await writeRelatorioExcel(wb, `inventario_${safeFile}.xlsx`)
+      XLSX.writeFile(wb, `inventario_${safeFile}.xlsx`)
     } catch (e: unknown) {
       setError(formatUnknownError(e) || 'Erro ao exportar inventário.')
     } finally {
@@ -2269,12 +2261,12 @@ export default function RelatorioContagem({
         setError('Nenhuma linha para exportar nesta contagem diária.')
         return
       }
-      const wb = await workbookContagemDiariaPadrao(exportRows)
+      const wb = workbookContagemDiariaPadrao(exportRows)
       const safeFile = `${sessao.numero}-${sessao.titulo || 'contagem'}`
         .replace(/[/\\?*[\]:]/g, '-')
         .replace(/\s+/g, '_')
         .slice(0, 80)
-      await writeRelatorioExcel(wb, `contagem-diaria_${safeFile}.xlsx`)
+      XLSX.writeFile(wb, `contagem-diaria_${safeFile}.xlsx`)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao exportar contagem diária.')
     } finally {
