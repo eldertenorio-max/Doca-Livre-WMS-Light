@@ -84,6 +84,11 @@
   font-size: 13px;
 }
 
+.painel-page__limpar-periodo:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .painel-page .wms-dashboard {
   margin-bottom: 0.75rem;
 }

@@ -43,10 +43,14 @@ const FILTRO_VAZIO: PainelFiltroAtivo = {
   codigoInterno: null,
 }
 
+function periodoPadraoPainel() {
+  return { de: daysAgoYmdSp(13), ate: todayYmdSp() }
+}
+
 export default function PainelPage() {
   const [tab, setTab] = useState<PainelTab>('contagem')
-  const [dataDe, setDataDe] = useState(() => daysAgoYmdSp(13))
-  const [dataAte, setDataAte] = useState(() => todayYmdSp())
+  const [dataDe, setDataDe] = useState(() => periodoPadraoPainel().de)
+  const [dataAte, setDataAte] = useState(() => periodoPadraoPainel().ate)
   const [draftDe, setDraftDe] = useState(dataDe)
   const [draftAte, setDraftAte] = useState(dataAte)
   const [filtro, setFiltro] = useState<PainelFiltroAtivo>(FILTRO_VAZIO)
@@ -104,6 +108,28 @@ export default function PainelPage() {
     setDataAte(draftAte)
     setErro('')
   }
+
+  function limparFiltros() {
+    const { de, ate } = periodoPadraoPainel()
+    setDraftDe(de)
+    setDraftAte(ate)
+    setDataDe(de)
+    setDataAte(ate)
+    setFiltro(FILTRO_VAZIO)
+    setErro('')
+  }
+
+  const periodoAlterado =
+    draftDe !== periodoPadraoPainel().de ||
+    draftAte !== periodoPadraoPainel().ate ||
+    dataDe !== periodoPadraoPainel().de ||
+    dataAte !== periodoPadraoPainel().ate
+  const filtrosGraficoAtivos =
+    filtro.ymd != null ||
+    filtro.conferenteId != null ||
+    filtro.camara != null ||
+    filtro.codigoInterno != null
+  const podeLimparFiltros = periodoAlterado || filtrosGraficoAtivos || draftDe !== dataDe || draftAte !== dataAte
 
   const linhasContagemFiltradas = useMemo(
     () => filtrarLinhasContagem(linhasContagem, filtro),
@@ -262,6 +288,14 @@ export default function PainelPage() {
           </button>
           <button type="button" className="page-btn-ghost" disabled={loading} onClick={() => void carregar()}>
             Atualizar
+          </button>
+          <button
+            type="button"
+            className="page-btn-ghost painel-page__limpar-periodo"
+            disabled={loading || !podeLimparFiltros}
+            onClick={limparFiltros}
+          >
+            Limpar filtro
           </button>
         </form>
       </div>
