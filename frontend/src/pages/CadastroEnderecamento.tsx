@@ -209,6 +209,24 @@ export default function CadastroEnderecamento() {
     }
   }
 
+  async function renomearListaSalva(lista: EnderecoLista) {
+    const nome = window.prompt('Novo nome da lista de endereçamento:', lista.nome)
+    if (!nome?.trim() || nome.trim() === lista.nome) return
+
+    setSalvando(true)
+    setListaMsg('')
+    try {
+      const saved = await saveEnderecoLista({ ...lista, nome: nome.trim() })
+      if (editingListaId === lista.id) setEditingListaNome(saved.nome)
+      await carregarListas()
+      setListaMsg(`Lista renomeada para «${saved.nome}».`)
+    } catch (e: unknown) {
+      setListaMsg(formatUnknownError(e) || 'Erro ao renomear lista.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   async function excluirListaSalva(lista: EnderecoLista) {
     const n = contarEnderecosAtivos(lista)
     if (
@@ -502,8 +520,9 @@ export default function CadastroEnderecamento() {
               na tela de captura — formato padrão: <strong>{exemploCodigo}</strong> (câmara-rua-posição-nível).
             </PageInfoBlock>
             <PageInfoBlock title="Listas de endereçamento salvas">
-              Listas gravadas no sistema. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong> para sair da
-              edição; ao <strong>Salvar lista</strong>, os endereços são gravados e a área de cadastro é limpa.
+              Listas gravadas no sistema. Use <strong>Abrir</strong> para editar endereços, <strong>Editar</strong> para
+              trocar o nome, <strong>Fechar</strong> para sair da edição; ao <strong>Salvar lista</strong>, os endereços
+              são gravados e a área de cadastro é limpa.
             </PageInfoBlock>
           </>
         }
@@ -562,6 +581,14 @@ export default function CadastroEnderecamento() {
                             Abrir
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="page-btn-ghost"
+                          disabled={salvando}
+                          onClick={() => void renomearListaSalva(l)}
+                        >
+                          Editar
+                        </button>
                         <button
                           type="button"
                           className="page-btn-ghost page-btn-danger"

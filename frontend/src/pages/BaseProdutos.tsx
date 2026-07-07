@@ -363,6 +363,25 @@ export default function BaseProdutos() {
     }
   }
 
+  async function renomearListaSalva(lista: ProdutoLista) {
+    const nome = window.prompt('Novo nome da lista de produtos:', lista.nome)
+    if (!nome?.trim() || nome.trim() === lista.nome) return
+
+    setListaProdutoSaving(true)
+    setListaProdutoMsg('')
+    try {
+      const saved = await saveProdutoLista({ ...lista, nome: nome.trim() })
+      if (editingListaId === lista.id) setEditingListaNome(saved.nome)
+      await carregarListas()
+      emitProdutoListaAtualizada([saved.id])
+      setListaProdutoMsg(`Lista renomeada para «${saved.nome}».`)
+    } catch (e: unknown) {
+      setListaProdutoMsg(formatUnknownError(e) || 'Erro ao renomear lista.')
+    } finally {
+      setListaProdutoSaving(false)
+    }
+  }
+
   async function excluirListaSalva(lista: ProdutoLista) {
     if (
       !confirm(
@@ -1041,9 +1060,9 @@ export default function BaseProdutos() {
                 «Carregar base» na área abaixo ou cadastre produtos manualmente.
               </PageInfoBlock>
               <PageInfoBlock title="Listas de produtos salvas">
-                Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar, <strong>Fechar</strong>{' '}
-                para sair da edição; ao <strong>Salvar lista</strong>, os produtos são gravados e a área de trabalho é
-                limpa.
+                Listas gravadas para usar no inventário. Use <strong>Abrir</strong> para editar produtos,{' '}
+                <strong>Editar</strong> para trocar o nome, <strong>Fechar</strong> para sair da edição; ao{' '}
+                <strong>Salvar lista</strong>, os produtos são gravados e a área de trabalho é limpa.
               </PageInfoBlock>
             </PageInfoButton>
           </div>
@@ -1126,6 +1145,14 @@ export default function BaseProdutos() {
                             Abrir
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="page-btn-ghost"
+                          disabled={listaProdutoSaving}
+                          onClick={() => void renomearListaSalva(l)}
+                        >
+                          Editar
+                        </button>
                         <button
                           type="button"
                           className="page-btn-ghost page-btn-danger"
