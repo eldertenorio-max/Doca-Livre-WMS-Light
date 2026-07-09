@@ -160,7 +160,7 @@ async function audit(newC) {
 
 async function main() {
   loadDotEnv()
-  const skipData = process.env.SKIP_DATA_COPY === '1'
+  const skipData = process.env.SKIP_DATA_COPY !== '0' && process.env.SUPABASE_MIGRATE_FROM_OLD !== '1'
   const client = await connectPg(REF_NOVO)
 
   console.log(`Projeto novo: ${REF_NOVO}`)
@@ -189,7 +189,7 @@ async function main() {
   await client.end()
 
   if (!skipData) {
-    console.log('\n2) Copiando dados do projeto antigo...')
+    console.log('\n2) Copiando dados do projeto antigo (opcional — SUPABASE_MIGRATE_FROM_OLD=1)...')
     const oldPwd = process.env.SUPABASE_DB_PASSWORD_OLD || process.env.SUPABASE_DB_PASSWORD
     if (!oldPwd) {
       console.warn('Pule dados: defina SUPABASE_DB_PASSWORD_OLD ou use a mesma SUPABASE_DB_PASSWORD.')
@@ -220,6 +220,8 @@ async function main() {
         console.warn('O schema do projeto novo foi aplicado. Importe produtos pela planilha ou informe SUPABASE_DB_PASSWORD_OLD.')
       }
     }
+  } else {
+    console.log('\n2) Banco novo vazio — sem cópia do projeto antigo (padrão).')
   }
 
   const auditC = await connectPg(REF_NOVO)
