@@ -48,9 +48,30 @@ export async function connectPg(ref, pwd) {
       'Defina SUPABASE_DB_PASSWORD (Supabase → Settings → Database → senha do Postgres).',
     )
   }
+
+  const fullUrl = process.env.SUPABASE_DB_URL
+  if (fullUrl) {
+    const { default: pg } = await import('pg')
+    const client = new pg.Client({
+      connectionString: fullUrl,
+      ssl: { rejectUnauthorized: false },
+    })
+    await client.connect()
+    return client
+  }
+
+  const poolerHost =
+    (ref === REF_ANTIGO && process.env.SUPABASE_DB_POOLER_HOST_OLD) ||
+    (ref === REF_NOVO && process.env.SUPABASE_DB_POOLER_HOST) ||
+    (ref === REF_NOVO ? 'aws-0-ca-central-1.pooler.supabase.com' : 'aws-1-us-east-1.pooler.supabase.com')
+
+  const port = process.env.SUPABASE_DB_PORT || '5432'
+  const user = `postgres.${ref}`
+  const connectionString = `postgresql://${user}:${encodeURIComponent(password)}@${poolerHost}:${port}/postgres`
+
   const { default: pg } = await import('pg')
   const client = new pg.Client({
-    connectionString: `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres`,
+    connectionString,
     ssl: { rejectUnauthorized: false },
   })
   await client.connect()

@@ -27,10 +27,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const SCHEMA_FILES = [
   'supabase/sql/create_todos_os_produtos_novo_projeto.sql',
+  'supabase/sql/create_sheet_outbox.sql',
   'supabase_schema_contagem.sql',
   'supabase/sql/create_usuarios.sql',
-  'supabase/sql/create_contagens_inventario.sql',
   'supabase/sql/create_inventario_planilha_linhas.sql',
+  'supabase/sql/create_contagens_inventario.sql',
   'supabase/sql/create_contagem_diaria_temperatura_ocupacao.sql',
   'supabase/sql/create_contagem_ocupacao_avaria_camaras.sql',
   'supabase/sql/create_contagem_diaria_presenca.sql',
@@ -170,9 +171,14 @@ async function main() {
       await runSqlFile(client, rel)
       console.log('  OK', label)
     } catch (e) {
+      await client.query('ROLLBACK').catch(() => {})
       const msg = String(e.message || e)
       if (/already exists|duplicate/i.test(msg)) {
         console.log('  SKIP (já existe)', label)
+      } else if (/setval: value 0 is out of bounds/i.test(msg)) {
+        console.log('  SKIP (sequência vazia — OK em banco novo)', label)
+      } else if (/depend on it|already exists/i.test(msg)) {
+        console.log('  SKIP (objeto já aplicado)', label)
       } else {
         console.error('  ERRO', label, '—', msg.split('\n')[0])
         throw e
@@ -188,26 +194,31 @@ async function main() {
     if (!oldPwd) {
       console.warn('Pule dados: defina SUPABASE_DB_PASSWORD_OLD ou use a mesma SUPABASE_DB_PASSWORD.')
     } else {
-      const oldC = await connectPg(REF_ANTIGO, oldPwd)
-      const newC = await connectPg(REF_NOVO)
-      await copyPublicData(oldC, newC)
-      await oldC.end()
-      await newC.end()
+      try {
+        const oldC = await connectPg(REF_ANTIGO, oldPwd)
+        const newC = await connectPg(REF_NOVO)
+        await copyPublicData(oldC, newC)
+        await oldC.end()
+        await newC.end()
 
-      console.log('\n3) Auth users...')
-      await runNodeScript('import-auth-users-postgres.mjs').catch((e) => {
-        console.warn('Auth:', e.message)
-      })
+        console.log('\n3) Auth users...')
+        await runNodeScript('import-auth-users-postgres.mjs').catch((e) => {
+          console.warn('Auth:', e.message)
+        })
 
-      console.log('\n4) Triggers sheet_outbox...')
-      await runNodeScript('sincronizar-triggers-sheet-outbox.mjs').catch((e) => {
-        console.warn('Triggers:', e.message)
-      })
+        console.log('\n4) Triggers sheet_outbox...')
+        await runNodeScript('sincronizar-triggers-sheet-outbox.mjs').catch((e) => {
+          console.warn('Triggers:', e.message)
+        })
 
-      console.log('\n5) Views...')
-      await runNodeScript('sincronizar-views-supabase.mjs').catch((e) => {
-        console.warn('Views:', e.message)
-      })
+        console.log('\n5) Views...')
+        await runNodeScript('sincronizar-views-supabase.mjs').catch((e) => {
+          console.warn('Views:', e.message)
+        })
+      } catch (e) {
+        console.warn('\nCópia do projeto antigo não realizada:', e.message?.split('\n')[0] || e)
+        console.warn('O schema do projeto novo foi aplicado. Importe produtos pela planilha ou informe SUPABASE_DB_PASSWORD_OLD.')
+      }
     }
   }
 

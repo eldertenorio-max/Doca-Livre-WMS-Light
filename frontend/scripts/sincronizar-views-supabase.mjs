@@ -18,8 +18,16 @@ if (!pwd) {
 }
 
 function conn(ref) {
+  const password =
+    ref === REF_ANTIGO && process.env.SUPABASE_DB_PASSWORD_OLD
+      ? process.env.SUPABASE_DB_PASSWORD_OLD
+      : pwd
+  const poolerHost =
+    ref === REF_NOVO
+      ? process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ca-central-1.pooler.supabase.com'
+      : process.env.SUPABASE_DB_POOLER_HOST_OLD || 'aws-1-us-east-1.pooler.supabase.com'
   return new Client({
-    connectionString: `postgresql://postgres:${encodeURIComponent(pwd)}@db.${ref}.supabase.co:5432/postgres`,
+    connectionString: `postgresql://postgres.${ref}:${encodeURIComponent(password)}@${poolerHost}:5432/postgres`,
     ssl: { rejectUnauthorized: false },
   })
 }
