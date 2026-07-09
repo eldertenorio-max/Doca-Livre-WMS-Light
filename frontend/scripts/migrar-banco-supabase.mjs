@@ -6,8 +6,8 @@ import pg from 'pg'
 
 const { Client } = pg
 
-const REF_ANTIGO = 'swnefuddaswgjvhiuxok'
-const REF_NOVO = 'zvazpqdvnlecqadxacgv'
+const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'swnefuddaswgjvhiuxok'
+const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'ogpiinpoclfjnvrbthrq'
 
 const pwd = process.env.SUPABASE_DB_PASSWORD
 if (!pwd) {

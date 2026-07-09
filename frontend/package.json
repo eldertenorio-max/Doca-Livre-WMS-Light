@@ -17,7 +17,8 @@
     "seed:users": "node scripts/seed-auth-users.mjs",
     "backup:usuarios-produtos": "node scripts/backup-usuarios-produtos.mjs",
     "import:auth-users": "node scripts/import-auth-users-postgres.mjs",
-    "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs"
+    "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
+    "setup:novo-projeto": "node scripts/setup-projeto-completo.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
