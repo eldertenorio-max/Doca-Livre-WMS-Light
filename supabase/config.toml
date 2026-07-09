@@ -15,7 +15,7 @@
 #   (opcional, legado) auth-register-confirmed, auth-login-ensure
 #
 # project_id = ref do projeto (URL https://<ref>.supabase.co). Ajuste se for outro ambiente.
-project_id = "zvazpqdvnlecqadxacgv"
+project_id = "ogpiinpoclfjnvrbthrq"
 
 [functions.login-username]
 verify_jwt = false
