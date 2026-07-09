@@ -44,7 +44,8 @@ Execute **um arquivo por vez**, na ordem:
 16. `supabase/sql/setup_protecao_dados_supabase.sql`
 17. `supabase/sql/auth_immediate_login.sql`
 
-**Copiar dados do projeto antigo:** no painel do Supabase antigo, use *Database → Backups* ou `pg_dump` e restaure no novo (connection string com a senha do banco).
+**Copiar dados do projeto antigo:** veja `COPIA_EXATA_PASSO_A_PASSO.md` (fonte: `zvazpqdvnlecqadxacgv` → destino: `ogpiinpoclfjnvrbthrq`).  
+Ou no painel do Supabase antigo: *Database → Backups* / `pg_dump`.
 
 ## 4. Edge Functions
 

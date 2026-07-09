@@ -8,7 +8,7 @@ import path from 'path'
 
 const { Client } = pg
 
-const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'swnefuddaswgjvhiuxok'
+const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'zvazpqdvnlecqadxacgv'
 const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'ogpiinpoclfjnvrbthrq'
 
 const pwd = process.env.SUPABASE_DB_PASSWORD

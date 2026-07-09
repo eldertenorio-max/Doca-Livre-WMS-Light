@@ -5,10 +5,13 @@
  * Uso: SUPABASE_DB_PASSWORD='...' node scripts/import-auth-users-postgres.mjs
  */
 import pg from 'pg'
+import { loadDotEnv } from './lib/supabase-env.mjs'
+
+loadDotEnv()
 
 const { Client } = pg
 
-const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'swnefuddaswgjvhiuxok'
+const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'zvazpqdvnlecqadxacgv'
 const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'ogpiinpoclfjnvrbthrq'
 
 const pwd = process.env.SUPABASE_DB_PASSWORD
@@ -27,7 +30,7 @@ function conn(ref) {
       ? process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ca-central-1.pooler.supabase.com'
       : process.env.SUPABASE_DB_POOLER_HOST_OLD || 'aws-1-us-east-1.pooler.supabase.com'
   return new Client({
-    connectionString: `postgresql://postgres.${ref}:${encodeURIComponent(pwd)}@${poolerHost}:5432/postgres`,
+    connectionString: `postgresql://postgres.${ref}:${encodeURIComponent(password)}@${poolerHost}:5432/postgres`,
     ssl: { rejectUnauthorized: false },
   })
 }

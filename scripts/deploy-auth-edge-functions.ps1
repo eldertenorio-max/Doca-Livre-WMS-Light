@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $repoRoot
 
-$projectRef = "zvazpqdvnlecqadxacgv"
+$projectRef = if ($env:SUPABASE_PROJECT_REF) { $env:SUPABASE_PROJECT_REF } else { "ogpiinpoclfjnvrbthrq" }
 
 if (-not $env:SUPABASE_ACCESS_TOKEN) {
   Write-Host "Defina SUPABASE_ACCESS_TOKEN (Dashboard → Account → Access Tokens)." -ForegroundColor Yellow

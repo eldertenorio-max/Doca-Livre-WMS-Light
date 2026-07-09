@@ -18,7 +18,10 @@
     "backup:usuarios-produtos": "node scripts/backup-usuarios-produtos.mjs",
     "import:auth-users": "node scripts/import-auth-users-postgres.mjs",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
-    "setup:novo-projeto": "node scripts/setup-projeto-completo.mjs"
+    "setup:novo-projeto": "node scripts/setup-projeto-completo.mjs",
+    "copiar:dados-antigo": "node scripts/copiar-dados-antigo.mjs",
+    "copiar:dados-rest": "node scripts/copiar-dados-via-rest.mjs",
+    "copiar:produtos": "node scripts/copiar-produtos-rest.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
