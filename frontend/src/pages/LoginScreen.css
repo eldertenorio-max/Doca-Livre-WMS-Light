@@ -1,7 +1,7 @@
 /* Tela de login: fundo conforme tema escolhido (classe definida no TS). */
 .login-screen-logo-wrap {
   position: relative;
-  width: min(100%, 320px);
+  width: min(100%, 200px);
   margin: 0 auto 16px;
   animation: login-logo-wrap-in 1s cubic-bezier(0.22, 1, 0.36, 1) both;
 }

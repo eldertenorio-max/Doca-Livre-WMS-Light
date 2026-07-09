@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent, type RefObject } from 'react'
-import logoDis from '../assets/logo-dis-logistica-inteligente.png'
+import logoUltrapao from '../assets/logo-ultrapao.png'
 import { supabase } from '../lib/supabaseClient'
 import './LoginScreen.css'
 
@@ -576,7 +576,7 @@ export default function LoginScreen() {
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <div className="login-screen-logo-wrap">
             <span className="login-screen-logo-glow" aria-hidden />
-            <img className="login-screen-logo" src={logoDis} alt="DIS Logística Inteligente" />
+            <img className="login-screen-logo" src={logoUltrapao} alt="Ultrapão Alimentos" />
             <span className="login-screen-logo-shine" aria-hidden />
           </div>
           <p style={{ margin: '10px 0 0', fontSize: 14, color: ui.subtitle, lineHeight: 1.45 }}>

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import logoDis from '../../assets/logo-dis-logistica-inteligente.png'
+import logoUltrapao from '../../assets/logo-ultrapao.png'
 
 export type SidebarChild = {
   id: string
@@ -58,9 +58,9 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
 
   return (
     <aside className="app-sidebar" aria-label="Menu principal">
-      <div className="app-sidebar__brand" title="DIS Logística Inteligente">
-        <img className="app-sidebar__brand-logo" src={logoDis} alt="" aria-hidden />
-        <span className="app-sidebar__brand-text">DIS Logística</span>
+      <div className="app-sidebar__brand" title="Ultrapão — Contagem de Estoque">
+        <img className="app-sidebar__brand-logo" src={logoUltrapao} alt="" aria-hidden />
+        <span className="app-sidebar__brand-text">Ultrapão</span>
       </div>
       <nav className="app-sidebar__nav">
         {items.map((item) => {

@@ -139,6 +139,11 @@
   transition: transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.opening-splash__icon-wrap--ultrapao {
+  width: min(58vw, 200px);
+  height: min(72vw, 280px);
+}
+
 .opening-splash__icon-wrap--hold {
   transform: scale(1.03);
 }

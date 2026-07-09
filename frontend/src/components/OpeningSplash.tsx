@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import logoDis from '../assets/logo-dis-logistica-inteligente.png'
+import logoUltrapao from '../assets/logo-ultrapao.png'
 import { splashSoundCheck, splashSoundConfirm, splashSoundWhoosh } from '../lib/splashSounds'
 import './OpeningSplash.css'
 
@@ -119,7 +119,6 @@ export default function OpeningSplash({ onComplete }: Props) {
   }, [onComplete, reducedMotion])
 
   const showIconBuild = phase >= 1 && phase < 3
-  const showD = phase >= 1 && phase < 3
   const showLogo = phase >= 3
   const showLogoHold = phase >= 4
   const showLoader = phase >= 5
@@ -156,36 +155,7 @@ export default function OpeningSplash({ onComplete }: Props) {
       </div>
 
       <div className="opening-splash__stage">
-        <div className={`opening-splash__icon-wrap${showLogoHold ? ' opening-splash__icon-wrap--hold' : ''}`}>
-          <div className={`opening-splash__letter-d${showD ? ' opening-splash__letter-d--on' : ''}`} aria-hidden>
-            <svg viewBox="0 0 100 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="splashDGrad" x1="10" y1="8" x2="92" y2="112" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%" stopColor="#fff8dc" />
-                  <stop offset="30%" stopColor="#f5d76e" />
-                  <stop offset="65%" stopColor="#d4af37" />
-                  <stop offset="100%" stopColor="#8b6914" />
-                </linearGradient>
-                <filter id="splashDGlow" x="-25%" y="-25%" width="150%" height="150%">
-                  <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="#ffd95c" floodOpacity="0.55" />
-                </filter>
-              </defs>
-              <path
-                className="opening-splash__d-shape opening-splash__d-shape--fill"
-                fill="url(#splashDGrad)"
-                fillRule="evenodd"
-                filter="url(#splashDGlow)"
-                d="M 10 8 H 42 C 78 8 88 32 88 60 C 88 88 78 112 42 112 H 10 V 8 Z M 26 26 H 40 C 66 26 72 44 72 60 C 72 76 66 94 40 94 H 26 V 26 Z"
-              />
-              <path
-                className="opening-splash__d-shape opening-splash__d-shape--edge"
-                fill="none"
-                stroke="rgba(255, 248, 220, 0.55)"
-                strokeWidth="1.2"
-                d="M 14 12 H 40 C 72 12 82 34 82 60 C 82 86 72 108 40 108 H 14 V 12 Z"
-              />
-            </svg>
-          </div>
+        <div className={`opening-splash__icon-wrap opening-splash__icon-wrap--ultrapao${showLogoHold ? ' opening-splash__icon-wrap--hold' : ''}`}>
           <div className={`opening-splash__pallet${showIconBuild ? ' opening-splash__pallet--on' : ''}`} />
           <div className={`opening-splash__box${showIconBuild ? ' opening-splash__box--on' : ''}`} />
           <div className={`opening-splash__check${showIconBuild ? ' opening-splash__check--on' : ''}`}>
@@ -193,8 +163,8 @@ export default function OpeningSplash({ onComplete }: Props) {
           </div>
           <img
             className={`opening-splash__logo${showLogo ? ' opening-splash__logo--on' : ''}${showLogoHold ? ' opening-splash__logo--hold' : ''}`}
-            src={logoDis}
-            alt=""
+            src={logoUltrapao}
+            alt="Ultrapão Alimentos"
           />
           <div className={`opening-splash__logo-shine${showLogo ? ' opening-splash__logo-shine--on' : ''}`} />
           <div

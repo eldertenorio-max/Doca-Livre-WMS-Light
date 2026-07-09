@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
-const src = path.join(root, 'src/assets/logo-dis-logistica-inteligente.png')
+const src = path.join(root, 'src/assets/logo-ultrapao.png')
 const publicDir = path.join(root, 'public')
 const pwaDir = path.join(publicDir, 'pwa')
 
