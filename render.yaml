@@ -38,3 +38,5 @@ services:
         value: https://qvtnzyqdfhupfsqdqrel.supabase.co
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
+      - key: VITE_SUPABASE_ALLOW_DESTRUCTIVE
+        value: "true"

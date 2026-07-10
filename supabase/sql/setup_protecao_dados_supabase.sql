@@ -22,6 +22,26 @@ on conflict (id) do nothing;
 comment on table public.sistema_protecao_dados is
   'Flag global: quando ativa, bloqueia purge automático no banco.';
 
+alter table public.sistema_protecao_dados enable row level security;
+
+grant select on table public.sistema_protecao_dados to anon, authenticated;
+grant all on table public.sistema_protecao_dados to service_role;
+
+drop policy if exists "sistema_protecao_select_all" on public.sistema_protecao_dados;
+create policy "sistema_protecao_select_all"
+on public.sistema_protecao_dados
+for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "sistema_protecao_service_role_all" on public.sistema_protecao_dados;
+create policy "sistema_protecao_service_role_all"
+on public.sistema_protecao_dados
+for all
+to service_role
+using (true)
+with check (true);
+
 create or replace function public.protecao_dados_supabase_ativa()
 returns boolean
 language sql
