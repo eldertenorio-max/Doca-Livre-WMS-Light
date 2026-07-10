@@ -20,8 +20,8 @@ $branchHomolog = if ($env:GIT_BRANCH_HOMOLOG) { $env:GIT_BRANCH_HOMOLOG } else {
 $branchProd = if ($env:GIT_BRANCH_PRODUCAO) { $env:GIT_BRANCH_PRODUCAO } else { "master" }
 
 function Invoke-Git {
-  param([string[]]$Args)
-  & git @Args
+  param([string[]]$GitArgs)
+  & git @GitArgs
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
