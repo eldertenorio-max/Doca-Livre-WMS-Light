@@ -8,6 +8,7 @@ import { SidebarNavIcon } from './components/layout/SidebarNavIcon'
 import CompanySplash from './components/CompanySplash'
 import LoginScreen from './pages/LoginScreen'
 import SystemSelectorScreen from './pages/SystemSelectorScreen'
+import SystemEntryScreen from './pages/SystemEntryScreen'
 import BaseProdutos from './pages/BaseProdutos'
 import ProdutosFamilia from './pages/ProdutosFamilia'
 import ProdutosGrupos from './pages/ProdutosGrupos'
@@ -77,7 +78,7 @@ function navIcon(id: string) {
 export default function App() {
   const authEnabled = isSupabaseConfigured()
   const [companyIntroDone, setCompanyIntroDone] = useState(false)
-  const [systemSelected, setSystemSelected] = useState(false)
+  const [selectedSystemId, setSelectedSystemId] = useState<SystemId | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [view, setView] = useState<AppView>('painel')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
@@ -223,25 +224,40 @@ export default function App() {
   }
 
   function handleSystemSelect(id: SystemId) {
-    const system = getSystemById(id)
-    if (!system) return
-    if (system.url) {
-      window.location.assign(system.url)
-      return
-    }
-    setSystemSelected(true)
+    setSelectedSystemId(id)
+  }
+
+  function handleBackToSystemSelector() {
+    setSelectedSystemId(null)
   }
 
   if (!companyIntroDone) {
     return <CompanySplash onComplete={() => setCompanyIntroDone(true)} />
   }
 
-  if (!systemSelected) {
+  if (!selectedSystemId) {
     return <SystemSelectorScreen onSelect={handleSystemSelect} />
   }
 
+  const selectedSystem = getSystemById(selectedSystemId)
+  if (selectedSystem?.url) {
+    return (
+      <SystemEntryScreen
+        system={selectedSystem}
+        onBack={handleBackToSystemSelector}
+        onEnter={() => window.location.assign(selectedSystem.url!)}
+      />
+    )
+  }
+
   if (authEnabled && !session) {
-    return <LoginScreen theme={theme} onThemeToggle={toggleTheme} />
+    return (
+      <LoginScreen
+        theme={theme}
+        onThemeToggle={toggleTheme}
+        onBack={handleBackToSystemSelector}
+      />
+    )
   }
 
   if (authEnabled && session && permissoesCarregadas && !adminUser && !acessoAutorizado) {

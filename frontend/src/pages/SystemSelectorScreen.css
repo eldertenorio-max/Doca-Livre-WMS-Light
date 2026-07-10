@@ -79,14 +79,9 @@
   width: min(240px, 78vw);
 }
 
-.system-selector__card--original {
-  background: #0a0a0a;
-  border-color: #2a2a2a;
-}
-
-.system-selector__card--original:hover {
-  border-color: #f9db00;
-  box-shadow: 0 12px 28px rgb(249 219 0 / 0.22);
+.system-selector__card--original .brand-mark--logo-only .brand-mark__logo {
+  width: min(220px, 72vw);
+  border-radius: 10px;
 }
 
 @keyframes system-selector-in {

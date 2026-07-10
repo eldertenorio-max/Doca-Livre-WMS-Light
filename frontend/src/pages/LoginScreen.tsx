@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent, type RefObject } from 'react'
 import { BrandMark } from '../components/BrandMark'
+import { PortalBackButton } from '../components/PortalBackButton'
 import type { AppTheme } from '../lib/appTheme'
 import { isHomologacao } from '../lib/appAmbiente'
 import { supabase } from '../lib/supabaseClient'
@@ -346,6 +347,7 @@ type LoginUiTheme = AppTheme
 type Props = {
   theme: LoginUiTheme
   onThemeToggle: () => void
+  onBack?: () => void
 }
 
 function loginUiPalette(theme: LoginUiTheme) {
@@ -391,7 +393,7 @@ function loginUiPalette(theme: LoginUiTheme) {
   }
 }
 
-export default function LoginScreen({ theme, onThemeToggle }: Props) {
+export default function LoginScreen({ theme, onThemeToggle, onBack }: Props) {
   const ui = useMemo(() => loginUiPalette(theme), [theme])
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -533,6 +535,7 @@ export default function LoginScreen({ theme, onThemeToggle }: Props) {
         position: 'relative',
       }}
     >
+      {onBack ? <PortalBackButton onClick={onBack} /> : null}
       <div
         style={{
           width: '100%',
