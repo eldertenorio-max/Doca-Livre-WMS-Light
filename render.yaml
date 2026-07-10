@@ -1,13 +1,18 @@
 # Render — dois ambientes no mesmo repo:
-#   homologacao → testes (Supabase cópia qvtnzyqdfhupfsqdqrel)
-#   master      → produção (Supabase original zvazpqdvnlecqadxacgv)
+#   homologacao → deploy automático a cada push (autoDeployTrigger: commit)
+#   master      → deploy só manual no painel (autoDeployTrigger: off)
 #
-# Fluxo: push em homologacao → validar → merge em master → produção atualiza.
+# Fluxo Git:
+#   1. git checkout homologacao → alterar → push → homolog atualiza sozinha
+#   2. testar em https://doca-livre-wms-light-homolog.onrender.com
+#   3. git checkout master && git merge homologacao && git push doca master
+#   4. Render produção → Manual Deploy → Deploy latest commit
 services:
   - type: web
     name: doca-livre-wms-light-prod
     runtime: static
     branch: master
+    autoDeployTrigger: off
     rootDir: frontend
     buildCommand: npm ci --no-audit --no-fund && NODE_ENV=production npm run build
     staticPublishPath: ./frontend/dist
@@ -23,6 +28,7 @@ services:
     name: doca-livre-wms-light-homolog
     runtime: static
     branch: homologacao
+    autoDeployTrigger: commit
     rootDir: frontend
     buildCommand: npm ci --no-audit --no-fund && NODE_ENV=production npm run build
     staticPublishPath: ./frontend/dist
