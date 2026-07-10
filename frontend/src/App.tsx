@@ -35,6 +35,7 @@ import {
   permissoesViewsToSet,
 } from './lib/appPermissions'
 import { isAppAdmin } from './lib/authUser'
+import { getStoredAppTheme, LOGIN_SCREEN_THEME, storeAppTheme } from './lib/appTheme'
 import { getStoredSidebarOpen, storeSidebarOpen } from './lib/sidebarOpen'
 import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 
@@ -80,10 +81,7 @@ export default function App() {
   const [view, setView] = useState<AppView>('painel')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
   const [capturaContagemId, setCapturaContagemId] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('ui-theme')
-    return saved === 'light' || saved === 'dark' ? saved : 'dark'
-  })
+  const [theme, setTheme] = useState<Theme>(() => getStoredAppTheme())
   const [permissoesViews, setPermissoesViews] = useState<string[] | null>(null)
   const [acessoAutorizado, setAcessoAutorizado] = useState(true)
   const [permissoesCarregadas, setPermissoesCarregadas] = useState(() => !isSupabaseConfigured())
@@ -131,9 +129,14 @@ export default function App() {
   }, [authEnabled, session])
 
   useEffect(() => {
+    const preAuth = authEnabled && !session
+    if (!splashDone || preAuth) {
+      document.documentElement.setAttribute('data-theme', LOGIN_SCREEN_THEME)
+      return
+    }
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('ui-theme', theme)
-  }, [theme])
+    storeAppTheme(theme)
+  }, [theme, authEnabled, session, splashDone])
 
   useEffect(() => {
     document.title = tituloApp()
@@ -141,8 +144,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authEnabled || !session) return
-    const saved = localStorage.getItem('ui-theme')
-    if (saved === 'light' || saved === 'dark') setTheme(saved)
+    setTheme(getStoredAppTheme())
   }, [authEnabled, session])
 
   useEffect(() => {

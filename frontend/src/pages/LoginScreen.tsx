@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent, type RefObject } from 'react'
 import { BrandMark } from '../components/BrandMark'
+import { LOGIN_SCREEN_THEME } from '../lib/appTheme'
 import { isHomologacao } from '../lib/appAmbiente'
 import { supabase } from '../lib/supabaseClient'
 import './LoginScreen.css'
@@ -386,11 +387,7 @@ function loginUiPalette(theme: LoginUiTheme) {
 }
 
 export default function LoginScreen() {
-  const [theme, setTheme] = useState<LoginUiTheme>(() => {
-    const saved = localStorage.getItem('ui-theme')
-    if (saved === 'light' || saved === 'dark') return saved
-    return 'dark'
-  })
+  const [theme, setTheme] = useState<LoginUiTheme>(LOGIN_SCREEN_THEME)
   const ui = useMemo(() => loginUiPalette(theme), [theme])
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -431,7 +428,6 @@ export default function LoginScreen() {
     document.body.classList.toggle('login-screen--light', theme === 'light')
     document.body.classList.toggle('login-screen--dark', theme === 'dark')
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('ui-theme', theme)
     return () => {
       document.body.classList.remove('login-screen-active', 'login-screen--light', 'login-screen--dark')
     }
