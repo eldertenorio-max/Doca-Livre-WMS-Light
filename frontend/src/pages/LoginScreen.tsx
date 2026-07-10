@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent, type RefObject } from 'react'
 import { BrandMark } from '../components/BrandMark'
-import { LOGIN_SCREEN_THEME } from '../lib/appTheme'
+import type { AppTheme } from '../lib/appTheme'
 import { isHomologacao } from '../lib/appAmbiente'
 import { supabase } from '../lib/supabaseClient'
 import './LoginScreen.css'
@@ -341,7 +341,12 @@ function mapInvokeTransportError(message: string | undefined): string | null {
   return null
 }
 
-type LoginUiTheme = 'light' | 'dark'
+type LoginUiTheme = AppTheme
+
+type Props = {
+  theme: LoginUiTheme
+  onThemeToggle: () => void
+}
 
 function loginUiPalette(theme: LoginUiTheme) {
   if (theme === 'light') {
@@ -386,8 +391,7 @@ function loginUiPalette(theme: LoginUiTheme) {
   }
 }
 
-export default function LoginScreen() {
-  const [theme, setTheme] = useState<LoginUiTheme>(LOGIN_SCREEN_THEME)
+export default function LoginScreen({ theme, onThemeToggle }: Props) {
   const ui = useMemo(() => loginUiPalette(theme), [theme])
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -427,7 +431,6 @@ export default function LoginScreen() {
     document.body.classList.add('login-screen-active')
     document.body.classList.toggle('login-screen--light', theme === 'light')
     document.body.classList.toggle('login-screen--dark', theme === 'dark')
-    document.documentElement.setAttribute('data-theme', theme)
     return () => {
       document.body.classList.remove('login-screen-active', 'login-screen--light', 'login-screen--dark')
     }
@@ -545,7 +548,7 @@ export default function LoginScreen() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
           <button
             type="button"
-            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            onClick={onThemeToggle}
             disabled={loading}
             title={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
             aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}

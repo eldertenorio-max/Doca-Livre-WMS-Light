@@ -35,13 +35,11 @@ import {
   permissoesViewsToSet,
 } from './lib/appPermissions'
 import { isAppAdmin } from './lib/authUser'
-import { getStoredAppTheme, LOGIN_SCREEN_THEME, storeAppTheme } from './lib/appTheme'
 import { getStoredSidebarOpen, storeSidebarOpen } from './lib/sidebarOpen'
+import { useTheme } from './hooks/useTheme'
 import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 
 export type { AppView } from './lib/appViews'
-
-type Theme = 'dark' | 'light'
 
 class PanelErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -81,12 +79,13 @@ export default function App() {
   const [view, setView] = useState<AppView>('painel')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
   const [capturaContagemId, setCapturaContagemId] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme>(() => getStoredAppTheme())
   const [permissoesViews, setPermissoesViews] = useState<string[] | null>(null)
   const [acessoAutorizado, setAcessoAutorizado] = useState(true)
   const [permissoesCarregadas, setPermissoesCarregadas] = useState(() => !isSupabaseConfigured())
   const [recarregandoAcesso, setRecarregandoAcesso] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(() => getStoredSidebarOpen())
+  const sessionActive = Boolean(session)
+  const { theme, toggleTheme } = useTheme({ authEnabled, sessionActive })
 
   useEffect(() => {
     storeSidebarOpen(sidebarOpen)
@@ -129,23 +128,8 @@ export default function App() {
   }, [authEnabled, session])
 
   useEffect(() => {
-    const preAuth = authEnabled && !session
-    if (!splashDone || preAuth) {
-      document.documentElement.setAttribute('data-theme', LOGIN_SCREEN_THEME)
-      return
-    }
-    document.documentElement.setAttribute('data-theme', theme)
-    storeAppTheme(theme)
-  }, [theme, authEnabled, session, splashDone])
-
-  useEffect(() => {
     document.title = tituloApp()
   }, [])
-
-  useEffect(() => {
-    if (!authEnabled || !session) return
-    setTheme(getStoredAppTheme())
-  }, [authEnabled, session])
 
   useEffect(() => {
     if (!authEnabled) return
@@ -240,7 +224,7 @@ export default function App() {
   }
 
   if (authEnabled && !session) {
-    return <LoginScreen />
+    return <LoginScreen theme={theme} onThemeToggle={toggleTheme} />
   }
 
   if (authEnabled && session && permissoesCarregadas && !adminUser && !acessoAutorizado) {
@@ -262,7 +246,7 @@ export default function App() {
     <button
       type="button"
       className="app-sidebar__footer-btn"
-      onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+      onClick={toggleTheme}
       title={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
       aria-label={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
     >
@@ -306,7 +290,7 @@ export default function App() {
           theme={theme}
           sidebarOpen={sidebarOpen}
           onSidebarToggle={() => setSidebarOpen((open) => !open)}
-          onThemeToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          onThemeToggle={toggleTheme}
           onSignOut={() => void supabase.auth.signOut()}
         />
       }

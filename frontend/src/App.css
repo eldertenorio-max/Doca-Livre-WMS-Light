@@ -464,10 +464,15 @@
 }
 
 :root[data-theme='dark'] {
-  --panel-header-bg: #ffffff;
-  --panel-header-border: rgba(0, 0, 0, 0.08);
-  --panel-header-text: #111827;
-  --panel-header-muted: #6b7280;
+  --panel-workspace-bg: #121212;
+  --panel-surface: #1a1a1a;
+  --panel-surface-elevated: #222222;
+  --panel-header-bg: #1a1a1a;
+  --panel-header-border: rgba(255, 255, 255, 0.08);
+  --panel-header-text: #f3f4f6;
+  --panel-header-muted: #9ca3af;
+  --panel-input-bg: rgba(0, 0, 0, 0.35);
+  --panel-border: #333333;
 }
 
 .app-shell {

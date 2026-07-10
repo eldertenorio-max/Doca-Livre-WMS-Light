@@ -37,7 +37,7 @@
 
 body.login-screen-active.login-screen--light,
 body.login-screen-active.login-screen--dark {
-  background: #ffffff !important;
+  background: var(--bg) !important;
 }
 
 body.login-screen-active #root {
