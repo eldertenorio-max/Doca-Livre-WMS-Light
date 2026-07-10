@@ -1,4 +1,6 @@
 import { SystemProductMark } from '../components/SystemProductMark'
+import { LOGO_DOCA_LIVRE_SRC } from '../lib/brandAssets'
+import { isHomologacao } from '../lib/appAmbiente'
 import { getSystemOptions, type SystemId } from '../lib/systemPortal'
 import './SystemSelectorScreen.css'
 
@@ -13,8 +15,17 @@ export default function SystemSelectorScreen({ onSelect }: Props) {
     <div className="system-selector" role="main">
       <div className="system-selector__inner">
         <header className="system-selector__header">
-          <h1 className="system-selector__title">Escolha o sistema</h1>
-          <p className="system-selector__subtitle">Selecione qual plataforma Doca Livre deseja acessar</p>
+          <img src={LOGO_DOCA_LIVRE_SRC} alt="" className="system-selector__header-logo" />
+          <p className="system-selector__eyebrow">Doca Livre Sistemas</p>
+          <h1 className="system-selector__title">
+            Escolha o <span className="system-selector__title-accent">sistema</span>
+          </h1>
+          <p className="system-selector__subtitle">
+            Selecione qual plataforma Doca Livre deseja acessar
+          </p>
+          {isHomologacao() ? (
+            <span className="system-selector__badge">Homologação</span>
+          ) : null}
         </header>
 
         <div className="system-selector__grid">
