@@ -448,6 +448,7 @@
   --sidebar-w-collapsed: 72px;
   --sidebar-w: min(280px, 50vw);
   --sidebar-icon-size: 28px;
+  --sidebar-icon-muted: #b0b0b0;
 }
 
 :root[data-theme='light'] {
@@ -974,19 +975,12 @@
   justify-content: center;
   width: var(--sidebar-icon-size);
   height: var(--sidebar-icon-size);
-  border-radius: 8px;
   box-sizing: border-box;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: var(--panel-accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
-}
-
-.app-sidebar--wide .app-sidebar__nav-icon {
   background: transparent;
   border: none;
+  border-radius: 0;
+  color: var(--sidebar-icon-muted);
   box-shadow: none;
-  color: rgba(255, 255, 255, 0.55);
 }
 
 .app-sidebar__nav-icon svg {
@@ -1001,11 +995,8 @@
   color: var(--panel-accent);
 }
 
-.app-sidebar--wide .app-sidebar__item--active .app-sidebar__nav-icon,
-.app-sidebar--wide .app-sidebar__item--parent-active .app-sidebar__nav-icon,
-.app-sidebar--wide .app-sidebar__item:hover .app-sidebar__nav-icon {
+.app-sidebar__footer-btn:hover .app-sidebar__footer-icon {
   color: var(--panel-accent);
-  border-color: transparent;
 }
 
 .app-sidebar__item-label {
@@ -1142,11 +1133,11 @@
   justify-content: center;
   width: var(--sidebar-icon-size);
   height: var(--sidebar-icon-size);
-  border-radius: 8px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: var(--panel-accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--sidebar-icon-muted);
+  box-shadow: none;
   flex-shrink: 0;
 }
 
@@ -1154,15 +1145,6 @@
   display: block;
   width: 18px;
   height: 18px;
-}
-
-.app-sidebar--wide .app-sidebar__footer-icon {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  color: rgba(255, 255, 255, 0.55);
-  width: 20px;
-  height: 20px;
 }
 
 .app-sidebar__footer-label {
@@ -1182,10 +1164,6 @@
 .app-sidebar__footer-btn:hover {
   background: rgb(249 219 0 / 0.14);
   border-left-color: var(--panel-accent);
-  color: var(--panel-accent);
-}
-
-.app-sidebar--wide .app-sidebar__footer-btn:hover .app-sidebar__footer-icon {
   color: var(--panel-accent);
 }
 
