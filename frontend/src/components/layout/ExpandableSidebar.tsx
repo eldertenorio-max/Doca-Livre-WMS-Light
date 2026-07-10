@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { BrandMark } from '../BrandMark'
 
 export type SidebarChild = {
   id: string
@@ -58,9 +57,6 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
 
   return (
     <aside className="app-sidebar" aria-label="Menu principal">
-      <div className="app-sidebar__brand" title="Doca Livre WMS Light">
-        <BrandMark className="brand-mark--sidebar" />
-      </div>
       <nav className="app-sidebar__nav">
         {items.map((item) => {
           const hasChildren = Boolean(item.children?.length)
@@ -97,7 +93,7 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
                 <span className="app-sidebar__item-icon">{item.icon}</span>
                 <span className="app-sidebar__item-label">{item.label}</span>
                 <span className="app-sidebar__chevron" aria-hidden>
-                  ▾
+                  ›
                 </span>
               </button>
               {groupOpen ? (

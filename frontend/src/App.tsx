@@ -4,6 +4,7 @@ import './App.css'
 import AppHeader from './components/layout/AppHeader'
 import AppShell from './components/layout/AppShell'
 import type { SidebarItem } from './components/layout/ExpandableSidebar'
+import { SidebarNavIcon } from './components/layout/SidebarNavIcon'
 import OpeningSplash from './components/OpeningSplash'
 import LoginScreen from './pages/LoginScreen'
 import BaseProdutos from './pages/BaseProdutos'
@@ -67,8 +68,8 @@ class PanelErrorBoundary extends Component<{ children: ReactNode }, { error: Err
   }
 }
 
-function NavEmoji({ children }: { children: string }) {
-  return <span aria-hidden>{children}</span>
+function navIcon(id: string) {
+  return <SidebarNavIcon id={id} />
 }
 
 export default function App() {
@@ -157,12 +158,11 @@ export default function App() {
 
   const sidebarItemsBase: SidebarItem[] = useMemo(
     () => [
-      { id: 'painel', label: 'Painel', icon: <NavEmoji>📈</NavEmoji>, accent: '#f59e0b' },
+      { id: 'painel', label: 'Painel', icon: navIcon('painel') },
       {
         id: 'produtos',
         label: 'Produtos',
-        icon: <NavEmoji>📦</NavEmoji>,
-        accent: '#fbbf24',
+        icon: navIcon('produtos'),
         children: [
           { id: 'produtosFamilia', label: 'Família' },
           { id: 'produtosGrupos', label: 'Grupos' },
@@ -171,13 +171,13 @@ export default function App() {
           { id: 'produtosSubGrupos', label: 'SubGrupos' },
         ],
       },
-      { id: 'temperatura', label: 'Temperatura', icon: <NavEmoji>🌡️</NavEmoji>, accent: '#22c55e' },
-      { id: 'ocupacao', label: 'Ocupação', icon: <NavEmoji>📊</NavEmoji>, accent: '#38bdf8' },
-      { id: 'seguranca', label: 'Estoque de segurança', icon: <NavEmoji>🛡️</NavEmoji>, accent: '#2dd4bf' },
-      { id: 'enderecamento', label: 'Endereçamento', icon: <NavEmoji>📍</NavEmoji>, accent: '#a78bfa' },
-      { id: 'inventarios', label: 'Inventários', icon: <NavEmoji>📦</NavEmoji>, accent: '#26c6da' },
-      { id: 'contagem', label: 'Contagem diária', icon: <NavEmoji>📋</NavEmoji>, accent: '#4f8eff' },
-      { id: 'estoque', label: 'Estoque', icon: <NavEmoji>📊</NavEmoji>, accent: '#a855f7' },
+      { id: 'temperatura', label: 'Temperatura', icon: navIcon('temperatura') },
+      { id: 'ocupacao', label: 'Ocupação', icon: navIcon('ocupacao') },
+      { id: 'seguranca', label: 'Estoque de segurança', icon: navIcon('seguranca') },
+      { id: 'enderecamento', label: 'Endereçamento', icon: navIcon('enderecamento') },
+      { id: 'inventarios', label: 'Inventários', icon: navIcon('inventarios') },
+      { id: 'contagem', label: 'Contagem diária', icon: navIcon('contagem') },
+      { id: 'estoque', label: 'Estoque', icon: navIcon('estoque') },
     ],
     [],
   )
@@ -190,8 +190,7 @@ export default function App() {
         {
           id: 'permissoes',
           label: 'Permissões de acesso',
-          icon: <NavEmoji>🔐</NavEmoji>,
-          accent: '#f97316',
+          icon: navIcon('permissoes'),
         },
       ]
     }
@@ -257,7 +256,7 @@ export default function App() {
       className="app-sidebar__footer-btn"
       onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
     >
-      {theme === 'dark' ? '☀️ Tema claro' : '🌙 Tema escuro'}
+      {theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
     </button>
   )
 

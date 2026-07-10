@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { usernameFromSession } from '../../lib/authUser'
+import { isHomologacao } from '../../lib/appAmbiente'
+import { BRAND_PRODUCT_NAME, BRAND_PRODUCT_VARIANT, LOGO_DOCA_LIVRE_SRC } from '../../lib/brandAssets'
 
 const EMPRESA_PADRAO = 'Doca Livre'
 const CLIENTES_PADRAO = ['Todos clientes de armazenagem', 'Doca Livre WMS Light']
@@ -125,7 +127,16 @@ export default function AppHeader({ session, authEnabled, theme, onThemeToggle, 
 
   return (
     <header className="app-header">
-      <div className="app-header__spacer" aria-hidden />
+      <div className="app-header__brand">
+        <img src={LOGO_DOCA_LIVRE_SRC} alt="Doca Livre" className="app-header__logo" />
+        <strong className="app-header__wms" aria-label={`${BRAND_PRODUCT_NAME} ${BRAND_PRODUCT_VARIANT}`}>
+          <span className="app-header__wms-main">{BRAND_PRODUCT_NAME}</span>
+          <span className="app-header__wms-variant">{BRAND_PRODUCT_VARIANT}</span>
+          {isHomologacao() ? (
+            <span className="app-header__ambiente app-header__ambiente--homolog">Homologação</span>
+          ) : null}
+        </strong>
+      </div>
 
       <div className="app-header__right">
         <button type="button" className="app-header__icon-btn" title="Notificações" aria-label="Notificações">
