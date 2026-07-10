@@ -5,8 +5,9 @@ import AppHeader from './components/layout/AppHeader'
 import AppShell from './components/layout/AppShell'
 import type { SidebarItem } from './components/layout/ExpandableSidebar'
 import { SidebarNavIcon } from './components/layout/SidebarNavIcon'
-import OpeningSplash from './components/OpeningSplash'
+import CompanySplash from './components/CompanySplash'
 import LoginScreen from './pages/LoginScreen'
+import SystemSelectorScreen from './pages/SystemSelectorScreen'
 import BaseProdutos from './pages/BaseProdutos'
 import ProdutosFamilia from './pages/ProdutosFamilia'
 import ProdutosGrupos from './pages/ProdutosGrupos'
@@ -38,6 +39,7 @@ import { isAppAdmin } from './lib/authUser'
 import { getStoredSidebarOpen, storeSidebarOpen } from './lib/sidebarOpen'
 import { useTheme } from './hooks/useTheme'
 import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
+import { getSystemById, type SystemId } from './lib/systemPortal'
 
 export type { AppView } from './lib/appViews'
 
@@ -74,7 +76,8 @@ function navIcon(id: string) {
 
 export default function App() {
   const authEnabled = isSupabaseConfigured()
-  const [splashDone, setSplashDone] = useState(false)
+  const [companyIntroDone, setCompanyIntroDone] = useState(false)
+  const [systemSelected, setSystemSelected] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
   const [view, setView] = useState<AppView>('painel')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
@@ -219,8 +222,22 @@ export default function App() {
     setView('contagemCaptura')
   }
 
-  if (!splashDone) {
-    return <OpeningSplash onComplete={() => setSplashDone(true)} />
+  function handleSystemSelect(id: SystemId) {
+    const system = getSystemById(id)
+    if (!system) return
+    if (system.url) {
+      window.location.assign(system.url)
+      return
+    }
+    setSystemSelected(true)
+  }
+
+  if (!companyIntroDone) {
+    return <CompanySplash onComplete={() => setCompanyIntroDone(true)} />
+  }
+
+  if (!systemSelected) {
+    return <SystemSelectorScreen onSelect={handleSystemSelect} />
   }
 
   if (authEnabled && !session) {
