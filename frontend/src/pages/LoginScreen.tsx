@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent, type RefObject } from 'react'
-import logoUltrapao from '../assets/logo-ultrapao.png'
+import { BrandMark } from '../components/BrandMark'
+import { isHomologacao } from '../lib/appAmbiente'
 import { supabase } from '../lib/supabaseClient'
 import './LoginScreen.css'
 
@@ -574,11 +575,10 @@ export default function LoginScreen() {
         </div>
 
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <div className="login-screen-logo-wrap">
-            <span className="login-screen-logo-glow" aria-hidden />
-            <img className="login-screen-logo" src={logoUltrapao} alt="Ultrapão Alimentos" />
-            <span className="login-screen-logo-shine" aria-hidden />
-          </div>
+          <BrandMark className="login-brand" logoClassName="login-brand__logo" />
+          {isHomologacao() ? (
+            <p className="login-ambiente login-ambiente--homolog">Homologação</p>
+          ) : null}
           <p style={{ margin: '10px 0 0', fontSize: 14, color: ui.subtitle, lineHeight: 1.45 }}>
             {mode === 'login' ? 'Entre com usuário e senha' : 'Cadastre usuário e senha (sem e-mail no formulário)'}
           </p>

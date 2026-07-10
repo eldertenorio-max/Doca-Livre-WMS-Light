@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
-const src = path.join(root, 'src/assets/logo-ultrapao.png')
+const src = path.join(root, 'public/favicon.svg')
 const publicDir = path.join(root, 'public')
 const pwaDir = path.join(publicDir, 'pwa')
 
-const bg = { r: 0, g: 0, b: 0, alpha: 1 }
+const bg = { r: 255, g: 255, b: 255, alpha: 1 }
 
 async function writeIcon(size, outPath) {
   await sharp(src)

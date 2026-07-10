@@ -770,32 +770,44 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 12px;
+  padding: 14px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   min-height: 56px;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
-.app-sidebar__brand-logo {
-  flex-shrink: 0;
-  width: 32px;
-  height: 36px;
-  object-fit: contain;
-  border-radius: 4px;
+.app-sidebar__brand .brand-mark--sidebar {
+  width: 100%;
+  align-items: flex-start;
+  gap: 8px;
 }
 
-.app-sidebar__brand-text {
-  font-size: 13px;
-  font-weight: 700;
+.app-sidebar:not(:hover):not(:focus-within) .brand-mark--sidebar .brand-mark__name {
+  display: none;
+}
+
+.app-sidebar:not(:hover):not(:focus-within) .brand-mark--sidebar .brand-mark__logo {
+  width: 34px;
+  max-width: 34px;
+  height: 34px;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.app-sidebar:hover .brand-mark--sidebar,
+.app-sidebar:focus-within .brand-mark--sidebar {
+  align-items: center;
+}
+
+.app-sidebar:hover .brand-mark--sidebar .brand-mark__name,
+.app-sidebar:focus-within .brand-mark--sidebar .brand-mark__name {
+  display: inline-flex;
+}
+
+.app-sidebar:hover .brand-mark--sidebar .brand-mark__wms,
+.app-sidebar:focus-within .brand-mark--sidebar .brand-mark__wms {
   color: #ffffff;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.app-sidebar:hover .app-sidebar__brand-text,
-.app-sidebar:focus-within .app-sidebar__brand-text {
-  opacity: 1;
 }
 
 .app-sidebar__nav {

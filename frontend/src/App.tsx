@@ -24,6 +24,7 @@ import PainelPage from './pages/PainelPage'
 import PermissoesAcessoPage from './pages/PermissoesAcessoPage'
 import AcessoPendenteScreen from './pages/AcessoPendenteScreen'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
+import { tituloApp } from './lib/appAmbiente'
 import { clearSessaoProdutoListaContext } from './lib/sessaoProdutoListaContext'
 import type { AppView } from './lib/appViews'
 import {
@@ -126,6 +127,10 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('ui-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    document.title = tituloApp()
+  }, [])
 
   useEffect(() => {
     if (!authEnabled || !session) return

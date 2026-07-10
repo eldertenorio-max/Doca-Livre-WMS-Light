@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { usernameFromSession } from '../../lib/authUser'
 
-const EMPRESA_PADRAO = 'Ultrapao Alimentos'
-const CLIENTES_PADRAO = ['Todos clientes de armazenagem', 'Ultrapao Guarulhos Distri', 'DIS Logística']
+const EMPRESA_PADRAO = 'Doca Livre'
+const CLIENTES_PADRAO = ['Todos clientes de armazenagem', 'Doca Livre WMS Light']
 
 type Theme = 'dark' | 'light'
 
@@ -135,7 +135,7 @@ export default function AppHeader({ session, authEnabled, theme, onThemeToggle, 
         <div className="app-header__user-block">
           <p className="app-header__user-name">{username}</p>
           <p className="app-header__user-role">
-            {empresa} / DIS Logística
+            {empresa} / WMS Light
           </p>
           <p className="app-header__user-time">{dataHora}</p>
         </div>

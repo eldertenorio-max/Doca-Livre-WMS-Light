@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import logoUltrapao from '../../assets/logo-ultrapao.png'
+import { BrandMark } from '../BrandMark'
 
 export type SidebarChild = {
   id: string
@@ -58,9 +58,8 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
 
   return (
     <aside className="app-sidebar" aria-label="Menu principal">
-      <div className="app-sidebar__brand" title="Ultrapão — Contagem de Estoque">
-        <img className="app-sidebar__brand-logo" src={logoUltrapao} alt="" aria-hidden />
-        <span className="app-sidebar__brand-text">Ultrapão</span>
+      <div className="app-sidebar__brand" title="Doca Livre WMS Light">
+        <BrandMark className="brand-mark--sidebar" />
       </div>
       <nav className="app-sidebar__nav">
         {items.map((item) => {

@@ -1,13 +1,13 @@
 {
-  "name": "DIS Logística Inteligente",
-  "short_name": "DIS",
-  "description": "Contagem de estoque, temperatura, ocupação e relatórios logísticos.",
+  "name": "Doca Livre WMS Light",
+  "short_name": "Doca Livre",
+  "description": "Painel WMS de contagem de estoque Doca Livre",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "background_color": "#ffffff",
+  "theme_color": "#0f172a",
   "lang": "pt-BR",
   "icons": [
     {
