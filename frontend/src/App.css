@@ -911,8 +911,37 @@
 
 .app-sidebar:not(.app-sidebar--wide) .app-sidebar__item {
   justify-content: center;
+  align-items: center;
   padding: 8px 0;
   gap: 0;
+  border-left: none;
+  position: relative;
+}
+
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__item--active::before,
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__item--parent-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--panel-accent);
+}
+
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__chevron {
+  display: none;
+  width: 0 !important;
+  margin: 0 !important;
+}
+
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__item-icon {
+  width: var(--sidebar-icon-size);
+  min-width: var(--sidebar-icon-size);
+}
+
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__footer-btn {
+  border-left: none;
 }
 
 .app-sidebar--wide .app-sidebar__item {
@@ -927,8 +956,8 @@
   background: rgb(249 219 0 / 0.14);
 }
 
-.app-sidebar__item--active,
-.app-sidebar__item--parent-active {
+.app-sidebar--wide .app-sidebar__item--active,
+.app-sidebar--wide .app-sidebar__item--parent-active {
   border-left-color: var(--panel-accent);
 }
 
@@ -1095,6 +1124,10 @@
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__footer-btn:hover {
+  border-left-color: transparent;
 }
 
 .app-sidebar--wide .app-sidebar__footer-btn {
