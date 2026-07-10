@@ -18,6 +18,7 @@ type Props = {
   activeId: string
   onSelect: (id: string) => void
   footer?: ReactNode
+  open?: boolean
 }
 
 function childParentId(items: SidebarItem[], activeId: string): string | null {
@@ -28,7 +29,7 @@ function childParentId(items: SidebarItem[], activeId: string): string | null {
   return null
 }
 
-export default function ExpandableSidebar({ items, activeId, onSelect, footer }: Props) {
+export default function ExpandableSidebar({ items, activeId, onSelect, footer, open = true }: Props) {
   const parentOfActive = childParentId(items, activeId)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const s = new Set<string>()
@@ -56,7 +57,7 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
   }
 
   return (
-    <aside className="app-sidebar" aria-label="Menu principal">
+    <aside className={`app-sidebar${open ? ' app-sidebar--wide' : ''}`} aria-label="Menu principal">
       <nav className="app-sidebar__nav">
         {items.map((item) => {
           const hasChildren = Boolean(item.children?.length)
@@ -66,21 +67,25 @@ export default function ExpandableSidebar({ items, activeId, onSelect, footer }:
 
           if (!hasChildren) {
             return (
-              <button
-                key={item.id}
-                type="button"
-                className={`app-sidebar__item${active ? ' app-sidebar__item--active' : ''}`}
-                onClick={() => onSelect(item.id)}
-                title={item.label}
-              >
-                <span className="app-sidebar__item-icon">{item.icon}</span>
-                <span className="app-sidebar__item-label">{item.label}</span>
-              </button>
+              <div key={item.id} className="app-sidebar__section">
+                <button
+                  type="button"
+                  className={`app-sidebar__item${active ? ' app-sidebar__item--active' : ''}`}
+                  onClick={() => onSelect(item.id)}
+                  title={item.label}
+                >
+                  <span className="app-sidebar__item-icon">{item.icon}</span>
+                  <span className="app-sidebar__item-label">{item.label}</span>
+                </button>
+              </div>
             )
           }
 
           return (
-            <div key={item.id} className={`app-sidebar__group${groupOpen ? ' app-sidebar__group--open' : ''}`}>
+            <div
+              key={item.id}
+              className={`app-sidebar__section app-sidebar__group${groupOpen ? ' app-sidebar__group--open' : ''}`}
+            >
               <button
                 type="button"
                 className={`app-sidebar__item app-sidebar__item--parent${

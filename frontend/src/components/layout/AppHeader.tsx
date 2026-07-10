@@ -15,6 +15,8 @@ type Props = {
   theme: Theme
   onThemeToggle: () => void
   onSignOut?: () => void
+  sidebarOpen: boolean
+  onSidebarToggle: () => void
 }
 
 function IconBell() {
@@ -85,7 +87,15 @@ function MenuItem({
   )
 }
 
-export default function AppHeader({ session, authEnabled, theme, onThemeToggle, onSignOut }: Props) {
+export default function AppHeader({
+  session,
+  authEnabled,
+  theme,
+  onThemeToggle,
+  onSignOut,
+  sidebarOpen,
+  onSidebarToggle,
+}: Props) {
   const [open, setOpen] = useState(false)
   const [agora, setAgora] = useState(() => new Date())
   const [empresa, setEmpresa] = useState(() => localStorage.getItem('header-empresa') || EMPRESA_PADRAO)
@@ -127,15 +137,28 @@ export default function AppHeader({ session, authEnabled, theme, onThemeToggle, 
 
   return (
     <header className="app-header">
-      <div className="app-header__brand">
-        <img src={LOGO_DOCA_LIVRE_SRC} alt="Doca Livre" className="app-header__logo" />
-        <strong className="app-header__wms" aria-label={`${BRAND_PRODUCT_NAME} ${BRAND_PRODUCT_VARIANT}`}>
-          <span className="app-header__wms-main">{BRAND_PRODUCT_NAME}</span>
-          <span className="app-header__wms-variant">{BRAND_PRODUCT_VARIANT}</span>
-          {isHomologacao() ? (
-            <span className="app-header__ambiente app-header__ambiente--homolog">Homologação</span>
-          ) : null}
-        </strong>
+      <div className="app-header__left">
+        <button
+          type="button"
+          className="app-header__menu"
+          onClick={onSidebarToggle}
+          aria-label={sidebarOpen ? 'Recolher menu lateral' : 'Abrir menu lateral'}
+          aria-pressed={sidebarOpen}
+          title={sidebarOpen ? 'Recolher menu lateral' : 'Abrir menu lateral'}
+        >
+          <span className="app-header__menu-icon" aria-hidden />
+        </button>
+
+        <div className="app-header__brand">
+          <img src={LOGO_DOCA_LIVRE_SRC} alt="Doca Livre" className="app-header__logo" />
+          <strong className="app-header__wms" aria-label={`${BRAND_PRODUCT_NAME} ${BRAND_PRODUCT_VARIANT}`}>
+            <span className="app-header__wms-main">{BRAND_PRODUCT_NAME}</span>
+            <span className="app-header__wms-variant">{BRAND_PRODUCT_VARIANT}</span>
+            {isHomologacao() ? (
+              <span className="app-header__ambiente app-header__ambiente--homolog">Homologação</span>
+            ) : null}
+          </strong>
+        </div>
       </div>
 
       <div className="app-header__right">

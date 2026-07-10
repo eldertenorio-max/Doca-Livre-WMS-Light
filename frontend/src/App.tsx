@@ -35,6 +35,7 @@ import {
   permissoesViewsToSet,
 } from './lib/appPermissions'
 import { isAppAdmin } from './lib/authUser'
+import { getStoredSidebarOpen, storeSidebarOpen } from './lib/sidebarOpen'
 import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 
 export type { AppView } from './lib/appViews'
@@ -87,6 +88,11 @@ export default function App() {
   const [acessoAutorizado, setAcessoAutorizado] = useState(true)
   const [permissoesCarregadas, setPermissoesCarregadas] = useState(() => !isSupabaseConfigured())
   const [recarregandoAcesso, setRecarregandoAcesso] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(() => getStoredSidebarOpen())
+
+  useEffect(() => {
+    storeSidebarOpen(sidebarOpen)
+  }, [sidebarOpen])
 
   const adminUser = isAppAdmin(session)
   const allowedViews = useMemo(() => permissoesViewsToSet(permissoesViews), [permissoesViews])
@@ -266,11 +272,14 @@ export default function App() {
       activeId={activeSidebarId}
       onNavigate={navigate}
       footer={sidebarFooter}
-      headerExtra={
+      sidebarOpen={sidebarOpen}
+      header={
         <AppHeader
           session={session}
           authEnabled={authEnabled}
           theme={theme}
+          sidebarOpen={sidebarOpen}
+          onSidebarToggle={() => setSidebarOpen((open) => !open)}
           onThemeToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
           onSignOut={() => void supabase.auth.signOut()}
         />

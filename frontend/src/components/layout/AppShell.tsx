@@ -6,17 +6,34 @@ type Props = {
   activeId: string
   onNavigate: (id: string) => void
   children: ReactNode
-  headerExtra?: ReactNode
+  header?: ReactNode
   footer?: ReactNode
+  sidebarOpen: boolean
 }
 
-export default function AppShell({ items, activeId, onNavigate, children, headerExtra, footer }: Props) {
+export default function AppShell({
+  items,
+  activeId,
+  onNavigate,
+  children,
+  header,
+  footer,
+  sidebarOpen,
+}: Props) {
   return (
     <div className="app-shell">
-      <ExpandableSidebar items={items} activeId={activeId} onSelect={onNavigate} footer={footer} />
-      <div className="app-shell__main">
-        {headerExtra ? <div className="app-shell__header-extra">{headerExtra}</div> : null}
-        <main className="app-shell__content">{children}</main>
+      {header}
+      <div className="app-workspace">
+        <ExpandableSidebar
+          items={items}
+          activeId={activeId}
+          onSelect={onNavigate}
+          footer={footer}
+          open={sidebarOpen}
+        />
+        <div className="app-shell__main">
+          <main className="app-shell__content">{children}</main>
+        </div>
       </div>
     </div>
   )
