@@ -9,7 +9,7 @@ services:
     runtime: static
     branch: master
     rootDir: frontend
-    buildCommand: npm ci --no-audit --no-fund && NODE_ENV=production npm run build
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci --no-audit --no-fund && NODE_ENV=production npm run build
     staticPublishPath: ./frontend/dist
     envVars:
       - key: NODE_VERSION
@@ -24,7 +24,7 @@ services:
     runtime: static
     branch: homologacao
     rootDir: frontend
-    buildCommand: npm ci --no-audit --no-fund && NODE_ENV=production npm run build
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci --no-audit --no-fund && NODE_ENV=production npm run build
     staticPublishPath: ./frontend/dist
     envVars:
       - key: NODE_VERSION
