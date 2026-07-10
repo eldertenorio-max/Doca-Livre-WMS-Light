@@ -909,6 +909,12 @@
   transition: background 0.2s ease, gap 0.22s ease, padding 0.22s ease, border-color 0.15s ease;
 }
 
+.app-sidebar:not(.app-sidebar--wide) .app-sidebar__item {
+  justify-content: center;
+  padding: 8px 0;
+  gap: 0;
+}
+
 .app-sidebar--wide .app-sidebar__item {
   justify-content: flex-start;
   gap: 10px;
@@ -940,10 +946,18 @@
   width: var(--sidebar-icon-size);
   height: var(--sidebar-icon-size);
   border-radius: 8px;
-  background: var(--panel-surface-elevated);
-  border: 1px solid var(--panel-border);
-  color: var(--panel-accent);
   box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: var(--panel-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+.app-sidebar--wide .app-sidebar__nav-icon {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .app-sidebar__nav-icon svg {
@@ -956,7 +970,13 @@
 .app-sidebar__item--parent-active .app-sidebar__nav-icon,
 .app-sidebar__item:hover .app-sidebar__nav-icon {
   color: var(--panel-accent);
-  border-color: color-mix(in srgb, var(--panel-accent) 40%, var(--panel-border));
+}
+
+.app-sidebar--wide .app-sidebar__item--active .app-sidebar__nav-icon,
+.app-sidebar--wide .app-sidebar__item--parent-active .app-sidebar__nav-icon,
+.app-sidebar--wide .app-sidebar__item:hover .app-sidebar__nav-icon {
+  color: var(--panel-accent);
+  border-color: transparent;
 }
 
 .app-sidebar__item-label {
