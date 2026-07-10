@@ -19,6 +19,6 @@ services:
       - key: NODE_VERSION
         value: "20.19.0"
       - key: VITE_SUPABASE_URL
-        value: https://ogpiinpoclfjnvrbthrq.supabase.co
+        value: https://qvtnzyqdfhupfsqdqrel.supabase.co
       - key: VITE_SUPABASE_ANON_KEY
         sync: false

@@ -3,10 +3,9 @@
  * Uso: SUPABASE_DB_PASSWORD='...' node scripts/sincronizar-triggers-sheet-outbox.mjs
  */
 import pg from 'pg'
+import { connectPg, loadDotEnv, REF_ANTIGO, REF_NOVO } from './lib/supabase-env.mjs'
 
-const { Client } = pg
-const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'zvazpqdvnlecqadxacgv'
-const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'ogpiinpoclfjnvrbthrq'
+loadDotEnv()
 
 const pwd = process.env.SUPABASE_DB_PASSWORD
 if (!pwd) {
@@ -14,19 +13,8 @@ if (!pwd) {
   process.exit(1)
 }
 
-function conn(ref) {
-  const password =
-    ref === REF_ANTIGO && process.env.SUPABASE_DB_PASSWORD_OLD
-      ? process.env.SUPABASE_DB_PASSWORD_OLD
-      : pwd
-  const poolerHost =
-    ref === REF_NOVO
-      ? process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ca-central-1.pooler.supabase.com'
-      : process.env.SUPABASE_DB_POOLER_HOST_OLD || 'aws-1-us-east-1.pooler.supabase.com'
-  return new Client({
-    connectionString: `postgresql://postgres.${ref}:${encodeURIComponent(password)}@${poolerHost}:5432/postgres`,
-    ssl: { rejectUnauthorized: false },
-  })
+async function conn(ref) {
+  return connectPg(ref)
 }
 
 const FN_NAMES = [
@@ -65,10 +53,8 @@ async function getTriggers(client) {
 }
 
 async function main() {
-  const oldC = conn(REF_ANTIGO)
-  const newC = conn(REF_NOVO)
-  await oldC.connect()
-  await newC.connect()
+  const oldC = await conn(REF_ANTIGO)
+  const newC = await conn(REF_NOVO)
 
   for (const fn of FN_NAMES) {
     const def = await getFunctionDef(oldC, fn)

@@ -5,14 +5,11 @@
  * Uso: SUPABASE_DB_PASSWORD='...' node scripts/import-auth-users-postgres.mjs
  */
 import pg from 'pg'
-import { loadDotEnv } from './lib/supabase-env.mjs'
+import { connectPg, loadDotEnv, REF_ANTIGO, REF_NOVO } from './lib/supabase-env.mjs'
 
 loadDotEnv()
 
 const { Client } = pg
-
-const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'zvazpqdvnlecqadxacgv'
-const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'ogpiinpoclfjnvrbthrq'
 
 const pwd = process.env.SUPABASE_DB_PASSWORD
 if (!pwd) {
@@ -20,26 +17,13 @@ if (!pwd) {
   process.exit(1)
 }
 
-function conn(ref) {
-  const password =
-    ref === REF_ANTIGO && process.env.SUPABASE_DB_PASSWORD_OLD
-      ? process.env.SUPABASE_DB_PASSWORD_OLD
-      : pwd
-  const poolerHost =
-    ref === REF_NOVO
-      ? process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ca-central-1.pooler.supabase.com'
-      : process.env.SUPABASE_DB_POOLER_HOST_OLD || 'aws-1-us-east-1.pooler.supabase.com'
-  return new Client({
-    connectionString: `postgresql://postgres.${ref}:${encodeURIComponent(password)}@${poolerHost}:5432/postgres`,
-    ssl: { rejectUnauthorized: false },
-  })
+async function conn(ref) {
+  return connectPg(ref)
 }
 
 async function main() {
-  const oldC = conn(REF_ANTIGO)
-  const newC = conn(REF_NOVO)
-  await oldC.connect()
-  await newC.connect()
+  const oldC = await conn(REF_ANTIGO)
+  const newC = await conn(REF_NOVO)
 
   const instNew = await newC.query('SELECT id FROM auth.instances LIMIT 1')
   const instOld = await oldC.query('SELECT DISTINCT instance_id FROM auth.users LIMIT 1')

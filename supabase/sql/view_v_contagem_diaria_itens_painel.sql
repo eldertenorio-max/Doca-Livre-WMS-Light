@@ -1,4 +1,4 @@
--- Gerado de swnefuddaswgjvhiuxok em 2026-06-08T13:31:01.947Z
+-- Gerado de zvazpqdvnlecqadxacgv em 2026-07-10T00:51:04.333Z
 drop view if exists public.v_contagem_diaria_itens_painel cascade;
 create view public.v_contagem_diaria_itens_painel as
  WITH primeira_por_codigo AS (

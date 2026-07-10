@@ -87,6 +87,27 @@ async function listPublicTables(client) {
   return r.rows.map((x) => x.tablename)
 }
 
+async function tableColumns(client, table) {
+  const r = await client.query(
+    `SELECT column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema='public' AND table_name=$1
+     ORDER BY ordinal_position`,
+    [table],
+  )
+  return r.rows
+}
+
+function normalizeCopyValue(val, dataType) {
+  if (val === undefined) return null
+  if (val === null) return null
+  if (dataType === 'json' || dataType === 'jsonb') {
+    if (typeof val === 'object') return JSON.stringify(val)
+    return val
+  }
+  return val
+}
+
 async function copyPublicData(oldC, newC) {
   const oldTables = await listPublicTables(oldC)
   const newTables = new Set(await listPublicTables(newC))
@@ -104,12 +125,13 @@ async function copyPublicData(oldC, newC) {
         console.log(`  ${table}: 0 (vazio)`)
         continue
       }
-      const colsR = await oldC.query(
-        `SELECT column_name FROM information_schema.columns
-         WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position`,
-        [table],
-      )
-      const cols = colsR.rows.map((r) => r.column_name)
+      const oldCols = await tableColumns(oldC, table)
+      const newColMap = new Map((await tableColumns(newC, table)).map((r) => [r.column_name, r.data_type]))
+      const cols = oldCols.map((r) => r.column_name).filter((c) => newColMap.has(c))
+      if (cols.length === 0) {
+        console.log(`  ${table}: SKIP (sem colunas em comum)`)
+        continue
+      }
       const colList = cols.map(qIdent).join(', ')
       const sel = await oldC.query(`SELECT ${colList} FROM ${quoted}`)
       await newC.query(`DELETE FROM ${quoted}`)
@@ -123,7 +145,9 @@ async function copyPublicData(oldC, newC) {
               `(${cols.map((__, ci) => `$${ri * cols.length + ci + 1}`).join(', ')})`,
           )
           .join(', ')
-        const values = chunk.flatMap((row) => cols.map((c) => row[c]))
+        const values = chunk.flatMap((row) =>
+          cols.map((c) => normalizeCopyValue(row[c], newColMap.get(c))),
+        )
         await newC.query(`INSERT INTO ${quoted} (${colList}) VALUES ${placeholders}`, values)
         inserted += chunk.length
       }

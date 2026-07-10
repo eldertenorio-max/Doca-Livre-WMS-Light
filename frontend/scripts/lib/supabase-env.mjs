@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const repoRoot = path.resolve(__dirname, '../../..')
 
 export const REF_ANTIGO = process.env.SUPABASE_PROJECT_REF_OLD || 'zvazpqdvnlecqadxacgv'
-export const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'ogpiinpoclfjnvrbthrq'
+export const REF_NOVO = process.env.SUPABASE_PROJECT_REF || 'qvtnzyqdfhupfsqdqrel'
 
 export function loadDotEnv() {
   const tryPaths = [
@@ -60,12 +60,29 @@ export async function connectPg(ref, pwd) {
     return client
   }
 
+  const port = process.env.SUPABASE_DB_PORT || '5432'
+
+  const useDirect =
+    (ref === REF_ANTIGO && process.env.SUPABASE_DB_DIRECT_OLD === '1') ||
+    (ref === REF_NOVO && process.env.SUPABASE_DB_DIRECT === '1')
+
+  if (useDirect) {
+    const host = `db.${ref}.supabase.co`
+    const connectionString = `postgresql://postgres:${encodeURIComponent(password)}@${host}:${port}/postgres`
+    const { default: pg } = await import('pg')
+    const client = new pg.Client({
+      connectionString,
+      ssl: { rejectUnauthorized: false },
+    })
+    await client.connect()
+    return client
+  }
+
   const poolerHost =
     (ref === REF_ANTIGO && process.env.SUPABASE_DB_POOLER_HOST_OLD) ||
     (ref === REF_NOVO && process.env.SUPABASE_DB_POOLER_HOST) ||
     (ref === REF_NOVO ? 'aws-0-ca-central-1.pooler.supabase.com' : 'aws-1-us-east-1.pooler.supabase.com')
 
-  const port = process.env.SUPABASE_DB_PORT || '5432'
   const user = `postgres.${ref}`
   const connectionString = `postgresql://${user}:${encodeURIComponent(password)}@${poolerHost}:${port}/postgres`
 

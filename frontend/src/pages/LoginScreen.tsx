@@ -71,8 +71,8 @@ async function invokeAuthUsernameEdge(
       return {
         ok: false,
         message:
-          `A função «${fn}» não está publicada no Supabase (projeto ${ref || 'ogpiinpoclfjnvrbthrq'}). ` +
-          'Publique com: npx supabase functions deploy register-username login-username --project-ref ogpiinpoclfjnvrbthrq ' +
+          `A função «${fn}» não está publicada no Supabase (projeto ${ref || 'qvtnzyqdfhupfsqdqrel'}). ` +
+          'Publique com: npx supabase functions deploy register-username login-username --project-ref qvtnzyqdfhupfsqdqrel ' +
           '(após supabase login). Ou no painel: Edge Functions → criar/deploy a partir de supabase/functions/. ' +
           'Com verify_jwt desligado (já está em supabase/config.toml).',
       }
