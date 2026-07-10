@@ -1,17 +1,28 @@
-# Blueprint Render: app Vite em frontend/ (monorepo).
-# No painel: conecte este Blueprint ou copie Root Directory + comandos abaixo.
-# Static site = CDN (sem processo Node “dormindo” como no free Web Service).
-# Vite 8 exige Node 20.19+ (ver https://vite.dev/guide/#scaffolding-your-first-vite-project )
+# Render — dois ambientes no mesmo repo:
+#   homologacao → testes (Supabase cópia qvtnzyqdfhupfsqdqrel)
+#   master      → produção (Supabase original zvazpqdvnlecqadxacgv)
 #
-# staticPublishPath é relativo à RAIZ do repo (doc Render), não ao rootDir.
-# Com rootDir: frontend, a saída do Vite é frontend/dist → ./frontend/dist.
-#
-# Build: `npm run build` = só `vite build` (mais rápido no Render; evita timeout).
-# Tipagem completa local/CI: `npm run build:check`.
+# Fluxo: push em homologacao → validar → merge em master → produção atualiza.
 services:
   - type: web
-    name: contagem-de-estoque
+    name: doca-livre-wms-light-prod
     runtime: static
+    branch: master
+    rootDir: frontend
+    buildCommand: npm ci --no-audit --no-fund && NODE_ENV=production npm run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "20.19.0"
+      - key: VITE_SUPABASE_URL
+        value: https://zvazpqdvnlecqadxacgv.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+
+  - type: web
+    name: doca-livre-wms-light-homolog
+    runtime: static
+    branch: homologacao
     rootDir: frontend
     buildCommand: npm ci --no-audit --no-fund && NODE_ENV=production npm run build
     staticPublishPath: ./frontend/dist
