@@ -49,6 +49,6 @@ services:
       - key: VITE_WMS_PRO_URL
         value: https://doca-livre-wms-pro-homologacao.onrender.com/
       - key: VITE_PORTAL_URL
-        value: https://wms.docalivre.com.br/
+        value: https://ultrafrio-homologacao.onrender.com/
       - key: VITE_WMS_PLUS_URL
-        value: https://wms.docalivre.com.br/
+        value: https://ultrafrio-homologacao.onrender.com/

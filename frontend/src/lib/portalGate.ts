@@ -1,13 +1,29 @@
 /** Acesso direto (sem SSO) redireciona ao portal público no Plus. */
 
 const PORTAL_ENTRY_KEY = 'doca_portal_entry_v1'
-const DEFAULT_PORTAL_URL = 'https://wms.docalivre.com.br/'
+const PORTAL_PROD = 'https://wms.docalivre.com.br/'
+const PORTAL_HML = 'https://ultrafrio-homologacao.onrender.com/'
+
+function isLocalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')
+}
+
+function isHomologHost(hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  return h.includes('homolog') || h.includes('homologacao')
+}
 
 export function getPublicPortalUrl(): string {
   const fromEnv =
     (import.meta.env.VITE_PORTAL_URL as string | undefined)?.trim() ||
     (import.meta.env.VITE_WMS_PLUS_URL as string | undefined)?.trim()
-  return (fromEnv || DEFAULT_PORTAL_URL).replace(/\/?$/, '/')
+  if (fromEnv) return fromEnv.replace(/\/?$/, '/')
+
+  if (typeof window !== 'undefined' && isHomologHost(window.location.hostname)) {
+    return PORTAL_HML
+  }
+  return PORTAL_PROD
 }
 
 export function hasPortalEntryMarker(): boolean {
@@ -34,11 +50,6 @@ export function clearPortalEntryMarker(): void {
   }
 }
 
-function isLocalHost(hostname: string): boolean {
-  const h = hostname.toLowerCase()
-  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')
-}
-
 export function allowsDirectAccessWithoutPortal(loc: Location = window.location): boolean {
   try {
     const params = new URLSearchParams(loc.search || '')
@@ -52,7 +63,7 @@ export function allowsDirectAccessWithoutPortal(loc: Location = window.location)
 }
 
 export function redirectDirectAccessToProPortal(opts?: { hasSsoToken?: boolean }): boolean {
-  // Nome legado: agora redireciona ao portal Plus (domínio custom).
+  // Nome legado: redireciona ao portal Plus (prod ou homolog conforme o host).
   if (typeof window === 'undefined') return false
   if (opts?.hasSsoToken) return false
   if (hasPortalEntryMarker()) return false
