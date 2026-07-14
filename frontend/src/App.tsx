@@ -5,9 +5,6 @@ import AppHeader from './components/layout/AppHeader'
 import AppShell from './components/layout/AppShell'
 import type { SidebarItem } from './components/layout/ExpandableSidebar'
 import { SidebarNavIcon } from './components/layout/SidebarNavIcon'
-import CompanySplash from './components/CompanySplash'
-import LoginScreen from './pages/LoginScreen'
-import SystemSelectorScreen from './pages/SystemSelectorScreen'
 import SystemEntryScreen from './pages/SystemEntryScreen'
 import BaseProdutos from './pages/BaseProdutos'
 import ProdutosFamilia from './pages/ProdutosFamilia'
@@ -52,7 +49,6 @@ import {
   hasPortalEntryMarker,
   markPortalEntry,
   redirectDirectAccessToProPortal,
-  allowsDirectAccessWithoutPortal,
 } from './lib/portalGate'
 
 export type { AppView } from './lib/appViews'
@@ -96,7 +92,6 @@ export default function App() {
       ? !redirectDirectAccessToProPortal({ hasSsoToken: Boolean(initialSsoToken) })
       : true
   const enteredViaPortal = Boolean(initialSsoToken) || hasPortalEntryMarker()
-  const [companyIntroDone, setCompanyIntroDone] = useState(() => enteredViaPortal)
   const [selectedSystemId, setSelectedSystemId] = useState<SystemId | null>(() =>
     enteredViaPortal ? 'light' : null,
   )
@@ -198,7 +193,6 @@ export default function App() {
           markPortalEntry()
           clearPortalSsoTokenFromUrl()
           setSelectedSystemId('light')
-          setCompanyIntroDone(true)
           setSsoBootstrapping(false)
         })
         .catch(() => {
@@ -214,7 +208,6 @@ export default function App() {
         if (data.session) {
           setSession(data.session)
           setSelectedSystemId('light')
-          setCompanyIntroDone(true)
         } else {
           clearPortalEntryMarker()
           goToProPortal()
@@ -303,10 +296,6 @@ export default function App() {
     setView('contagemCaptura')
   }
 
-  function handleSystemSelect(id: SystemId) {
-    setSelectedSystemId(id)
-  }
-
   function handleBackToSystemSelector() {
     clearPortalEntryMarker()
     void supabase.auth.signOut().finally(() => {
@@ -327,10 +316,6 @@ export default function App() {
         Redirecionando ao portal Doca Livre…
       </div>
     )
-  }
-
-  if (!companyIntroDone) {
-    return <CompanySplash onComplete={() => setCompanyIntroDone(true)} />
   }
 
   if (ssoBootstrapping) {
@@ -354,15 +339,12 @@ export default function App() {
   }
 
   if (!selectedSystemId) {
-    if (!allowsDirectAccessWithoutPortal()) {
-      goToProPortal()
-      return (
-        <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
-          Redirecionando ao portal Doca Livre…
-        </div>
-      )
-    }
-    return <SystemSelectorScreen onSelect={handleSystemSelect} />
+    goToProPortal()
+    return (
+      <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
+        Redirecionando ao portal Doca Livre…
+      </div>
+    )
   }
 
   const selectedSystem = getSystemById(selectedSystemId)
@@ -377,20 +359,11 @@ export default function App() {
   }
 
   if (authEnabled && !session) {
-    if (!allowsDirectAccessWithoutPortal()) {
-      goToProPortal()
-      return (
-        <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
-          Redirecionando ao portal Doca Livre…
-        </div>
-      )
-    }
+    goToProPortal()
     return (
-      <LoginScreen
-        theme={theme}
-        onThemeToggle={toggleTheme}
-        onBack={handleBackToSystemSelector}
-      />
+      <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
+        Redirecionando ao portal Doca Livre…
+      </div>
     )
   }
 
