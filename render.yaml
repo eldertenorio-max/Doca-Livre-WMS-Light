@@ -22,6 +22,8 @@ services:
         value: https://zvazpqdvnlecqadxacgv.supabase.co
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
+      - key: VITE_WMS_PRO_URL
+        value: https://doca-livre-wms-pro.onrender.com/
 
   - type: web
     name: doca-livre-wms-light-homolog
@@ -40,3 +42,5 @@ services:
         sync: false
       - key: VITE_SUPABASE_ALLOW_DESTRUCTIVE
         value: "true"
+      - key: VITE_WMS_PRO_URL
+        value: https://doca-livre-wms-pro-homologacao.onrender.com/
