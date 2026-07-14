@@ -46,6 +46,14 @@ import {
   consumeLightSsoToken,
   readPortalSsoTokenFromLocation,
 } from './lib/consumePortalSso'
+import {
+  clearPortalEntryMarker,
+  goToProPortal,
+  hasPortalEntryMarker,
+  markPortalEntry,
+  redirectDirectAccessToProPortal,
+  allowsDirectAccessWithoutPortal,
+} from './lib/portalGate'
 
 export type { AppView } from './lib/appViews'
 
@@ -83,9 +91,14 @@ function navIcon(id: string) {
 export default function App() {
   const authEnabled = isSupabaseConfigured()
   const initialSsoToken = typeof window !== 'undefined' ? readPortalSsoTokenFromLocation() : null
-  const [companyIntroDone, setCompanyIntroDone] = useState(() => Boolean(initialSsoToken))
+  const skippedDirectRedirect =
+    typeof window !== 'undefined'
+      ? !redirectDirectAccessToProPortal({ hasSsoToken: Boolean(initialSsoToken) })
+      : true
+  const enteredViaPortal = Boolean(initialSsoToken) || hasPortalEntryMarker()
+  const [companyIntroDone, setCompanyIntroDone] = useState(() => enteredViaPortal)
   const [selectedSystemId, setSelectedSystemId] = useState<SystemId | null>(() =>
-    initialSsoToken ? 'light' : null,
+    enteredViaPortal ? 'light' : null,
   )
   const [session, setSession] = useState<Session | null>(null)
   const [ssoBootstrapping, setSsoBootstrapping] = useState(() => Boolean(initialSsoToken))
@@ -147,6 +160,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authEnabled) return
+    if (!skippedDirectRedirect) return
     let alive = true
     const ssoToken = readPortalSsoTokenFromLocation()
 
@@ -166,8 +180,7 @@ export default function App() {
             setSsoError(result.error)
             setSsoBootstrapping(false)
             clearPortalSsoTokenFromUrl()
-            setSelectedSystemId(null)
-            setCompanyIntroDone(true)
+            clearPortalEntryMarker()
             return
           }
           const { error } = await supabase.auth.setSession({
@@ -179,8 +192,10 @@ export default function App() {
             setSsoError(error.message || 'Falha ao aplicar sessão SSO.')
             setSsoBootstrapping(false)
             clearPortalSsoTokenFromUrl()
+            clearPortalEntryMarker()
             return
           }
+          markPortalEntry()
           clearPortalSsoTokenFromUrl()
           setSelectedSystemId('light')
           setCompanyIntroDone(true)
@@ -191,7 +206,20 @@ export default function App() {
           setSsoError('Falha ao processar SSO.')
           setSsoBootstrapping(false)
           clearPortalSsoTokenFromUrl()
+          clearPortalEntryMarker()
         })
+    } else if (hasPortalEntryMarker()) {
+      void supabase.auth.getSession().then(({ data }) => {
+        if (!alive) return
+        if (data.session) {
+          setSession(data.session)
+          setSelectedSystemId('light')
+          setCompanyIntroDone(true)
+        } else {
+          clearPortalEntryMarker()
+          goToProPortal()
+        }
+      })
     } else {
       void supabase.auth.signOut().finally(() => {
         if (alive) setSession(null)
@@ -202,7 +230,7 @@ export default function App() {
       alive = false
       subscription.unsubscribe()
     }
-  }, [authEnabled])
+  }, [authEnabled, skippedDirectRedirect])
 
   const sidebarItemsBase: SidebarItem[] = useMemo(
     () => [
@@ -280,7 +308,25 @@ export default function App() {
   }
 
   function handleBackToSystemSelector() {
-    setSelectedSystemId(null)
+    clearPortalEntryMarker()
+    void supabase.auth.signOut().finally(() => {
+      goToProPortal()
+    })
+  }
+
+  function handleSignOut() {
+    clearPortalEntryMarker()
+    void supabase.auth.signOut().finally(() => {
+      goToProPortal(true)
+    })
+  }
+
+  if (!skippedDirectRedirect) {
+    return (
+      <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
+        Redirecionando ao portal Doca Livre…
+      </div>
+    )
   }
 
   if (!companyIntroDone) {
@@ -300,20 +346,22 @@ export default function App() {
       <div style={{ padding: 32, maxWidth: 480, margin: '48px auto', color: 'var(--text, #0f172a)' }}>
         <h2 style={{ marginTop: 0 }}>SSO não concluído</h2>
         <p>{ssoError}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setSsoError(null)
-            setSelectedSystemId(null)
-          }}
-        >
-          Ir para seleção de sistemas
+        <button type="button" onClick={() => goToProPortal()}>
+          Ir ao portal Doca Livre
         </button>
       </div>
     )
   }
 
   if (!selectedSystemId) {
+    if (!allowsDirectAccessWithoutPortal()) {
+      goToProPortal()
+      return (
+        <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
+          Redirecionando ao portal Doca Livre…
+        </div>
+      )
+    }
     return <SystemSelectorScreen onSelect={handleSystemSelect} />
   }
 
@@ -329,6 +377,14 @@ export default function App() {
   }
 
   if (authEnabled && !session) {
+    if (!allowsDirectAccessWithoutPortal()) {
+      goToProPortal()
+      return (
+        <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
+          Redirecionando ao portal Doca Livre…
+        </div>
+      )
+    }
     return (
       <LoginScreen
         theme={theme}
@@ -343,7 +399,7 @@ export default function App() {
       <AcessoPendenteScreen
         session={session}
         recarregando={recarregandoAcesso}
-        onSignOut={() => void supabase.auth.signOut()}
+        onSignOut={handleSignOut}
         onRecarregar={() => {
           if (!session.user?.id) return
           setRecarregandoAcesso(true)
@@ -402,7 +458,7 @@ export default function App() {
           sidebarOpen={sidebarOpen}
           onSidebarToggle={() => setSidebarOpen((open) => !open)}
           onThemeToggle={toggleTheme}
-          onSignOut={() => void supabase.auth.signOut()}
+          onSignOut={handleSignOut}
         />
       }
     >
