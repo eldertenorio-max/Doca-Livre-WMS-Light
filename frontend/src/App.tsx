@@ -41,6 +41,11 @@ import { getStoredSidebarOpen, storeSidebarOpen } from './lib/sidebarOpen'
 import { useTheme } from './hooks/useTheme'
 import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 import { getSystemById, type SystemId } from './lib/systemPortal'
+import {
+  clearPortalSsoTokenFromUrl,
+  consumeLightSsoToken,
+  readPortalSsoTokenFromLocation,
+} from './lib/consumePortalSso'
 
 export type { AppView } from './lib/appViews'
 
@@ -77,9 +82,14 @@ function navIcon(id: string) {
 
 export default function App() {
   const authEnabled = isSupabaseConfigured()
-  const [companyIntroDone, setCompanyIntroDone] = useState(false)
-  const [selectedSystemId, setSelectedSystemId] = useState<SystemId | null>(null)
+  const initialSsoToken = typeof window !== 'undefined' ? readPortalSsoTokenFromLocation() : null
+  const [companyIntroDone, setCompanyIntroDone] = useState(() => Boolean(initialSsoToken))
+  const [selectedSystemId, setSelectedSystemId] = useState<SystemId | null>(() =>
+    initialSsoToken ? 'light' : null,
+  )
   const [session, setSession] = useState<Session | null>(null)
+  const [ssoBootstrapping, setSsoBootstrapping] = useState(() => Boolean(initialSsoToken))
+  const [ssoError, setSsoError] = useState<string | null>(null)
   const [view, setView] = useState<AppView>('painel')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
   const [capturaContagemId, setCapturaContagemId] = useState<string | null>(null)
@@ -138,14 +148,56 @@ export default function App() {
   useEffect(() => {
     if (!authEnabled) return
     let alive = true
-    void supabase.auth.signOut().finally(() => {
-      if (alive) setSession(null)
-    })
+    const ssoToken = readPortalSsoTokenFromLocation()
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, s: Session | null) => {
       if (alive) setSession(s)
     })
+
+    if (ssoToken) {
+      setSsoBootstrapping(true)
+      setSsoError(null)
+      void consumeLightSsoToken(ssoToken)
+        .then(async (result) => {
+          if (!alive) return
+          if (!result.ok) {
+            setSsoError(result.error)
+            setSsoBootstrapping(false)
+            clearPortalSsoTokenFromUrl()
+            setSelectedSystemId(null)
+            setCompanyIntroDone(true)
+            return
+          }
+          const { error } = await supabase.auth.setSession({
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+          })
+          if (!alive) return
+          if (error) {
+            setSsoError(error.message || 'Falha ao aplicar sessão SSO.')
+            setSsoBootstrapping(false)
+            clearPortalSsoTokenFromUrl()
+            return
+          }
+          clearPortalSsoTokenFromUrl()
+          setSelectedSystemId('light')
+          setCompanyIntroDone(true)
+          setSsoBootstrapping(false)
+        })
+        .catch(() => {
+          if (!alive) return
+          setSsoError('Falha ao processar SSO.')
+          setSsoBootstrapping(false)
+          clearPortalSsoTokenFromUrl()
+        })
+    } else {
+      void supabase.auth.signOut().finally(() => {
+        if (alive) setSession(null)
+      })
+    }
+
     return () => {
       alive = false
       subscription.unsubscribe()
@@ -233,6 +285,32 @@ export default function App() {
 
   if (!companyIntroDone) {
     return <CompanySplash onComplete={() => setCompanyIntroDone(true)} />
+  }
+
+  if (ssoBootstrapping) {
+    return (
+      <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
+        Entrando pelo portal Doca Livre…
+      </div>
+    )
+  }
+
+  if (ssoError) {
+    return (
+      <div style={{ padding: 32, maxWidth: 480, margin: '48px auto', color: 'var(--text, #0f172a)' }}>
+        <h2 style={{ marginTop: 0 }}>SSO não concluído</h2>
+        <p>{ssoError}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setSsoError(null)
+            setSelectedSystemId(null)
+          }}
+        >
+          Ir para seleção de sistemas
+        </button>
+      </div>
+    )
   }
 
   if (!selectedSystemId) {
