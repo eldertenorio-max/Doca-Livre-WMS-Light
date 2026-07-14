@@ -24,6 +24,10 @@ services:
         sync: false
       - key: VITE_WMS_PRO_URL
         value: https://doca-livre-wms-pro.onrender.com/
+      - key: VITE_PORTAL_URL
+        value: https://wms.docalivre.com.br/
+      - key: VITE_WMS_PLUS_URL
+        value: https://wms.docalivre.com.br/
 
   - type: web
     name: doca-livre-wms-light-homolog
@@ -44,3 +48,7 @@ services:
         value: "true"
       - key: VITE_WMS_PRO_URL
         value: https://doca-livre-wms-pro-homologacao.onrender.com/
+      - key: VITE_PORTAL_URL
+        value: https://wms.docalivre.com.br/
+      - key: VITE_WMS_PLUS_URL
+        value: https://wms.docalivre.com.br/
