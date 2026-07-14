@@ -1,12 +1,13 @@
-/** Acesso direto (sem SSO do Pro) redireciona ao portal único. */
+/** Acesso direto (sem SSO) redireciona ao portal público no Plus. */
 
 const PORTAL_ENTRY_KEY = 'doca_portal_entry_v1'
-const DEFAULT_PRO_URL = 'https://doca-livre-wms-pro.onrender.com/'
+const DEFAULT_PORTAL_URL = 'https://wms.docalivre.com.br/'
 
-export function getProPortalUrl(): string {
-  const fromEnv = (import.meta.env.VITE_WMS_PRO_URL as string | undefined)?.trim()
-  const base = (fromEnv || DEFAULT_PRO_URL).replace(/\/?$/, '/')
-  return base
+export function getPublicPortalUrl(): string {
+  const fromEnv =
+    (import.meta.env.VITE_PORTAL_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_WMS_PLUS_URL as string | undefined)?.trim()
+  return (fromEnv || DEFAULT_PORTAL_URL).replace(/\/?$/, '/')
 }
 
 export function hasPortalEntryMarker(): boolean {
@@ -50,33 +51,17 @@ export function allowsDirectAccessWithoutPortal(loc: Location = window.location)
   return false
 }
 
-function allowStayWithoutSso(loc: Location = window.location): boolean {
-  return allowsDirectAccessWithoutPortal(loc)
-}
-
-/**
- * Se o usuário abriu Light/Plus direto (sem SSO e sem sessão vinda do portal),
- * redireciona para o Pro. Retorna true se redirecionou.
- */
-export function redirectDirectAccessToProPortal(opts?: {
-  hasSsoToken?: boolean
-}): boolean {
+export function redirectDirectAccessToProPortal(opts?: { hasSsoToken?: boolean }): boolean {
+  // Nome legado: agora redireciona ao portal Plus (domínio custom).
   if (typeof window === 'undefined') return false
   if (opts?.hasSsoToken) return false
   if (hasPortalEntryMarker()) return false
-  if (allowStayWithoutSso()) return false
-  const target = getProPortalUrl()
-  try {
-    const here = window.location.href
-    if (here.startsWith(target.replace(/\/?$/, ''))) return false
-  } catch {
-    /* ignore */
-  }
-  window.location.replace(getProPortalUrl())
+  if (allowsDirectAccessWithoutPortal()) return false
+  window.location.replace(getPublicPortalUrl())
   return true
 }
 
 export function goToProPortal(sair = false): void {
-  const base = getProPortalUrl().replace(/\/?$/, '/')
+  const base = getPublicPortalUrl()
   window.location.assign(sair ? `${base}?sair=1` : base)
 }
