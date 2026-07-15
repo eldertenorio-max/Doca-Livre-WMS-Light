@@ -50,6 +50,7 @@ import {
   markPortalEntry,
   redirectDirectAccessToProPortal,
 } from './lib/portalGate'
+import { PortalBackButton } from './components/PortalBackButton'
 
 export type { AppView } from './lib/appViews'
 
@@ -303,6 +304,11 @@ export default function App() {
     })
   }
 
+  function handleBackToSystemsHub() {
+    // Volta ao hub Light/Plus/Pro sem encerrar a sessão do portal.
+    goToProPortal(false)
+  }
+
   function handleSignOut() {
     clearPortalEntryMarker()
     void supabase.auth.signOut().finally(() => {
@@ -417,6 +423,8 @@ export default function App() {
   )
 
   return (
+    <>
+      <PortalBackButton onClick={handleBackToSystemsHub} label="Sistemas" />
     <AppShell
       items={sidebarItems}
       activeId={activeSidebarId}
@@ -502,5 +510,6 @@ export default function App() {
         </PanelErrorBoundary>
       ) : null}
     </AppShell>
+    </>
   )
 }

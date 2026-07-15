@@ -5,7 +5,7 @@ type Props = {
   label?: string
 }
 
-export function PortalBackButton({ onClick, label = 'Voltar' }: Props) {
+export function PortalBackButton({ onClick, label = 'Sistemas' }: Props) {
   return (
     <button type="button" className="portal-back-btn" onClick={onClick}>
       <span className="portal-back-btn__icon" aria-hidden>
