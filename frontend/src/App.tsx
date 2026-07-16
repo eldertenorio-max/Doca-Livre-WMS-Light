@@ -59,8 +59,6 @@ import {
   markPortalEntry,
   redirectDirectAccessToProPortal,
 } from './lib/portalGate'
-import { PortalBackButton } from './components/PortalBackButton'
-
 export type { AppView } from './lib/appViews'
 
 class PanelErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -456,7 +454,6 @@ export default function App() {
 
   return (
     <>
-      <PortalBackButton onClick={handleBackToSystemsHub} label="Sistemas" />
     <AppShell
       items={sidebarItems}
       activeId={activeSidebarId}
@@ -472,6 +469,7 @@ export default function App() {
           onSidebarToggle={() => setSidebarOpen((open) => !open)}
           onThemeToggle={toggleTheme}
           onSignOut={handleSignOut}
+          onBackToSystems={handleBackToSystemsHub}
         />
       }
     >

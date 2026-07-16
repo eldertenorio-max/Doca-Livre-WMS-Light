@@ -2,7 +2,7 @@
   position: fixed;
   top: max(16px, env(safe-area-inset-top));
   left: max(16px, env(safe-area-inset-left));
-  z-index: 400;
+  z-index: 10050;
   display: inline-flex;
   align-items: center;
   gap: 6px;

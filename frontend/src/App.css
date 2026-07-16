@@ -544,6 +544,39 @@
   background: color-mix(in srgb, var(--panel-header-border) 80%, transparent);
 }
 
+.app-header__back-systems {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.app-header__back-systems:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+}
+
+:root[data-theme='dark'] .app-header__back-systems {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #f3f4f6;
+}
+
+:root[data-theme='dark'] .app-header__back-systems:hover {
+  background: #374151;
+  border-color: #6b7280;
+}
+
 .app-header__menu-icon {
   display: block;
   width: 18px;

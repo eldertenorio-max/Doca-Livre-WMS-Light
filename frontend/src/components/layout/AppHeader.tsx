@@ -17,6 +17,8 @@ type Props = {
   onSignOut?: () => void
   sidebarOpen: boolean
   onSidebarToggle: () => void
+  /** Volta ao hub Light/Plus/Pro no portal. */
+  onBackToSystems?: () => void
 }
 
 function IconBell() {
@@ -95,6 +97,7 @@ export default function AppHeader({
   onSignOut,
   sidebarOpen,
   onSidebarToggle,
+  onBackToSystems,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [agora, setAgora] = useState(() => new Date())
@@ -148,6 +151,18 @@ export default function AppHeader({
         >
           <span className="app-header__menu-icon" aria-hidden />
         </button>
+
+        {onBackToSystems ? (
+          <button
+            type="button"
+            className="app-header__back-systems"
+            onClick={onBackToSystems}
+            title="Voltar aos sistemas Light, Plus e Pro"
+            aria-label="Voltar aos sistemas"
+          >
+            <span aria-hidden>←</span> Sistemas
+          </button>
+        ) : null}
 
         <div className="app-header__brand">
           <img src={LOGO_DOCA_LIVRE_SRC} alt="Doca Livre" className="app-header__logo" />
