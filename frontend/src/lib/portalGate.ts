@@ -76,10 +76,15 @@ export function goToProPortal(sair = false, ssoErro?: string): void {
   const base = getPublicPortalUrl().replace(/\/?$/, '/')
   try {
     const u = new URL(base)
-    if (sair) u.searchParams.set('sair', '1')
+    if (sair) {
+      u.searchParams.set('sair', '1')
+    } else {
+      // Volta ao hub Light/Plus/Pro (não reabre o app Plus).
+      u.searchParams.set('hub', '1')
+    }
     if (ssoErro) u.searchParams.set('sso_erro', ssoErro.slice(0, 180))
     window.location.assign(u.toString())
   } catch {
-    window.location.assign(sair ? `${base}?sair=1` : base)
+    window.location.assign(sair ? `${base}?sair=1` : `${base}?hub=1`)
   }
 }
