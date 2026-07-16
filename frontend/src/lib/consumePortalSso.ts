@@ -60,8 +60,17 @@ async function consumeLightSsoTokenRaw(token: string): Promise<SsoResult> {
       refresh_token: data.refresh_token,
       usuario: data.usuario,
     }
-  } catch {
-    return { ok: false, error: 'Falha de rede ao consumir SSO.' }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : ''
+    // OPTIONS 404 sem CORS vira TypeError/Failed to fetch no browser.
+    if (/failed to fetch|networkerror|load failed|cors/i.test(msg) || !msg) {
+      return {
+        ok: false,
+        error:
+          'Função SSO do Light não está publicada (sso-entrar). Rode: supabase functions deploy sso-entrar',
+      }
+    }
+    return { ok: false, error: `Falha de rede ao consumir SSO (${msg}).` }
   }
 }
 
