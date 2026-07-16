@@ -71,28 +71,52 @@ async function verifySsoTokenLocal(token: string, secret: string): Promise<strin
   return usuario
 }
 
-async function verifySsoTokenViaPro(token: string): Promise<string> {
-  const proBase = (
+function proVerifyBases(): string[] {
+  const preferred = (
     Deno.env.get('WMS_PRO_URL') ||
     Deno.env.get('VITE_WMS_PRO_URL') ||
-    DEFAULT_PRO_URL
+    ''
   )
     .trim()
     .replace(/\/$/, '')
-  const res = await fetch(`${proBase}/api/sso/verify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, system: EXPECTED_SYSTEM }),
-  })
-  const data = (await res.json().catch(() => ({}))) as {
-    ok?: boolean
-    usuario?: string
-    erro?: string
+  const fallbacks = [
+    DEFAULT_PRO_URL,
+    'https://doca-livre-wms-pro-homologacao.onrender.com',
+  ]
+  const out: string[] = []
+  for (const base of [preferred, ...fallbacks]) {
+    const clean = (base || '').trim().replace(/\/$/, '')
+    if (clean && !out.includes(clean)) out.push(clean)
   }
-  if (!res.ok || !data.ok || !data.usuario) {
-    throw new Error(data.erro || `SSO Pro rejeitou o token (HTTP ${res.status}).`)
+  return out
+}
+
+async function verifySsoTokenViaPro(token: string): Promise<string> {
+  const bases = proVerifyBases()
+  let lastError = 'SSO Pro rejeitou o token.'
+  for (const proBase of bases) {
+    try {
+      const res = await fetch(`${proBase}/api/sso/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, system: EXPECTED_SYSTEM }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        usuario?: string
+        erro?: string
+      }
+      if (res.ok && data.ok && data.usuario) {
+        return String(data.usuario).trim()
+      }
+      lastError = data.erro || `SSO Pro rejeitou o token (HTTP ${res.status}).`
+      // Token já consumido: não adianta tentar outro Pro.
+      if (/j[aá]\s*utilizado|already\s*used|consum/i.test(lastError)) break
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : `Falha de rede ao validar SSO em ${proBase}.`
+    }
   }
-  return String(data.usuario).trim()
+  throw new Error(lastError)
 }
 
 type SupabaseAdmin = ReturnType<typeof createClient>

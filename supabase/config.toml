@@ -34,3 +34,6 @@ verify_jwt = false
 
 [functions.sheet-outbox-sync]
 verify_jwt = false
+
+[functions.sso-entrar]
+verify_jwt = false

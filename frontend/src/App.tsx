@@ -1,4 +1,12 @@
-import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import './App.css'
 import AppHeader from './components/layout/AppHeader'
@@ -39,6 +47,7 @@ import { useTheme } from './hooks/useTheme'
 import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 import { getSystemById, type SystemId } from './lib/systemPortal'
 import {
+  clearPortalSsoClaim,
   clearPortalSsoTokenFromUrl,
   consumeLightSsoToken,
   readPortalSsoTokenFromLocation,
@@ -114,6 +123,13 @@ export default function App() {
     storeSidebarOpen(sidebarOpen)
   }, [sidebarOpen])
 
+  // Marca entrada pelo portal assim que o token SSO aparece (antes do async).
+  useEffect(() => {
+    if (!initialSsoToken) return
+    markPortalEntry()
+    clearPortalSsoTokenFromUrl()
+  }, [initialSsoToken])
+
   const adminUser = isAppAdmin(session)
   const allowedViews = useMemo(() => permissoesViewsToSet(permissoesViews), [permissoesViews])
 
@@ -169,15 +185,16 @@ export default function App() {
     if (ssoToken) {
       setSsoBootstrapping(true)
       setSsoError(null)
+      markPortalEntry()
+      clearPortalSsoTokenFromUrl()
       void consumeLightSsoToken(ssoToken)
         .then(async (result) => {
           if (!alive) return
           if (!result.ok) {
             setSsoBootstrapping(false)
-            clearPortalSsoTokenFromUrl()
-            clearPortalEntryMarker()
-            // Volta ao hub (sem ?sair=1) com o erro — não joga no login.
-            goToProPortal(false, result.error || 'Falha no SSO do Light.')
+            clearPortalSsoClaim()
+            // Mostra o erro no Light — não devolve ao hub em loop silencioso.
+            setSsoError(result.error || 'Falha no SSO do Light.')
             return
           }
           const { data: sessData, error } = await supabase.auth.setSession({
@@ -187,24 +204,22 @@ export default function App() {
           if (!alive) return
           if (error || !sessData.session) {
             setSsoBootstrapping(false)
-            clearPortalSsoTokenFromUrl()
-            clearPortalEntryMarker()
-            goToProPortal(false, error?.message || 'Falha ao aplicar sessão SSO.')
+            clearPortalSsoClaim()
+            setSsoError(error?.message || 'Falha ao aplicar sessão SSO.')
             return
           }
           // Sem session no state, o render redirecionava ao hub (loop).
           setSession(sessData.session)
           markPortalEntry()
-          clearPortalSsoTokenFromUrl()
+          clearPortalSsoClaim()
           setSelectedSystemId('light')
           setSsoBootstrapping(false)
         })
         .catch(() => {
           if (!alive) return
           setSsoBootstrapping(false)
-          clearPortalSsoTokenFromUrl()
-          clearPortalEntryMarker()
-          goToProPortal(false, 'Falha ao processar SSO do Light.')
+          clearPortalSsoClaim()
+          setSsoError('Falha ao processar SSO do Light.')
         })
     } else if (hasPortalEntryMarker()) {
       void supabase.auth.getSession().then(({ data }) => {
@@ -349,11 +364,15 @@ export default function App() {
 
   if (ssoError) {
     return (
-      <div style={{ padding: 32, maxWidth: 480, margin: '48px auto', color: 'var(--text, #0f172a)' }}>
-        <h2 style={{ marginTop: 0 }}>SSO não concluído</h2>
+      <div style={{ padding: 32, maxWidth: 520, margin: '48px auto', color: 'var(--text, #0f172a)' }}>
+        <h2 style={{ marginTop: 0 }}>Não foi possível entrar no WMS Light</h2>
         <p>{ssoError}</p>
-        <button type="button" onClick={() => goToProPortal()}>
-          Ir ao portal Doca Livre
+        <p style={{ fontSize: 14, opacity: 0.85 }}>
+          Volte ao hub e tente de novo. Se o erro falar em <strong>sso-entrar</strong>, a função SSO
+          precisa ser publicada no Supabase do Light.
+        </p>
+        <button type="button" onClick={() => goToProPortal(false)}>
+          Voltar aos sistemas
         </button>
       </div>
     )
