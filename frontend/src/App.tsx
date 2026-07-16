@@ -173,10 +173,11 @@ export default function App() {
         .then(async (result) => {
           if (!alive) return
           if (!result.ok) {
-            setSsoError(result.error)
             setSsoBootstrapping(false)
             clearPortalSsoTokenFromUrl()
             clearPortalEntryMarker()
+            // Volta ao hub (sem ?sair=1) com o erro — não joga no login.
+            goToProPortal(false, result.error || 'Falha no SSO do Light.')
             return
           }
           const { data: sessData, error } = await supabase.auth.setSession({
@@ -185,10 +186,10 @@ export default function App() {
           })
           if (!alive) return
           if (error || !sessData.session) {
-            setSsoError(error?.message || 'Falha ao aplicar sessão SSO.')
             setSsoBootstrapping(false)
             clearPortalSsoTokenFromUrl()
             clearPortalEntryMarker()
+            goToProPortal(false, error?.message || 'Falha ao aplicar sessão SSO.')
             return
           }
           // Sem session no state, o render redirecionava ao hub (loop).
@@ -200,10 +201,10 @@ export default function App() {
         })
         .catch(() => {
           if (!alive) return
-          setSsoError('Falha ao processar SSO.')
           setSsoBootstrapping(false)
           clearPortalSsoTokenFromUrl()
           clearPortalEntryMarker()
+          goToProPortal(false, 'Falha ao processar SSO do Light.')
         })
     } else if (hasPortalEntryMarker()) {
       void supabase.auth.getSession().then(({ data }) => {

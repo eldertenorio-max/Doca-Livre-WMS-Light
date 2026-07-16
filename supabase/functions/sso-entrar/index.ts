@@ -1,14 +1,15 @@
-// SSO a partir do portal WMS Pro: valida token HMAC e cria sessão Supabase Auth
-// sem pedir senha novamente.
+// SSO a partir do portal WMS Pro: valida token no Pro (fonte da verdade)
+// e cria sessão Supabase Auth no Light sem pedir senha.
 //
-// Secrets: SSO_SECRET (igual ao Pro), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+// Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+// Opcional: WMS_PRO_URL (padrão produção), SSO_SECRET (fallback HMAC local)
 // Deploy: supabase functions deploy sso-entrar
 
 import { createClient } from 'npm:@supabase/supabase-js'
 
 const INTERNAL_EMAIL_DOMAIN = 'internal.local'
-const LEGACY_EMAIL_DOMAIN = 'ultrapao.com.br'
 const EXPECTED_SYSTEM = 'light'
+const DEFAULT_PRO_URL = 'https://doca-livre-wms-pro.onrender.com'
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -51,7 +52,7 @@ async function hmacSha256(secret: string, message: string): Promise<string> {
   return bytesToB64url(sig)
 }
 
-async function verifySsoToken(token: string, secret: string): Promise<{ usuario: string; system: string }> {
+async function verifySsoTokenLocal(token: string, secret: string): Promise<string> {
   const raw = (token || '').trim()
   const dot = raw.indexOf('.')
   if (dot <= 0) throw new Error('Token inválido.')
@@ -67,7 +68,31 @@ async function verifySsoToken(token: string, secret: string): Promise<{ usuario:
   if (!usuario || !system) throw new Error('Token incompleto.')
   if (system !== EXPECTED_SYSTEM) throw new Error('Token destinado a outro sistema.')
   if (!Number.isFinite(exp) || Date.now() / 1000 > exp) throw new Error('Token expirado.')
-  return { usuario, system }
+  return usuario
+}
+
+async function verifySsoTokenViaPro(token: string): Promise<string> {
+  const proBase = (
+    Deno.env.get('WMS_PRO_URL') ||
+    Deno.env.get('VITE_WMS_PRO_URL') ||
+    DEFAULT_PRO_URL
+  )
+    .trim()
+    .replace(/\/$/, '')
+  const res = await fetch(`${proBase}/api/sso/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, system: EXPECTED_SYSTEM }),
+  })
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean
+    usuario?: string
+    erro?: string
+  }
+  if (!res.ok || !data.ok || !data.usuario) {
+    throw new Error(data.erro || `SSO Pro rejeitou o token (HTTP ${res.status}).`)
+  }
+  return String(data.usuario).trim()
 }
 
 type SupabaseAdmin = ReturnType<typeof createClient>
@@ -109,7 +134,6 @@ async function resolveEmailForUsername(admin: SupabaseAdmin, usernameRaw: string
     if (em) return em
   }
 
-  // Fallback previsível (login-username / portal SSO)
   return `${effective}@${INTERNAL_EMAIL_DOMAIN}`
 }
 
@@ -124,12 +148,8 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')?.trim()
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim()
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')?.trim()
-  const ssoSecret = Deno.env.get('SSO_SECRET')?.trim()
   if (!supabaseUrl || !serviceKey || !anonKey) {
     return jsonResponse({ ok: false, error: 'Função sem variáveis SUPABASE_*' }, 500)
-  }
-  if (!ssoSecret) {
-    return jsonResponse({ ok: false, error: 'SSO_SECRET não configurado na Edge Function.' }, 500)
   }
 
   let body: Record<string, unknown>
@@ -144,11 +164,29 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: 'Informe o token SSO.' }, 400)
   }
 
+  // 1) Valida no Pro (mesmo segredo do portal). 2) Fallback HMAC local se SSO_SECRET existir.
   let usuario: string
   try {
-    ;({ usuario } = await verifySsoToken(token, ssoSecret))
-  } catch (err) {
-    return jsonResponse({ ok: false, error: err instanceof Error ? err.message : 'Token inválido.' }, 401)
+    usuario = await verifySsoTokenViaPro(token)
+  } catch (proErr) {
+    const ssoSecret = Deno.env.get('SSO_SECRET')?.trim()
+    if (!ssoSecret) {
+      return jsonResponse({
+        ok: false,
+        error: proErr instanceof Error ? proErr.message : 'Falha ao validar SSO no Pro.',
+      }, 401)
+    }
+    try {
+      usuario = await verifySsoTokenLocal(token, ssoSecret)
+    } catch (localErr) {
+      return jsonResponse({
+        ok: false,
+        error:
+          (proErr instanceof Error ? proErr.message : 'SSO Pro falhou') +
+          ' | ' +
+          (localErr instanceof Error ? localErr.message : 'HMAC local falhou'),
+      }, 401)
+    }
   }
 
   const username = usuario.trim().toLowerCase().replace(/\s+/g, '.')
@@ -159,8 +197,6 @@ Deno.serve(async (req) => {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  // Portal único: usuários criados no Pro entram no Light via SSO.
-  // Se ainda não existir Auth no Light, provisiona e-mail interno.
   const { data: rowLocal } = await admin.from('usuarios').select('id, username').eq('username', username).maybeSingle()
   let email = await resolveEmailForUsername(admin, username)
   if (!rowLocal?.id) {
@@ -176,7 +212,6 @@ Deno.serve(async (req) => {
         user_metadata: { username, portal_sso: true },
       })
       if (createErr || !created?.user?.id) {
-        // Usuário Auth pode já existir com esse e-mail
         const existingId = await findAuthUserIdByEmailLocalPart(admin, username)
         if (!existingId) {
           return jsonResponse({

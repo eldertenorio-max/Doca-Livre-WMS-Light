@@ -72,7 +72,14 @@ export function redirectDirectAccessToProPortal(opts?: { hasSsoToken?: boolean }
   return true
 }
 
-export function goToProPortal(sair = false): void {
-  const base = getPublicPortalUrl()
-  window.location.assign(sair ? `${base}?sair=1` : base)
+export function goToProPortal(sair = false, ssoErro?: string): void {
+  const base = getPublicPortalUrl().replace(/\/?$/, '/')
+  try {
+    const u = new URL(base)
+    if (sair) u.searchParams.set('sair', '1')
+    if (ssoErro) u.searchParams.set('sso_erro', ssoErro.slice(0, 180))
+    window.location.assign(u.toString())
+  } catch {
+    window.location.assign(sair ? `${base}?sair=1` : base)
+  }
 }
