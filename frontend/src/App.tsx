@@ -179,18 +179,20 @@ export default function App() {
             clearPortalEntryMarker()
             return
           }
-          const { error } = await supabase.auth.setSession({
+          const { data: sessData, error } = await supabase.auth.setSession({
             access_token: result.access_token,
             refresh_token: result.refresh_token,
           })
           if (!alive) return
-          if (error) {
-            setSsoError(error.message || 'Falha ao aplicar sessão SSO.')
+          if (error || !sessData.session) {
+            setSsoError(error?.message || 'Falha ao aplicar sessão SSO.')
             setSsoBootstrapping(false)
             clearPortalSsoTokenFromUrl()
             clearPortalEntryMarker()
             return
           }
+          // Sem session no state, o render redirecionava ao hub (loop).
+          setSession(sessData.session)
           markPortalEntry()
           clearPortalSsoTokenFromUrl()
           setSelectedSystemId('light')
@@ -225,6 +227,18 @@ export default function App() {
       subscription.unsubscribe()
     }
   }, [authEnabled, skippedDirectRedirect])
+
+  // Redirects só em useEffect (nunca no render) — evita loop hub ↔ Light no SSO.
+  useEffect(() => {
+    if (!skippedDirectRedirect || ssoBootstrapping || ssoError) return
+    if (!selectedSystemId) {
+      goToProPortal()
+      return
+    }
+    if (authEnabled && !session && !hasPortalEntryMarker()) {
+      goToProPortal()
+    }
+  }, [skippedDirectRedirect, ssoBootstrapping, ssoError, selectedSystemId, authEnabled, session])
 
   const sidebarItemsBase: SidebarItem[] = useMemo(
     () => [
@@ -345,7 +359,6 @@ export default function App() {
   }
 
   if (!selectedSystemId) {
-    goToProPortal()
     return (
       <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
         Redirecionando ao portal Doca Livre…
@@ -365,10 +378,9 @@ export default function App() {
   }
 
   if (authEnabled && !session) {
-    goToProPortal()
     return (
       <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
-        Redirecionando ao portal Doca Livre…
+        Entrando no WMS Light…
       </div>
     )
   }

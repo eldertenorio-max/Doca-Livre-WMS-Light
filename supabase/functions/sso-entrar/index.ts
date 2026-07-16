@@ -93,9 +93,8 @@ async function findAuthUserIdByEmailLocalPart(admin: SupabaseAdmin, localPart: s
 }
 
 async function resolveEmailForUsername(admin: SupabaseAdmin, usernameRaw: string): Promise<string | null> {
-  let effective = usernameRaw.trim().toLowerCase()
+  const effective = usernameRaw.trim().toLowerCase().replace(/\s+/g, '.')
   const { data: rowByUser } = await admin.from('usuarios').select('id, username').eq('username', effective).maybeSingle()
-  if (rowByUser?.username) effective = String(rowByUser.username).trim().toLowerCase()
 
   if (rowByUser?.id) {
     const { data: authData } = await admin.auth.admin.getUserById(String(rowByUser.id))
@@ -110,7 +109,7 @@ async function resolveEmailForUsername(admin: SupabaseAdmin, usernameRaw: string
     if (em) return em
   }
 
-  // Fallbacks previsíveis usados no login-username
+  // Fallback previsível (login-username / portal SSO)
   return `${effective}@${INTERNAL_EMAIL_DOMAIN}`
 }
 
@@ -160,19 +159,33 @@ Deno.serve(async (req) => {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  // Exige usuário existente na base local (não cria conta automaticamente).
+  // Portal único: usuários criados no Pro entram no Light via SSO.
+  // Se ainda não existir Auth no Light, provisiona e-mail interno.
   const { data: rowLocal } = await admin.from('usuarios').select('id, username').eq('username', username).maybeSingle()
   let email = await resolveEmailForUsername(admin, username)
   if (!rowLocal?.id) {
     const uid = await findAuthUserIdByEmailLocalPart(admin, username)
-    if (!uid) {
-      return jsonResponse({
-        ok: false,
-        error: `Usuário "${username}" não existe no WMS Light. Cadastre/autorize nele antes do SSO.`,
-      }, 403)
+    if (uid) {
+      const { data: authData } = await admin.auth.admin.getUserById(uid)
+      email = authData.user?.email?.trim() || email
+    } else {
+      email = `${username}@${INTERNAL_EMAIL_DOMAIN}`
+      const { data: created, error: createErr } = await admin.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: { username, portal_sso: true },
+      })
+      if (createErr || !created?.user?.id) {
+        // Usuário Auth pode já existir com esse e-mail
+        const existingId = await findAuthUserIdByEmailLocalPart(admin, username)
+        if (!existingId) {
+          return jsonResponse({
+            ok: false,
+            error: createErr?.message || `Falha ao provisionar "${username}" no WMS Light.`,
+          }, 400)
+        }
+      }
     }
-    const { data: authData } = await admin.auth.admin.getUserById(uid)
-    email = authData.user?.email?.trim() || email
   }
 
   if (!email) {
