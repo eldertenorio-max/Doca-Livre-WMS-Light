@@ -29,21 +29,9 @@ function mapUsuarioRow(row: Record<string, unknown>): UsuarioComPermissoes {
   }
 }
 
-export async function fetchMeuAcesso(userId: string): Promise<MeuAcesso> {
-  const { data, error } = await supabase
-    .from('usuarios')
-    .select('permissoes_views,acesso_autorizado')
-    .eq('id', userId)
-    .maybeSingle()
-  if (error) {
-    if (import.meta.env.DEV) console.warn('[permissoes] fetchMeuAcesso', error)
-    return { permissoesViews: null, acessoAutorizado: true }
-  }
-  if (!data) return { permissoesViews: [], acessoAutorizado: false }
-  return {
-    permissoesViews: parsePermissoesViewsFromDb(data.permissoes_views),
-    acessoAutorizado: data.acesso_autorizado === true,
-  }
+/** Controle de acesso por tela foi desativado no Light (portal/SSO). Sempre libera. */
+export async function fetchMeuAcesso(_userId: string): Promise<MeuAcesso> {
+  return { permissoesViews: null, acessoAutorizado: true }
 }
 
 /** @deprecated use fetchMeuAcesso */

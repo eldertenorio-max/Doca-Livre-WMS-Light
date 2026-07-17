@@ -1,12 +1,4 @@
-import {
-  Component,
-  type ErrorInfo,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import './App.css'
 import AppHeader from './components/layout/AppHeader'
@@ -29,22 +21,12 @@ import EstoqueSeguranca from './pages/EstoqueSeguranca'
 import InventarioCaptura from './pages/InventarioCaptura'
 import InventarioGerenciar from './pages/InventarioGerenciar'
 import PainelPage from './pages/PainelPage'
-import PermissoesAcessoPage from './pages/PermissoesAcessoPage'
-import AcessoPendenteScreen from './pages/AcessoPendenteScreen'
 import { isSupabaseConfigured, supabase } from './lib/supabaseClient'
 import { tituloApp } from './lib/appAmbiente'
 import { clearSessaoProdutoListaContext } from './lib/sessaoProdutoListaContext'
 import type { AppView } from './lib/appViews'
-import {
-  canAccessView,
-  filterSidebarByPermissions,
-  firstAllowedView,
-  permissoesViewsToSet,
-} from './lib/appPermissions'
-import { isAppAdmin } from './lib/authUser'
 import { getStoredSidebarOpen, storeSidebarOpen } from './lib/sidebarOpen'
 import { useTheme } from './hooks/useTheme'
-import { fetchMeuAcesso } from './lib/usuarioPermissoesStore'
 import { getSystemById, type SystemId } from './lib/systemPortal'
 import {
   clearPortalSsoClaim,
@@ -109,10 +91,6 @@ export default function App() {
   const [view, setView] = useState<AppView>('painel')
   const [capturaInventarioId, setCapturaInventarioId] = useState<string | null>(null)
   const [capturaContagemId, setCapturaContagemId] = useState<string | null>(null)
-  const [permissoesViews, setPermissoesViews] = useState<string[] | null>(null)
-  const [acessoAutorizado, setAcessoAutorizado] = useState(true)
-  const [permissoesCarregadas, setPermissoesCarregadas] = useState(() => !isSupabaseConfigured())
-  const [recarregandoAcesso, setRecarregandoAcesso] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(() => getStoredSidebarOpen())
   const sessionActive = Boolean(session)
   const { theme, toggleTheme } = useTheme({ authEnabled, sessionActive })
@@ -127,42 +105,6 @@ export default function App() {
     markPortalEntry()
     clearPortalSsoTokenFromUrl()
   }, [initialSsoToken])
-
-  const adminUser = isAppAdmin(session)
-  const allowedViews = useMemo(() => permissoesViewsToSet(permissoesViews), [permissoesViews])
-
-  const carregarMeuAcesso = useCallback(async (userId: string) => {
-    setPermissoesCarregadas(false)
-    const acesso = await fetchMeuAcesso(userId)
-    setPermissoesViews(acesso.permissoesViews)
-    setAcessoAutorizado(acesso.acessoAutorizado)
-    setPermissoesCarregadas(true)
-  }, [])
-
-  useEffect(() => {
-    if (!authEnabled || !session) {
-      setPermissoesViews(null)
-      setAcessoAutorizado(true)
-      setPermissoesCarregadas(true)
-      return
-    }
-    if (isAppAdmin(session)) {
-      setPermissoesViews(null)
-      setAcessoAutorizado(true)
-      setPermissoesCarregadas(true)
-      return
-    }
-    let alive = true
-    void fetchMeuAcesso(session.user.id).then((acesso) => {
-      if (!alive) return
-      setPermissoesViews(acesso.permissoesViews)
-      setAcessoAutorizado(acesso.acessoAutorizado)
-      setPermissoesCarregadas(true)
-    })
-    return () => {
-      alive = false
-    }
-  }, [authEnabled, session])
 
   useEffect(() => {
     document.title = tituloApp()
@@ -280,39 +222,15 @@ export default function App() {
     [],
   )
 
-  const sidebarItems: SidebarItem[] = useMemo(() => {
-    const filtrados = filterSidebarByPermissions(sidebarItemsBase, adminUser ? null : allowedViews)
-    if (adminUser) {
-      return [
-        ...filtrados,
-        {
-          id: 'permissoes',
-          label: 'Permissões de acesso',
-          icon: navIcon('permissoes'),
-        },
-      ]
-    }
-    return filtrados
-  }, [sidebarItemsBase, allowedViews, adminUser])
-
-  useEffect(() => {
-    if (!permissoesCarregadas) return
-    if (!authEnabled || adminUser) return
-    if (canAccessView(view, allowedViews, false)) return
-    setView(firstAllowedView(allowedViews))
-  }, [permissoesCarregadas, authEnabled, adminUser, view, allowedViews])
+  const sidebarItems = sidebarItemsBase
 
   const activeSidebarId =
     view === 'inventarioCaptura' ? 'inventarios' : view === 'contagemCaptura' ? 'contagem' : view
 
   function navigate(id: string) {
-    const next = id as AppView
-    if (authEnabled && permissoesCarregadas && !canAccessView(next, allowedViews, adminUser)) {
-      return
-    }
     if (id === 'inventarios') setCapturaInventarioId(null)
     if (id === 'contagem') setCapturaContagemId(null)
-    setView(next)
+    setView(id as AppView)
   }
 
   function abrirCaptura(inventarioId: string) {
@@ -400,21 +318,6 @@ export default function App() {
       <div style={{ padding: 48, textAlign: 'center', color: 'var(--text, #0f172a)' }}>
         Entrando no WMS Light…
       </div>
-    )
-  }
-
-  if (authEnabled && session && permissoesCarregadas && !adminUser && !acessoAutorizado) {
-    return (
-      <AcessoPendenteScreen
-        session={session}
-        recarregando={recarregandoAcesso}
-        onSignOut={handleSignOut}
-        onRecarregar={() => {
-          if (!session.user?.id) return
-          setRecarregandoAcesso(true)
-          void carregarMeuAcesso(session.user.id).finally(() => setRecarregandoAcesso(false))
-        }}
-      />
     )
   }
 
@@ -532,11 +435,6 @@ export default function App() {
       {view === 'estoque' ? (
         <PanelErrorBoundary>
           <EstoqueConsulta />
-        </PanelErrorBoundary>
-      ) : null}
-      {view === 'permissoes' ? (
-        <PanelErrorBoundary>
-          <PermissoesAcessoPage session={session} />
         </PanelErrorBoundary>
       ) : null}
     </AppShell>
