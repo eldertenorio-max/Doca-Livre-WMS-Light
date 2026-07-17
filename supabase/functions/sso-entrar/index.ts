@@ -7,9 +7,33 @@
 
 import { createClient } from 'npm:@supabase/supabase-js'
 
-const INTERNAL_EMAIL_DOMAIN = 'internal.local'
+// Domínio sintético válido (Auth rejeita .local / e-mails malformados).
+const INTERNAL_EMAIL_DOMAIN = 'sso.docalivre.app'
 const EXPECTED_SYSTEM = 'light'
 const DEFAULT_PRO_URL = 'https://doca-livre-wms-pro.onrender.com'
+
+function looksLikeEmail(value: string): boolean {
+  const v = (value || '').trim()
+  // um @, local e domínio não vazios, sem espaços
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+}
+
+/** Normaliza identificador do portal (usuário ou e-mail) para username + e-mail Auth. */
+function normalizePortalIdentity(raw: string): { username: string; emailHint: string | null } {
+  const trimmed = (raw || '').trim().toLowerCase()
+  if (!trimmed) return { username: '', emailHint: null }
+  if (looksLikeEmail(trimmed)) {
+    const local = trimmed.slice(0, trimmed.indexOf('@')).replace(/[^a-z0-9._+-]+/g, '.') || 'user'
+    return { username: local, emailHint: trimmed }
+  }
+  const username = trimmed.replace(/\s+/g, '.').replace(/[^a-z0-9._+-]+/g, '.') || 'user'
+  return { username, emailHint: null }
+}
+
+function syntheticEmail(username: string): string {
+  const local = (username || 'user').replace(/[^a-z0-9._+-]+/g, '.').replace(/^\.+|\.+$/g, '') || 'user'
+  return `${local}@${INTERNAL_EMAIL_DOMAIN}`
+}
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -141,24 +165,55 @@ async function findAuthUserIdByEmailLocalPart(admin: SupabaseAdmin, localPart: s
   return null
 }
 
-async function resolveEmailForUsername(admin: SupabaseAdmin, usernameRaw: string): Promise<string | null> {
-  const effective = usernameRaw.trim().toLowerCase().replace(/\s+/g, '.')
-  const { data: rowByUser } = await admin.from('usuarios').select('id, username').eq('username', effective).maybeSingle()
+async function findAuthUserIdByEmail(admin: SupabaseAdmin, email: string): Promise<string | null> {
+  const want = email.trim().toLowerCase()
+  if (!want) return null
+  let page = 1
+  const perPage = 1000
+  for (let i = 0; i < 100; i++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
+    if (error) return null
+    const users = data?.users ?? []
+    for (const u of users) {
+      const em = (u.email || '').trim().toLowerCase()
+      if (em === want) return u.id
+    }
+    if (users.length < perPage) break
+    page++
+  }
+  return null
+}
 
+async function resolveEmailForUsername(
+  admin: SupabaseAdmin,
+  username: string,
+  emailHint: string | null,
+): Promise<string> {
+  if (emailHint && looksLikeEmail(emailHint)) {
+    const byExact = await findAuthUserIdByEmail(admin, emailHint)
+    if (byExact) {
+      const { data: authData } = await admin.auth.admin.getUserById(byExact)
+      const em = authData.user?.email?.trim()
+      if (em) return em
+    }
+    return emailHint
+  }
+
+  const { data: rowByUser } = await admin.from('usuarios').select('id, username').eq('username', username).maybeSingle()
   if (rowByUser?.id) {
     const { data: authData } = await admin.auth.admin.getUserById(String(rowByUser.id))
     const em = authData.user?.email?.trim()
-    if (em) return em
+    if (em && looksLikeEmail(em)) return em
   }
 
-  const uid = await findAuthUserIdByEmailLocalPart(admin, effective)
+  const uid = await findAuthUserIdByEmailLocalPart(admin, username)
   if (uid) {
     const { data: authData } = await admin.auth.admin.getUserById(uid)
     const em = authData.user?.email?.trim()
-    if (em) return em
+    if (em && looksLikeEmail(em)) return em
   }
 
-  return `${effective}@${INTERNAL_EMAIL_DOMAIN}`
+  return syntheticEmail(username)
 }
 
 Deno.serve(async (req) => {
@@ -213,7 +268,11 @@ Deno.serve(async (req) => {
     }
   }
 
-  const username = usuario.trim().toLowerCase().replace(/\s+/g, '.')
+  const { username, emailHint } = normalizePortalIdentity(usuario)
+  if (!username) {
+    return jsonResponse({ ok: false, error: 'Usuário SSO vazio.' }, 400)
+  }
+
   const admin = createClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
@@ -221,34 +280,42 @@ Deno.serve(async (req) => {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  const { data: rowLocal } = await admin.from('usuarios').select('id, username').eq('username', username).maybeSingle()
-  let email = await resolveEmailForUsername(admin, username)
-  if (!rowLocal?.id) {
-    const uid = await findAuthUserIdByEmailLocalPart(admin, username)
-    if (uid) {
-      const { data: authData } = await admin.auth.admin.getUserById(uid)
-      email = authData.user?.email?.trim() || email
-    } else {
-      email = `${username}@${INTERNAL_EMAIL_DOMAIN}`
-      const { data: created, error: createErr } = await admin.auth.admin.createUser({
-        email,
-        email_confirm: true,
-        user_metadata: { username, portal_sso: true },
-      })
-      if (createErr || !created?.user?.id) {
-        const existingId = await findAuthUserIdByEmailLocalPart(admin, username)
-        if (!existingId) {
-          return jsonResponse({
-            ok: false,
-            error: createErr?.message || `Falha ao provisionar "${username}" no WMS Light.`,
-          }, 400)
-        }
+  let email = await resolveEmailForUsername(admin, username, emailHint)
+  if (!looksLikeEmail(email)) {
+    email = emailHint && looksLikeEmail(emailHint) ? emailHint : syntheticEmail(username)
+  }
+
+  // Garante usuário Auth (magiclink precisa existir).
+  let authUserId =
+    (await findAuthUserIdByEmail(admin, email)) ||
+    (await findAuthUserIdByEmailLocalPart(admin, username))
+
+  if (!authUserId) {
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email,
+      email_confirm: true,
+      user_metadata: { username, portal_sso: true, portal_id: usuario.trim() },
+    })
+    if (createErr || !created?.user?.id) {
+      // Corrida / já existe: tenta achar de novo.
+      authUserId =
+        (await findAuthUserIdByEmail(admin, email)) ||
+        (await findAuthUserIdByEmailLocalPart(admin, username))
+      if (!authUserId) {
+        return jsonResponse({
+          ok: false,
+          error: createErr?.message || `Falha ao provisionar "${username}" no WMS Light.`,
+        }, 400)
       }
+    } else {
+      authUserId = created.user.id
     }
   }
 
-  if (!email) {
-    return jsonResponse({ ok: false, error: 'Não foi possível resolver e-mail do usuário no Light.' }, 400)
+  const { data: authData } = await admin.auth.admin.getUserById(authUserId)
+  const resolvedEmail = authData.user?.email?.trim()
+  if (resolvedEmail && looksLikeEmail(resolvedEmail)) {
+    email = resolvedEmail
   }
 
   const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
